@@ -50,6 +50,29 @@
           <li>Разбивайте большую уборку на короткие циклы.</li>
         </ul>
       </article>
+
+      <article class="info-card achievements-preview">
+        <h2>🏆 Система достижений</h2>
+        <p>
+          Зарегистрируйтесь и получайте достижения за регулярную уборку!
+          Отслеживайте прогресс, собирайте очки и поддерживайте мотивацию.
+        </p>
+        <div class="achievement-examples">
+          <div class="achievement-example locked">
+            <span class="icon">🔒</span>
+            <span>Первая уборка</span>
+          </div>
+          <div class="achievement-example locked">
+            <span class="icon">🔒</span>
+            <span>Мастер чистоты</span>
+          </div>
+          <div class="achievement-example locked">
+            <span class="icon">🔒</span>
+            <span>Серия 7 дней</span>
+          </div>
+        </div>
+        <p class="register-hint">Зарегистрируйтесь, чтобы разблокировать достижения!</p>
+      </article>
     </section>
 
     <section class="checklist-section">
@@ -369,6 +392,42 @@ onUnmounted(() => {
 
 .info-card li {
   margin-bottom: 10px;
+}
+
+.achievements-preview {
+  border: 2px solid #ffc107;
+  background: linear-gradient(135deg, #fff3cd, #ffeaa7);
+}
+
+.achievement-examples {
+  display: flex;
+  gap: 12px;
+  margin: 16px 0;
+  flex-wrap: wrap;
+}
+
+.achievement-example {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 20px;
+  border: 1px solid #dee2e6;
+}
+
+.achievement-example.locked {
+  opacity: 0.6;
+}
+
+.achievement-example .icon {
+  font-size: 1.2rem;
+}
+
+.register-hint {
+  font-style: italic;
+  color: #856404;
+  margin-top: 12px;
 }
 
 .checklist-section {

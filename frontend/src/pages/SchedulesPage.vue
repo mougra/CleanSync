@@ -3,6 +3,7 @@
     <div class="header">
       <h2>Мои графики уборки</h2>
       <div class="header-actions">
+        <button @click="goAchievements" class="btn-achievements">🏆 Достижения</button>
         <button @click="goProfile" class="btn-profile">Профиль</button>
         <button @click="showNewScheduleForm = true" class="btn-new">+ Новый график</button>
         <button @click="logout" class="btn-logout">Выход</button>
@@ -124,6 +125,9 @@ export default {
         this.error = 'Ошибка подключения';
       }
     },
+    goAchievements() {
+      this.$router.push('/achievements');
+    },
     goProfile() {
       this.$router.push('/profile');
     },
@@ -161,12 +165,22 @@ export default {
 }
 
 .btn-profile,
+.btn-achievements,
 .btn-new, .btn-logout {
   padding: 10px 15px;
   border: none;
   border-radius: 4px;
   cursor: pointer;
   font-size: 14px;
+}
+
+.btn-achievements {
+  background: #ffc107;
+  color: #212529;
+}
+
+.btn-achievements:hover {
+  background: #e0a800;
 }
 
 .btn-new {

@@ -1,0 +1,92 @@
+name: Docker CI
+
+on:
+  push:
+    branches: [dev]
+    tags: ['version-*']
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    if: ${{ !(github.event_name == 'push' && startsWith(github.ref, 'refs/tags/version-')) }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'npm'
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          npm ci
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Backend syntax check
+        run: |
+          cd backend
+          npm exec -- node --check server.js
+
+      - name: Frontend build
+        run: |
+          cd frontend
+          npm run build
+
+  release:
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/version-') }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'npm'
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          npm ci
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Backend syntax check
+        run: |
+          cd backend
+          npm exec -- node --check server.js
+
+      - name: Frontend build
+        run: |
+          cd frontend
+          npm run build
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend Docker image
+        run: |
+          docker build -t clean-planner-backend:${{ github.ref_name }} ./backend
+
+      - name: Build frontend Docker image
+        run: |
+          docker build -t clean-planner-frontend:${{ github.ref_name }} ./frontend
+
+      - name: Docker Compose build check
+        run: |
+          docker compose -f docker-compose.yml build

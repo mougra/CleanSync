@@ -1,12 +1,11 @@
 # Clean Planner
 
-Полноценное веб-приложение для управления графиками уборки с JWT авторизацией.
+Приложение для управления графиками уборки.
 
 ## Стек
 
 - **Backend**: Node.js + Express + PostgreSQL
 - **Frontend**: Vue 3 + Vite + Vue Router
-- **Auth**: JWT (Access + Refresh tokens)
 
 ## Структура проекта
 
@@ -39,13 +38,13 @@ clean-planner/
 │
 ├── shared/              # (опционально) Общие типы/утилиты
 ├── package.json         # Root package (npm workspaces)
-├── CLAUDE.md           # Документация
 └── .gitignore
 ```
 
 ## Быстрый старт
 
 ### Требования
+
 - Node.js (v16+)
 - PostgreSQL (локально или Docker)
 
@@ -90,14 +89,36 @@ npm install
 npm run dev
 ```
 
+## CI/CD pipeline
+
+Проект теперь содержит GitHub Actions workflow, который использует следующую стратегию:
+
+- `dev` — ветка для разработки и коммитов
+- `main` — ветка для слияния через pull request
+- `version-x.y.z` — тег для релизной сборки после мерджа в `main`
+
+Workflow выполняет:
+
+- `npm ci` для backend и frontend на `push` в `dev` и на `pull_request` в `main`
+- проверку синтаксиса backend (`node --check server.js`)
+- сборку frontend (`npm run build`)
+- сборку Docker-образов при релизном теге `version-*`
+- дополнительную проверку `docker compose build`
+
+Чтобы запустить релизную сборку, создайте тег по формату `version-1.0.1` и запушьте его в репозиторий после слияния в `main`.
+
+Файл workflow: `.github/workflows/docker-ci.yml`
+
 ## API Endpoints
 
 ### Auth
+
 - `POST /api/auth/register` - Регистрация
 - `POST /api/auth/login` - Вход
 - `POST /api/auth/refresh` - Обновить токен
 
 ### Schedules (требуется авторизация)
+
 - `GET /api/schedules` - Получить все графики
 - `GET /api/schedules/:id` - Получить график с задачами
 - `POST /api/schedules` - Создать график
@@ -105,6 +126,7 @@ npm run dev
 - `DELETE /api/schedules/:id` - Удалить график
 
 ### Tasks (требуется авторизация)
+
 - `POST /api/tasks` - Создать задачу
 - `PUT /api/tasks/:id` - Обновить задачу
 - `DELETE /api/tasks/:id` - Удалить задачу
@@ -116,41 +138,9 @@ npm run dev
 3. **Создайте график** кликнув "+ Новый график"
 4. **Просмотрите и отредактируйте** графики
 
-## Переменные окружения
-
-### Backend (.env)
-```env
-DB_USER=postgres
-DB_PASSWORD=postgres
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=clean_planner
-ACCESS_TOKEN_SECRET=your_secret_key_here
-REFRESH_TOKEN_SECRET=your_secret_key_here
-PORT=5000
-NODE_ENV=development
-```
-
 ## Безопасность
 
 - Пароли хешируются с bcryptjs
 - JWT tokens используются для авторизации
 - Refresh tokens хранятся в БД
 - Все защищенные endpoints проверяют access token
-
-## Дальнейшее развитие
-
-- [ ] Страница деталей графика с управлением задачами
-- [ ] Визуализация графиков (календарь/диаграммы)
-- [ ] Напоминания и уведомления
-- [ ] Экспорт в PDF
-- [ ] Мобильная версия
-- [ ] Юнит тесты (Jest, Vitest)
-- [ ] E2E тесты (Playwright, Cypress)
-- [ ] Docker Compose для полного стека
-
-## Документация
-
-- Подробная информация в [backend/README.md](./backend/README.md)
-- Подробная информация в [frontend/README.md](./frontend/README.md)
-- Полная документация в [CLAUDE.md](./CLAUDE.md)

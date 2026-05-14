@@ -4,6 +4,7 @@ import dotenv from 'dotenv'
 import authRoutes from './routes/auth.js'
 import schedulesRoutes from './routes/schedules.js'
 import tasksRoutes from './routes/tasks.js'
+import achievementsRoutes from './routes/achievements.js'
 import pool from './db.js'
 
 dotenv.config()
@@ -39,6 +40,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', authRoutes)
 app.use('/api/schedules', schedulesRoutes)
 app.use('/api/tasks', tasksRoutes)
+app.use('/api/achievements', achievementsRoutes)
 
 const PORT = process.env.PORT || 5000
 
