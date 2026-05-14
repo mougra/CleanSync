@@ -12,6 +12,16 @@ const routes = [
     component: HomePage,
   },
   {
+    path: '/insights',
+    name: 'Insights',
+    component: () => import('../pages/InsightsPage.vue'),
+  },
+  {
+    path: '/checklists',
+    name: 'Checklists',
+    component: () => import('../pages/ChecklistsPage.vue'),
+  },
+  {
     path: '/login',
     name: 'Login',
     component: LoginPage,

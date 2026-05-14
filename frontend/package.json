@@ -8,6 +8,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@primeuix/themes": "^2.0.3",
+    "pinia": "^2.0.35",
+    "primeflex": "^3.3.1",
+    "primeicons": "^6.0.1",
+    "primevue": "^4.5.5",
     "vue": "^3.4.0",
     "vue-router": "^4.2.5"
   },
