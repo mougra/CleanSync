@@ -50,7 +50,7 @@ export default {
           return;
         }
 
-        this.message = data.message || 'Регистрация успешна. Email можно подтвердить позже в профиле.';
+        this.message = data.message || 'Регистрация успешна. Пожалуйста, подтвердите email для входа.';
         this.error = null;
         this.email = '';
         this.password = '';

@@ -95,6 +95,12 @@ button:hover {
   margin: 10px 0 0 0;
 }
 
+.resend-link {
+  font-size: 0.9rem;
+  margin-top: 10px;
+  text-align: center;
+}
+
 a {
   color: #007bff;
   text-decoration: none;

@@ -43,6 +43,7 @@ services:
         condition: service_healthy
     volumes:
       - ./backend:/app
+      - /app/node_modules
     networks:
       - clean_planner_network
     command: npm run dev

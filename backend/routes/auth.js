@@ -29,6 +29,34 @@ const createTransporter = () => {
   return nodemailer.createTransport(smtpConfig)
 }
 
+const getEmailTemplate = (title, content, actionText, actionLink) => {
+  return `
+    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px; background-color: #f9f9f9;">
+      <div style="text-align: center; margin-bottom: 20px;">
+        <h1 style="color: #28a745; margin: 0;">✨ Clean Planner</h1>
+      </div>
+      <div style="background-color: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+        <h2 style="color: #333; text-align: center; margin-top: 0;">${title}</h2>
+        <p style="color: #666; font-size: 16px; line-height: 1.5; text-align: center;">
+          ${content}
+        </p>
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${actionLink}" style="background-color: #28a745; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px; display: inline-block;">
+            ${actionText}
+          </a>
+        </div>
+        <p style="color: #999; font-size: 12px; text-align: center; margin-top: 20px;">
+          Если кнопка не работает, скопируйте эту ссылку:<br>
+          <a href="${actionLink}" style="color: #007bff; word-break: break-all;">${actionLink}</a>
+        </p>
+      </div>
+      <div style="text-align: center; margin-top: 20px; color: #aaa; font-size: 12px;">
+        © ${new Date().getFullYear()} Clean Planner. Помогаем делать мир чище.
+      </div>
+    </div>
+  `
+}
+
 const sendEmail = async ({ to, subject, html }) => {
   const transporter = createTransporter()
   if (!transporter) {
@@ -43,12 +71,12 @@ const sendPasswordResetEmail = async (to, resetToken) => {
   return sendEmail({
     to,
     subject: 'Сброс пароля Clean Planner',
-    html: `
-      <p>Вы запросили сброс пароля.</p>
-      <p>Перейдите по ссылке для установки нового пароля:</p>
-      <p><a href="${resetLink}">${resetLink}</a></p>
-      <p>Ссылка действительна 15 минут.</p>
-    `,
+    html: getEmailTemplate(
+      'Сброс пароля',
+      'Вы запросили сброс пароля для своего аккаунта. Перейдите по кнопке ниже, чтобы установить новый пароль.',
+      'Установить новый пароль',
+      resetLink
+    ),
   })
 }
 
@@ -57,12 +85,12 @@ const sendConfirmationEmail = async (to, confirmToken) => {
   return sendEmail({
     to,
     subject: 'Подтвердите email для Clean Planner',
-    html: `
-      <p>Спасибо за регистрацию.</p>
-      <p>Для подтверждения email перейдите по ссылке:</p>
-      <p><a href="${confirmLink}">${confirmLink}</a></p>
-      <p>Если ссылка не открывается, скопируйте её в адресную строку.</p>
-    `,
+    html: getEmailTemplate(
+      'Подтверждение почты',
+      'Добро пожаловать в Clean Planner! Чтобы начать пользоваться приложением, пожалуйста, подтвердите ваш адрес электронной почты.',
+      'Подтвердить email',
+      confirmLink
+    ),
   })
 }
 
@@ -112,7 +140,7 @@ router.post('/register', async (req, res) => {
     }
 
     res.status(201).json({
-      message: 'Регистрация успешна. Email можно подтвердить позже в профиле.',
+      message: 'Регистрация успешна. Пожалуйста, проверьте вашу почту и подтвердите email для входа в систему.',
     })
   } catch (err) {
     console.error(err)
@@ -146,6 +174,10 @@ router.post('/login', async (req, res) => {
 
     if (!validPassword) {
       return res.status(401).json({ error: 'Invalid credentials' })
+    }
+
+    if (!user.is_email_confirmed) {
+      // Мы больше не блокируем вход, но можем добавить информацию об этом в ответ
     }
 
     const { accessToken, refreshToken } = generateTokens(user.id)
