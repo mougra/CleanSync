@@ -1,326 +1,169 @@
 <template>
-  <div class="schedules">
-    <div class="header">
-      <h2>Мои графики уборки</h2>
-      <div class="header-actions">
-        <button @click="goProfile" class="btn-profile">Профиль</button>
-        <button @click="showNewScheduleForm = true" class="btn-new">+ Новый график</button>
-        <button @click="logout" class="btn-logout">Выход</button>
+  <div class="schedules p-4 max-w-screen-xl mx-auto">
+    <div class="flex justify-content-between align-items-center mb-6">
+      <h2 class="text-3xl font-bold">Мои графики уборки</h2>
+      <div class="flex gap-2">
+        <Button label="Профиль" icon="pi pi-user" text @click="goProfile" />
+        <Button label="+ Новый график" icon="pi pi-plus" severity="success" @click="showNewScheduleForm = true" />
+        <Button label="Выход" icon="pi pi-sign-out" severity="danger" text @click="handleLogout" />
       </div>
     </div>
 
-    <!-- New Schedule Form -->
-    <div v-if="showNewScheduleForm" class="form-modal">
-      <div class="form-content">
-        <h3>Новый график</h3>
-        <form @submit.prevent="createSchedule">
-          <input v-model="newSchedule.title" placeholder="Название" required />
-          <textarea v-model="newSchedule.description" placeholder="Описание"></textarea>
-          <div class="form-buttons">
-            <button type="submit">Создать</button>
-            <button type="button" @click="showNewScheduleForm = false">Отмена</button>
-          </div>
-        </form>
-      </div>
-    </div>
-
-    <!-- Schedules List -->
-    <div v-if="schedules.length > 0" class="schedules-grid">
-      <div v-for="schedule in schedules" :key="schedule.id" class="schedule-card">
-        <h3>{{ schedule.title }}</h3>
-        <p v-if="schedule.description" class="description">{{ schedule.description }}</p>
-        <div class="card-buttons">
-          <router-link :to="`/schedule/${schedule.id}`" class="btn-view">Просмотр</router-link>
-          <button @click="deleteSchedule(schedule.id)" class="btn-delete">Удалить</button>
+    <Dialog v-model:visible="showNewScheduleForm" modal header="Новый график" :style="{ width: '450px' }">
+      <div class="flex flex-column gap-3">
+        <div class="flex flex-column gap-2">
+          <label for="title" class="font-semibold">Название</label>
+          <InputText id="title" v-model="newSchedule.title" placeholder="Название" autofocus />
+        </div>
+        <div class="flex flex-column gap-2">
+          <label for="desc" class="font-semibold">Описание</label>
+          <Textarea id="desc" v-model="newSchedule.description" rows="3" placeholder="Описание" />
+        </div>
+        <div class="flex justify-content-end gap-2 mt-3">
+          <Button label="Отмена" severity="secondary" text @click="showNewScheduleForm = false" />
+          <Button label="Создать" @click="createSchedule" />
         </div>
       </div>
+    </Dialog>
+
+    <div v-if="isLoading" class="flex justify-content-center align-items-center py-8">
+      <ProgressSpinner />
     </div>
-    <div v-else class="empty">
+
+    <div v-else-if="schedules?.length > 0" class="grid">
+      <div v-for="schedule in schedules" :key="schedule.id" class="col-12 md:col-4 lg:col-3 p-3">
+        <Card class="h-full shadow-2">
+          <template #title>
+            <div class="text-xl font-bold">{{ schedule.title }}</div>
+          </template>
+          <template #content>
+            <p v-if="schedule.description" class="text-gray-600 mb-4">{{ schedule.description }}</p>
+          </template>
+          <template #footer>
+            <div class="flex gap-2">
+              <Button as="router-link" :to="`/schedule/${schedule.id}`" label="Просмотр" icon="pi pi-eye" size="small" class="flex-1" />
+              <Button icon="pi pi-trash" severity="danger" text size="small" @click="deleteSchedule(schedule.id)" />
+            </div>
+          </template>
+        </Card>
+      </div>
+    </div>
+
+    <div v-else class="text-center py-8 text-gray-500">
+      <i class="pi pi-calendar-minus text-5xl mb-3 block"></i>
       <p>Нет графиков. Создайте новый!</p>
     </div>
 
-    <p v-if="error" class="error">{{ error }}</p>
-  </div>
+    <div v-if="error" class="p-4 mt-4 bg-red-100 text-red-700 border-round">
+      {{ error }}
+    </div>
+  >
 </template>
 
-<script>
-export default {
-  name: 'SchedulesPage',
-  data() {
-    return {
-      schedules: [],
-      showNewScheduleForm: false,
-      newSchedule: {
-        title: '',
-        description: ''
-      },
-      error: null
-    };
-  },
-  mounted() {
-    this.fetchSchedules();
-  },
-  methods: {
-    async fetchSchedules() {
-      try {
-        const response = await fetch('http://localhost:5000/api/schedules', {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
-          }
-        });
+<script setup lang="ts">
+import { ref, reactive } from 'vue';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/vue-query';
+import { useHead } from '@unhead/vue';
+import { useAuthStore } from '@/stores/auth';
+import { useRouter } from 'vue-router';
+import type { Schedule } from '../../../shared/types';
 
-        if (response.status === 401) {
-          this.$router.push('/login');
-          return;
-        }
+import Button from 'primevue/button';
+import Dialog from 'primevue/dialog';
+import InputText from 'primevue/inputtext';
+import Textarea from 'primevue/textarea';
+import Card from 'primevue/card';
+import ProgressSpinner from 'primevue/progressspinner';
 
-        this.schedules = await response.json();
-      } catch (err) {
-        this.error = 'Ошибка загрузки графиков';
-      }
-    },
-    async createSchedule() {
-      try {
-        const response = await fetch('http://localhost:5000/api/schedules', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
-          },
-          body: JSON.stringify(this.newSchedule)
-        });
+const router = useRouter();
+const authStore = useAuthStore();
+const queryClient = useQueryClient();
 
-        if (!response.ok) {
-          this.error = 'Ошибка создания графика';
-          return;
-        }
+// SEO
+useHead({
+  title: 'Мои графики — CleanPlanner',
+  meta: [
+    { name: 'description', content: 'Управляйте своими графиками уборки в CleanPlanner' },
+  ],
+});
 
-        const newSchedule = await response.json();
-        this.schedules.push(newSchedule);
-        this.showNewScheduleForm = false;
-        this.newSchedule = { title: '', description: '' };
-      } catch (err) {
-        this.error = 'Ошибка подключения';
-      }
-    },
-    async deleteSchedule(id) {
-      if (!confirm('Удалить график?')) return;
+const showNewScheduleForm = ref(false);
+const newSchedule = reactive({
+  title: '',
+  description: ''
+});
 
-      try {
-        const response = await fetch(`http://localhost:5000/api/schedules/${id}`, {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
-          }
-        });
-
-        if (!response.ok) {
-          this.error = 'Ошибка удаления графика';
-          return;
-        }
-
-        this.schedules = this.schedules.filter(s => s.id !== id);
-      } catch (err) {
-        this.error = 'Ошибка подключения';
-      }
-    },
-    goProfile() {
-      this.$router.push('/profile');
-    },
-    logout() {
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('refreshToken');
-      this.$router.push('/login');
+// Fetch Schedules
+const { data: schedules, isLoading, error } = useQuery<{ schedules: Schedule[] }>({
+  queryKey: ['schedules'],
+  queryFn: async (): Promise<Schedule[]> => {
+    const res = await fetch('http://localhost:5000/api/schedules', {
+      headers: { 'Authorization': `Bearer ${authStore.getToken()}` }
+    });
+    if (res.status === 401) {
+      router.push('/login');
+      throw new Error('Unauthorized');
     }
+    if (!res.ok) throw new Error('Ошибка загрузки');
+    return res.json();
   }
+});
+
+// Create Schedule
+const createMutation = useMutation({
+  mutationFn: async (data: { title: string, description: string | null }) => {
+    const res = await fetch('http://localhost:5000/api/schedules', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authStore.getToken()}`
+      },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw new Error('Ошибка создания');
+    return res.json();
+  },
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ['schedules'] });
+    showNewScheduleForm.value = false;
+    newSchedule.title = '';
+    newSchedule.description = '';
+  }
+});
+
+const createSchedule = () => {
+  createMutation.mutate(newSchedule);
+};
+
+// Delete Schedule
+const deleteMutation = useMutation({
+  mutationFn: async (id: string) => {
+    const res = await fetch(`http://localhost:5000/api/schedules/${id}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${authStore.getToken()}` }
+    });
+    if (!res.ok) throw new Error('Ошибка удаления');
+    return res.json();
+  },
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ['schedules'] });
+  }
+});
+
+const deleteSchedule = (id: string) => {
+  if (confirm('Удалить график?')) {
+    deleteMutation.mutate(id);
+  }
+};
+
+const goProfile = () => router.push('/profile');
+const handleLogout = () => {
+  authStore.logout();
+  router.push('/login');
 };
 </script>
 
 <style scoped>
-.schedules {
-  padding: 20px;
-  max-width: 1200px;
-  margin: 0 auto;
-}
-
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 30px;
-}
-
-.header h2 {
-  margin: 0;
-}
-
-.header-actions {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-
-.btn-profile,
-.btn-new, .btn-logout {
-  padding: 10px 15px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.btn-new {
-  background: #28a745;
-  color: white;
-}
-
-.btn-new:hover {
-  background: #218838;
-}
-
-.btn-logout {
-  background: #6c757d;
-  color: white;
-}
-
-.btn-logout:hover {
-  background: #5a6268;
-}
-
-.form-modal {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 100;
-}
-
-.form-content {
-  background: white;
-  padding: 30px;
-  border-radius: 8px;
-  max-width: 500px;
-  width: 100%;
-}
-
-.form-content form {
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
-}
-
-.form-content input,
-.form-content textarea {
-  padding: 10px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-family: inherit;
-}
-
-.form-buttons {
-  display: flex;
-  gap: 10px;
-}
-
-.form-buttons button {
-  flex: 1;
-  padding: 10px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.form-buttons button[type="submit"] {
-  background: #007bff;
-  color: white;
-}
-
-.form-buttons button[type="submit"]:hover {
-  background: #0056b3;
-}
-
-.form-buttons button[type="button"] {
-  background: #6c757d;
-  color: white;
-}
-
-.form-buttons button[type="button"]:hover {
-  background: #5a6268;
-}
-
-.schedules-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 20px;
-}
-
-.schedule-card {
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  padding: 20px;
-  background: white;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.schedule-card h3 {
-  margin: 0 0 10px 0;
-}
-
-.description {
-  color: #666;
-  margin: 0 0 15px 0;
-}
-
-.card-buttons {
-  display: flex;
-  gap: 10px;
-}
-
-.btn-view, .btn-delete {
-  flex: 1;
-  padding: 10px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  text-align: center;
-  text-decoration: none;
-  display: block;
-}
-
-.btn-view {
-  background: #007bff;
-  color: white;
-}
-
-.btn-view:hover {
-  background: #0056b3;
-}
-
-.btn-delete {
-  background: #dc3545;
-  color: white;
-}
-
-.btn-delete:hover {
-  background: #c82333;
-}
-
-.empty {
-  text-align: center;
-  padding: 40px;
-  color: #666;
-}
-
-.error {
-  color: red;
-  padding: 10px;
-  background: #ffe0e0;
-  border-radius: 4px;
-  margin-top: 20px;
-}
+.text-gray-600 { color: #4b5563; }
+.text-gray-500 { color: #6b7280; }
 </style>

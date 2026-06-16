@@ -1,13 +1,11 @@
 <template>
-  <div id="app" class="app">
+  <div id="app" class="app dark">
     <router-view />
   </div>
 </template>
 
-<script>
-export default {
-  name: 'App'
-}
+<script setup lang="ts">
+// Root component
 </script>
 
 <style>

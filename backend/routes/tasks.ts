@@ -1,11 +1,11 @@
-import express from 'express';
-import pool from '../db.js';
-import { authMiddleware } from '../auth.js';
+import express, { Request, Response } from 'express';
+import pool from '../db';
+import { authMiddleware } from '../auth';
 
 const router = express.Router();
 
 // Create task
-router.post('/', authMiddleware, async (req, res) => {
+router.post('/', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { schedule_id, title, frequency, day_of_week, time } = req.body;
 
@@ -36,7 +36,7 @@ router.post('/', authMiddleware, async (req, res) => {
 });
 
 // Update task
-router.put('/:id', authMiddleware, async (req, res) => {
+router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { title, frequency, day_of_week, time, is_completed } = req.body;
@@ -80,7 +80,7 @@ router.put('/:id', authMiddleware, async (req, res) => {
 });
 
 // Delete task
-router.delete('/:id', authMiddleware, async (req, res) => {
+router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 

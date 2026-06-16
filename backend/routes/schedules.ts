@@ -1,11 +1,11 @@
-import express from 'express';
-import pool from '../db.js';
-import { authMiddleware } from '../auth.js';
+import express, { Request, Response } from 'express';
+import pool from '../db';
+import { authMiddleware } from '../auth';
 
 const router = express.Router();
 
 // Get all schedules for user
-router.get('/', authMiddleware, async (req, res) => {
+router.get('/', authMiddleware, async (req: Request, res: Response) => {
   try {
     const result = await pool.query(
       'SELECT id, title, description, created_at, updated_at FROM schedules WHERE user_id = $1 ORDER BY created_at DESC',
@@ -20,7 +20,7 @@ router.get('/', authMiddleware, async (req, res) => {
 });
 
 // Get single schedule with tasks
-router.get('/:id', authMiddleware, async (req, res) => {
+router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -51,7 +51,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
 });
 
 // Create schedule
-router.post('/', authMiddleware, async (req, res) => {
+router.post('/', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { title, description } = req.body;
 
@@ -72,7 +72,7 @@ router.post('/', authMiddleware, async (req, res) => {
 });
 
 // Update schedule
-router.put('/:id', authMiddleware, async (req, res) => {
+router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { title, description } = req.body;
@@ -100,7 +100,7 @@ router.put('/:id', authMiddleware, async (req, res) => {
 });
 
 // Delete schedule
-router.delete('/:id', authMiddleware, async (req, res) => {
+router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 

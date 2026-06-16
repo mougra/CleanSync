@@ -1,11 +1,20 @@
 import jwt from 'jsonwebtoken';
+import { Request, Response, NextFunction } from 'express';
+
+declare global {
+  namespace Express {
+    interface Request {
+      userId?: string;
+    }
+  }
+}
 
 const ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET || 'your_access_secret_key';
 const REFRESH_TOKEN_SECRET = process.env.REFRESH_TOKEN_SECRET || 'your_refresh_secret_key';
 const ACCESS_TOKEN_EXPIRY = '15m';
 const REFRESH_TOKEN_EXPIRY = '7d';
 
-export const generateTokens = (userId) => {
+export const generateTokens = (userId: string) => {
   const accessToken = jwt.sign({ userId }, ACCESS_TOKEN_SECRET, {
     expiresIn: ACCESS_TOKEN_EXPIRY
   });
@@ -17,7 +26,7 @@ export const generateTokens = (userId) => {
   return { accessToken, refreshToken };
 };
 
-export const verifyAccessToken = (token) => {
+export const verifyAccessToken = (token: string) => {
   try {
     return jwt.verify(token, ACCESS_TOKEN_SECRET);
   } catch (err) {
@@ -25,7 +34,7 @@ export const verifyAccessToken = (token) => {
   }
 };
 
-export const verifyRefreshToken = (token) => {
+export const verifyRefreshToken = (token: string) => {
   try {
     return jwt.verify(token, REFRESH_TOKEN_SECRET);
   } catch (err) {
@@ -33,7 +42,7 @@ export const verifyRefreshToken = (token) => {
   }
 };
 
-export const authMiddleware = (req, res, next) => {
+export const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
   const token = req.headers.authorization?.split(' ')[1];
 
   if (!token) {
@@ -46,6 +55,9 @@ export const authMiddleware = (req, res, next) => {
     return res.status(401).json({ error: 'Invalid token' });
   }
 
-  req.userId = decoded.userId;
+  if (typeof decoded === 'object' && decoded !== null && 'userId' in decoded) {
+    req.userId = decoded.userId as string;
+  }
+
   next();
 };

@@ -1,89 +1,99 @@
 <template>
-  <div class="schedule-page">
-    <h1 class="page-title">Планирование уборки</h1>
+  <div class="schedule-page p-4 max-w-screen-xl mx-auto">
+    <h1 class="page-title text-3xl font-bold mb-6">Планирование уборки</h1>
 
-    <div class="two-column">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <!-- Form -->
-      <div class="card">
-        <h3>Добавить новую задачу</h3>
-        <form @submit.prevent="handleAddTask" class="form">
-          <div class="form-group">
-            <label>Название задачи</label>
-            <input v-model="newTask.title" placeholder="Например: Уборка кухни" required>
-          </div>
+      <Card class="shadow-1">
+        <template #title>
+          <div class="text-xl font-bold">Добавить новую задачу</div>
+        </template>
+        <template #content>
+          <form @submit.prevent="handleAddTask" class="flex flex-column gap-4">
+            <div class="flex flex-column gap-2">
+              <label for="title" class="font-semibold text-gray-600">Название задачи</label>
+              <InputText id="title" v-model="newTask.title" placeholder="Например: Уборка кухни" required />
+            </div>
 
-          <div class="form-group">
-            <label>Категория</label>
-            <select v-model="newTask.category" required>
-              <option>Кухня</option>
-              <option>Ванная</option>
-              <option>Спальня</option>
-              <option>Гостиная</option>
-              <option>Коридор</option>
-              <option>Балкон</option>
-              <option>Другое</option>
-            </select>
-          </div>
+            <div class="flex flex-column gap-2">
+              <label for="category" class="font-semibold text-gray-600">Категория</label>
+              <Dropdown v-model="newTask.category" :options="categories" required />
+            </div>
 
-          <div class="form-group">
-            <label>Дата</label>
-            <input v-model="newTask.date" type="date" required>
-          </div>
+            <div class="flex flex-column gap-2">
+              <label for="date" class="font-semibold text-gray-600">Дата</label>
+              <DatePicker id="date" v-model="newTask.date" required />
+            </div>
 
-          <div class="form-group">
-            <label>Время</label>
-            <input v-model="newTask.time" type="time" required>
-          </div>
+            <div class="flex flex-column gap-2">
+              <label for="time" class="font-semibold text-gray-600">Время</label>
+              <InputText id="time" v-model="newTask.time" type="time" required />
+            </div>
 
-          <div class="form-group">
-            <label>Приоритет</label>
-            <select v-model="newTask.priority">
-              <option>Низкий</option>
-              <option>Средний</option>
-              <option>Высокий</option>
-            </select>
-          </div>
+            <div class="flex flex-column gap-2">
+              <label for="priority" class="font-semibold text-gray-600">Приоритет</label>
+              <Dropdown v-model="newTask.priority" :options="priorities" />
+            </div>
 
-          <div class="form-group">
-            <label>Описание</label>
-            <textarea v-model="newTask.description" placeholder="Добавьте детали..." rows="3"></textarea>
-          </div>
+            <div class="flex flex-column gap-2">
+              <label for="description" class="font-semibold text-gray-600">Описание</label>
+              <Textarea id="description" v-model="newTask.description" placeholder="Добавьте детали..." rows="3" />
+            </div>
 
-          <button type="submit" class="btn btn-primary full-width">Добавить задачу</button>
-        </form>
-      </div>
+            <Button type="submit" label="Добавить задачу" severity="primary" class="w-full mt-2" />
+          </form>
+        </template>
+      </Card>
 
       <!-- Task List -->
-      <div class="card">
-        <h3>Все задачи ({{ tasks.length }})</h3>
-        <div class="task-list-wrapper">
-          <div v-if="tasks.length > 0" class="task-list">
-            <TaskItem
-              v-for="task in sortedTasks"
-              :key="task.id"
-              :task="task"
-              @toggle="$emit('toggle-task', task.id)"
-              @delete="$emit('delete-task', task.id)"
-            />
+      <Card class="shadow-1">
+        <template #title>
+          <div class="text-xl font-bold">Все задачи ({{ tasks.length }})</div>
+        </template>
+        <template #content>
+          <div class="task-list-wrapper mt-4">
+            <div v-if="tasks.length > 0" class="flex flex-column gap-3">
+              <TaskItem
+                v-for="task in sortedTasks"
+                :key="task.id"
+                :task="task"
+                @toggle="$emit('toggle-task', task.id)"
+                @delete="$emit('delete-task', task.id)"
+              />
+            </div>
+            <div v-else class="text-center py-8 text-gray-500">
+              <p>Нет задач</p>
+            </div>
           </div>
-          <div v-else class="empty-state">
-            <p>Нет задач</p>
-          </div>
-        </div>
-      </div>
+        </template>
+      </Card>
     </div>
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed } from 'vue'
 import TaskItem from '../components/TaskItem.vue'
+import Button from 'primevue/button';
+import InputText from 'primevue/inputtext';
+import Dropdown from 'primevue/dropdown';
+import DatePicker from 'primevue/datepicker';
+import Textarea from 'primevue/textarea';
+import Card from 'primevue/card';
+import type { Task } from '../../../shared/types';
 
-const props = defineProps({
-  tasks: Array
-})
+const props = defineProps<{
+  tasks: Task[];
+}>();
 
-const emit = defineEmits(['add-task', 'toggle-task', 'delete-task'])
+const emit = defineEmits<{
+  (e: 'add-task', task: any): void;
+  (e: 'toggle-task', id: string): void;
+  (e: 'delete-task', id: string): void;
+}>();
+
+const categories = ['Кухня', 'Ванная', 'Спальня', 'Гостиная', 'Коридор', 'Балкон', 'Другое'];
+const priorities = ['Низкий', 'Средний', 'Высокий'];
 
 const newTask = ref({
   title: '',
@@ -92,21 +102,14 @@ const newTask = ref({
   time: '10:00',
   priority: 'Средний',
   description: ''
-})
+});
 
 const handleAddTask = () => {
   if (newTask.value.title.trim()) {
-    emit('add-task', {
-      title: newTask.value.title,
-      category: newTask.value.category,
-      date: newTask.value.date,
-      time: newTask.value.time,
-      priority: newTask.value.priority,
-      description: newTask.value.description
-    })
-    resetForm()
+    emit('add-task', { ...newTask.value });
+    resetForm();
   }
-}
+};
 
 const resetForm = () => {
   newTask.value = {
@@ -116,12 +119,12 @@ const resetForm = () => {
     time: '10:00',
     priority: 'Средний',
     description: ''
-  }
-}
+  };
+};
 
 const sortedTasks = computed(() =>
-  [...props.tasks].sort((a, b) => new Date(a.date) - new Date(b.date))
-)
+  [...props.tasks].sort((a, b) => new Date(a.created_at || '').getTime() - new Date(b.created_at || '').getTime())
+);
 </script>
 
 <style scoped>
@@ -142,94 +145,5 @@ const sortedTasks = computed(() =>
 
 .page-title {
   color: #26d07c;
-  margin-bottom: 2rem;
-  font-size: 2rem;
-}
-
-.two-column {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 2rem;
-}
-
-.card {
-  background: #1a1f3a;
-  border: 1px solid #2a3050;
-  border-radius: 8px;
-  padding: 1.5rem;
-}
-
-.card h3 {
-  color: #26d07c;
-  margin-bottom: 1.5rem;
-}
-
-.form {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-.form-group {
-  display: flex;
-  flex-direction: column;
-}
-
-.form-group label {
-  color: #26d07c;
-  margin-bottom: 0.5rem;
-  font-weight: 600;
-  font-size: 0.9rem;
-}
-
-.form-group input,
-.form-group select,
-.form-group textarea {
-  background: #0a0e27;
-  border: 1px solid #2a3050;
-  color: #e0e0e0;
-  padding: 0.75rem;
-  border-radius: 6px;
-  font-size: 0.95rem;
-  font-family: inherit;
-  transition: all 0.3s ease;
-}
-
-.form-group input:focus,
-.form-group select:focus,
-.form-group textarea:focus {
-  outline: none;
-  border-color: #26d07c;
-  box-shadow: 0 0 10px rgba(38, 208, 124, 0.2);
-}
-
-.full-width {
-  width: 100%;
-}
-
-.task-list-wrapper {
-  margin-top: 1rem;
-}
-
-.task-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.empty-state {
-  text-align: center;
-  padding: 2rem 1rem;
-  color: #a0a0a0;
-}
-
-@media (max-width: 768px) {
-  .two-column {
-    grid-template-columns: 1fr;
-  }
-
-  .page-title {
-    font-size: 1.5rem;
-  }
 }
 </style>

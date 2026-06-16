@@ -1,50 +1,51 @@
 <template>
-  <div class="forgot-password">
-    <h2>Восстановление пароля</h2>
-    <form @submit.prevent="handleForgotPassword">
-      <input v-model="email" type="email" placeholder="Email" required />
-      <button type="submit">Отправить ссылку</button>
-      <p v-if="message" class="message">{{ message }}</p>
-      <p v-if="error" class="error">{{ error }}</p>
+  <div class="forgot-password p-8 max-w-md mx-auto mt-10 border-round shadow-1 bg-white">
+    <h2 class="text-2xl font-bold text-center mb-6">Восстановление пароля</h2>
+    <form @submit.prevent="handleForgotPassword" class="flex flex-column gap-3">
+      <div class="flex flex-column gap-2">
+        <label for="email" class="font-semibold">Email</label>
+        <InputText id="email" v-model="email" type="email" placeholder="email@example.com" required />
+      </div>
+      <Button type="submit" label="Отправить ссылку" severity="primary" />
+      <p v-if="message" class="text-green-500 text-center">{{ message }}</p>
+      <p v-if="error" class="text-red-500 text-center">{{ error }}</p>
     </form>
-    <p>
-      <router-link to="/login">Вернуться ко входу</router-link>
-    </p>
+    <div class="text-center mt-6">
+      <p>
+        <router-link to="/login" class="text-primary-500 font-bold">Вернуться ко входу</router-link>
+      </p>
+    </div>
   </div>
 </template>
 
-<script>
-export default {
-  name: 'ForgotPasswordPage',
-  data() {
-    return {
-      email: '',
-      message: null,
-      error: null
-    };
-  },
-  methods: {
-    async handleForgotPassword() {
-      try {
-        const response = await fetch('http://localhost:5000/api/auth/forgot-password', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: this.email })
-        });
+<script setup lang="ts">
+import { ref } from 'vue';
+import Button from 'primevue/button';
+import InputText from 'primevue/inputtext';
 
-        const data = await response.json();
+const email = ref('');
+const message = ref<string | null>(null);
+const error = ref<string | null>(null);
 
-        if (!response.ok) {
-          this.error = data.error || 'Ошибка отправки';
-          return;
-        }
+const handleForgotPassword = async () => {
+  try {
+    const response = await fetch('http://localhost:5000/api/auth/forgot-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email.value })
+    });
 
-        this.message = data.message;
-        this.error = null;
-      } catch (err) {
-        this.error = 'Ошибка подключения к серверу';
-      }
+    const data = await response.json();
+
+    if (!response.ok) {
+      error.value = data.error || 'Ошибка отправки';
+      return;
     }
+
+    message.value = data.message;
+    error.value = null;
+  } catch (err) {
+    error.value = 'Ошибка подключения к серверу';
   }
 };
 </script>
@@ -56,35 +57,5 @@ export default {
   padding: 20px;
   border: 1px solid #ddd;
   border-radius: 8px;
-}
-
-input {
-  width: 100%;
-  padding: 10px;
-  margin: 10px 0;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-}
-
-button {
-  width: 100%;
-  padding: 10px;
-  background-color: #007bff;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-button:hover {
-  background-color: #0056b3;
-}
-
-.message {
-  color: green;
-}
-
-.error {
-  color: red;
 }
 </style>

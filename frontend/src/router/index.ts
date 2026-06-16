@@ -1,11 +1,11 @@
-import { createRouter, createWebHistory } from 'vue-router'
-import LoginPage from '../pages/LoginPage.vue'
-import RegisterPage from '../pages/RegisterPage.vue'
-import HomePage from '../pages/HomePage.vue'
-import SchedulesPage from '../pages/SchedulesPage.vue'
-import ProfilePage from '../pages/ProfilePage.vue'
+import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router';
+import LoginPage from '../pages/LoginPage.vue';
+import RegisterPage from '../pages/RegisterPage.vue';
+import HomePage from '../pages/HomePage.vue';
+import SchedulesPage from '../pages/SchedulesPage.vue';
+import ProfilePage from '../pages/ProfilePage.vue';
 
-const routes = [
+const routes: RouteRecordRaw[] = [
   {
     path: '/',
     name: 'Home',
@@ -48,25 +48,25 @@ const routes = [
     component: ProfilePage,
     meta: { requiresAuth: true },
   },
-]
+];
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes,
-})
+});
 
 // Auth guard
 router.beforeEach((to, from, next) => {
-  const requiresAuth = to.matched.some((record) => record.meta.requiresAuth)
-  const hasToken = localStorage.getItem('accessToken')
+  const requiresAuth = to.matched.some((record) => record.meta.requiresAuth);
+  const hasToken = localStorage.getItem('token');
 
   if (requiresAuth && !hasToken) {
-    next('/login')
+    next('/login');
   } else if ((to.path === '/login' || to.path === '/register') && hasToken) {
-    next('/schedules')
+    next('/schedules');
   } else {
-    next()
+    next();
   }
-})
+});
 
-export default router
+export default router;

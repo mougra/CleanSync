@@ -13,7 +13,7 @@ const pool = new Pool({
   database: process.env.DB_NAME || 'clean_planner'
 });
 
-pool.on('error', (err) => {
+pool.on('error', (err: Error) => {
   console.error('Unexpected error on idle client', err);
 });
 
