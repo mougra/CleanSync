@@ -57,7 +57,7 @@
     <div v-if="error" class="p-4 mt-4 bg-red-100 text-red-700 border-round">
       {{ error }}
     </div>
-  >
+  </div>
 </template>
 
 <script setup lang="ts">

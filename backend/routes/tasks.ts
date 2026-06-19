@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import pool from '../db';
 import { authMiddleware } from '../auth';
+import { checkAndAwardAchievements } from '../services/achievementManager';
 
 const router = express.Router();
 
@@ -66,11 +67,20 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
         frequency = COALESCE($2, frequency),
         day_of_week = COALESCE($3, day_of_week),
         time = COALESCE($4, time),
-        is_completed = COALESCE($5, is_completed)
+        is_completed = COALESCE($5, is_completed),
+        completed_at = CASE
+          WHEN COALESCE($5, is_completed) = TRUE THEN CURRENT_TIMESTAMP
+          ELSE NULL
+        END
       WHERE id = $6
-      RETURNING id, title, frequency, day_of_week, time, is_completed, created_at`,
+      RETURNING id, title, frequency, day_of_week, time, is_completed, completed_at, created_at`,
       [title || null, frequency || null, day_of_week || null, time || null, is_completed !== undefined ? is_completed : null, id]
     );
+
+    // Award achievements if task was completed
+    if (result.rows[0] && result.rows[0].is_completed) {
+      await checkAndAwardAchievements(req.userId!);
+    }
 
     res.json(result.rows[0]);
   } catch (err) {

@@ -28,7 +28,7 @@ clean-planner/
 ├── frontend/             # Vue 3 приложение
 │   ├── src/
 │   │   ├── App.vue
-│   │   ├── main.js
+│   │   ├── main.ts
 │   │   ├── pages/       # Page components
 │   │   ├── components/  # Reusable components
 │   │   ├── router/      # Vue Router config
@@ -46,6 +46,7 @@ clean-planner/
 ## Быстрый старт
 
 ### Требования
+
 - Node.js (v16+)
 - PostgreSQL (локально или Docker)
 
@@ -93,11 +94,13 @@ npm run dev
 ## API Endpoints
 
 ### Auth
+
 - `POST /api/auth/register` - Регистрация
 - `POST /api/auth/login` - Вход
 - `POST /api/auth/refresh` - Обновить токен
 
 ### Schedules (требуется авторизация)
+
 - `GET /api/schedules` - Получить все графики
 - `GET /api/schedules/:id` - Получить график с задачами
 - `POST /api/schedules` - Создать график
@@ -105,6 +108,7 @@ npm run dev
 - `DELETE /api/schedules/:id` - Удалить график
 
 ### Tasks (требуется авторизация)
+
 - `POST /api/tasks` - Создать задачу
 - `PUT /api/tasks/:id` - Обновить задачу
 - `DELETE /api/tasks/:id` - Удалить задачу
@@ -119,6 +123,7 @@ npm run dev
 ## Переменные окружения
 
 ### Backend (.env)
+
 ```env
 DB_USER=postgres
 DB_PASSWORD=postgres

@@ -13,6 +13,12 @@
           <Button as="router-link" to="/login" label="Войти" severity="secondary" text />
         </div>
       </div>
+      <div v-if="isAuthenticated" class="flex gap-3 flex-wrap mt-4">
+        <Button as="router-link" to="/analytics" label="Моя статистика" icon="pi pi-chart-line" severity="secondary" text />
+        <Button as="router-link" to="/achievements" label="Достижения" icon="pi pi-trophy" severity="secondary" text />
+      </div>
+    </section>
+    <section class="hero-timer mb-10">
       <div class="hero-card p-6 bg-white rounded-3xl shadow-xl">
         <div class="text-xl font-bold mb-3">Ежедневная уборка за 86 минут</div>
         <div class="text-gray-500 leading-relaxed mb-5">
@@ -49,8 +55,8 @@
         </template>
         <template #content>
           <ul class="list-none p-0 m-0 flex flex-column gap-2 text-gray-600">
-            <li v-for="item in ['Всегда двигайтесь от верха вниз — пыль, потом пол.', 'Сначала соберите мусор, затем влажную уборку.', 'Используйте таймер: 20 минут на одну зону делают задачу проще.', 'Разбивайте большую уборку на короткие циклы.']" :key="item">
-              <i class="pi pi-info-circle text-primary-500 mr-2"></i> {{ item }}
+            <li v-for="item1 in ['Всегда двигайтесь от верха вниз — пыль, потом пол.', 'Сначала соберите мусор, затем влажную уборку.', 'Используйте таймер: 20 минут на одну зону делают задачу проще.', 'Разбивайте большую уборку на короткие циклы.']" :key="item1">
+              <i class="pi pi-info-circle text-primary-500 mr-2"></i> {{ item1 }}
             </li>
           </ul>
         </template>
@@ -67,13 +73,13 @@
         <Accordion :value="0">
           <AccordionPanel value="0">
             <AccordionHeader>Подготовьте инвентарь</AccordionHeader>
-            <AccordionPanelContent>
+            <AccordionContent >
               <ul class="grid grid-cols-2 md:grid-cols-3 gap-2 list-none p-0 m-0 text-gray-600">
                 <li v-for="item in inventory" :key="item">
                   <i class="pi pi-box mr-2 text-sm"></i> {{ item }}
                 </li>
               </ul>
-            </AccordionPanelContent>
+            </AccordionContent >
           </AccordionPanel>
         </Accordion>
       </div>
@@ -121,15 +127,17 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, computed, onUnmounted } from 'vue'
+import { reactive, ref, computed, onUnmounted, onMounted } from 'vue'
 import { useHead } from '@unhead/vue'
+import { useAuthStore } from '@/stores/auth';
+import axios from 'axios';
 import Button from 'primevue/button';
 import Card from 'primevue/card';
 import Checkbox from 'primevue/checkbox';
 import Accordion from 'primevue/accordion';
 import AccordionPanel from 'primevue/accordionpanel';
 import AccordionHeader from 'primevue/accordionheader';
-import AccordionPanelContent from 'primevue/accordionpanelcontent';
+import AccordionContent  from 'primevue/accordioncontent';
 
 interface ChecklistItem {
   id: number;
@@ -161,6 +169,24 @@ const remainingSeconds = ref(86 * 60);
 const timerRunning = ref(false);
 let intervalId: number | null = null;
 
+const authStore = useAuthStore();
+const isAuthenticated = computed(() => authStore.isAuthenticated);
+
+const challenges = ref<Challenge[]>([]);
+const taskSections = ref<ChecklistSection[]>([]);
+
+async function fetchTemplates() {
+  try {
+    const res = await axios.get('http://localhost:5000/api/templates');
+    challenges.value = res.data.seasonal;
+    taskSections.value = res.data.checklist;
+  } catch (err) {
+    console.error('Failed to fetch templates:', err);
+  }
+}
+
+onMounted(fetchTemplates);
+
 const formattedTimer = computed(() => {
   const minutes = Math.floor(remainingSeconds.value / 60);
   const seconds = remainingSeconds.value % 60;
@@ -171,65 +197,6 @@ const inventory = [
   'Метла', 'Совок', 'Пылесос', 'Салфетки', 'Универсальное средство',
   'Мусорные пакеты', 'Средство для мытья посуды', 'Губка', 'Полотенце', 'Ёршик', 'Швабра'
 ];
-
-const challenges: Challenge[] = [
-  {
-    title: 'Летний челлендж',
-    desc: 'Легкая поддержка: проветривание, вынос мусора, очищение от летней пыли.',
-    steps: ['Проверьте окна и балкон, уберите пыль.', 'Постирайте легкие занавески и прихватки.', 'Обработайте сантехнику и удалите следы от воды.']
-  },
-  {
-    title: 'Осенний челлендж',
-    desc: 'Подготовка к холодам: очистите входные зоны и протрите поверхности от пыли.',
-    steps: ['Чистка ковров и мягкой мебели.', 'Выбросьте накопившиеся пакеты и старые продукты.', 'Проведите влажную уборку кухни и ванной комнаты.']
-  },
-  {
-    title: 'Зимний челлендж',
-    desc: 'Комфорт и порядок: уборка для уюта и безопасности дома.',
-    steps: ['Почистите и организуйте шкафы с зимней одеждой.', 'Почистите поверхности от пыли и жирных пятен.', 'Проверьте батареи и вентиляцию.']
-  }
-];
-
-const taskSections = reactive<ChecklistSection[]>([
-  {
-    title: 'Кухня',
-    items: [
-      { id: 1, text: 'Разгрузите и вымойте столешницу', done: false },
-      { id: 2, text: 'Помойте посуду или загрузите посудомойку', done: false },
-      { id: 3, text: 'Вымойте раковину', done: false },
-      { id: 4, text: 'Замените кухонное полотенце на чистое', done: false },
-      { id: 5, text: 'Вытрите фасады бытовой техники', done: false },
-      { id: 6, text: 'Выбросьте мусор', done: false },
-    ]
-  },
-  {
-    title: 'Гостиная',
-    items: [
-      { id: 7, text: 'Сложите вещи на свои места', done: false },
-      { id: 8, text: 'Пропылесосьте пол и мебель', done: false },
-      { id: 9, text: 'Протрите телевизор и пыль на полках', done: false },
-      { id: 10, text: 'Проветрите комнату', done: false },
-    ]
-  },
-  {
-    title: 'Ванная комната',
-    items: [
-      { id: 11, text: 'Протрите раковину и смеситель', done: false },
-      { id: 12, text: 'Чистка унитаза ершиком', done: false },
-      { id: 13, text: 'Протирка зеркал', done: false },
-      { id: 14, text: 'Поменяйте полотенца', done: false },
-    ]
-  },
-  {
-    title: 'Спальня',
-    items: [
-      { id: 15, text: 'Заправьте кровать', done: false },
-      { id: 16, text: 'Разберите вещи, разложите по местам', done: false },
-      { id: 17, text: 'Пропылесосьте пол', done: false },
-      { id: 18, text: 'Протрите прикроватные тумбочки', done: false },
-    ]
-  }
-]);
 
 const tick = () => {
   if (remainingSeconds.value > 0) {

@@ -4,6 +4,8 @@ import RegisterPage from '../pages/RegisterPage.vue';
 import HomePage from '../pages/HomePage.vue';
 import SchedulesPage from '../pages/SchedulesPage.vue';
 import ProfilePage from '../pages/ProfilePage.vue';
+import AnalyticsPage from '../pages/AnalyticsPage.vue';
+import AchievementsPage from '../pages/AchievementsPage.vue';
 
 const routes: RouteRecordRaw[] = [
   {
@@ -46,6 +48,18 @@ const routes: RouteRecordRaw[] = [
     path: '/profile',
     name: 'Profile',
     component: ProfilePage,
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/analytics',
+    name: 'Analytics',
+    component: AnalyticsPage,
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/achievements',
+    name: 'Achievements',
+    component: AchievementsPage,
     meta: { requiresAuth: true },
   },
 ];

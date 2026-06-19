@@ -11,6 +11,8 @@
     "@primeuix/themes": "^2.0.3",
     "@tanstack/vue-query": "^5.101.0",
     "@unhead/vue": "^3.1.4",
+    "axios": "^1.18.0",
+    "chart.js": "^4.5.1",
     "pinia": "^3.0.4",
     "primeflex": "^4.0.0",
     "primeicons": "^7.0.0",
