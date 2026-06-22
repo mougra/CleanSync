@@ -1,18 +1,16 @@
-FROM node:18-alpine
+FROM node:20-slim
 
 WORKDIR /app
 
-# Копируем package.json и package-lock.json
+# Install all dependencies including devDependencies
 COPY package*.json ./
-
-# Устанавливаем зависимости
 RUN npm install
 
-# Копируем код приложения
+# Copy the rest of the code
 COPY . .
 
-# Expose port
+# Expose server port
 EXPOSE 5000
 
-# Запуск приложения
-CMD ["npm", "start"]
+# Start server in dev mode for hot-reload
+CMD ["npm", "run", "dev"]

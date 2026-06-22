@@ -9,16 +9,22 @@
           Зарегистрируйтесь только когда захотите создать собственные задачи и графики.
         </p>
         <div class="flex gap-3 flex-wrap">
-          <Button as="router-link" to="/register" label="Зарегистрироваться" severity="primary" />
-          <Button as="router-link" to="/login" label="Войти" severity="secondary" text />
+          <Button v-if="!isAuthenticated" as="router-link" to="/register" label="Зарегистрироваться" severity="primary" />
+          <Button v-if="!isAuthenticated" as="router-link" to="/login" label="Войти" severity="secondary" text />
+        </div>
+        <div v-if="isAuthenticated" class="flex gap-3 flex-wrap mt-4">
+          <Button as="router-link" to="/analytics" label="Моя статистика" icon="pi pi-chart-line" severity="secondary" text />
+          <Button as="router-link" to="/achievements" label="Достижения" icon="pi pi-trophy" severity="secondary" text />
         </div>
       </div>
-      <div v-if="isAuthenticated" class="flex gap-3 flex-wrap mt-4">
-        <Button as="router-link" to="/analytics" label="Моя статистика" icon="pi pi-chart-line" severity="secondary" text />
-        <Button as="router-link" to="/achievements" label="Достижения" icon="pi pi-trophy" severity="secondary" text />
-      </div>
     </section>
-    <section class="hero-timer mb-10">
+
+    <div v-if="isAuthenticated" class="user-plans-container mb-10">
+      <DailyPlanBlock />
+      <SeasonalPlanBlock />
+    </div>
+
+    <section v-else class="hero-timer mb-10">
       <div class="hero-card p-6 bg-white rounded-3xl shadow-xl">
         <div class="text-xl font-bold mb-3">Ежедневная уборка за 86 минут</div>
         <div class="text-gray-500 leading-relaxed mb-5">
@@ -31,7 +37,7 @@
       </div>
     </section>
 
-    <section class="info-blocks grid gap-5 mb-10">
+    <section v-if="!isAuthenticated" class="info-blocks grid gap-5 mb-10">
       <Card class="shadow-1">
         <template #title>
           <div class="text-xl font-bold">Весенний челлендж</div>
@@ -63,7 +69,7 @@
       </Card>
     </section>
 
-    <section class="checklist-section mb-10">
+    <section v-if="!isAuthenticated" class="checklist-section mb-10">
       <div class="mb-6">
         <h2 class="text-3xl font-bold mb-2">Ежедневный чек-лист</h2>
         <p class="text-gray-500">Быстрая уборка дома: готово за один подход.</p>
@@ -105,7 +111,7 @@
       <Button label="Сбросить чек-лист" icon="pi pi-refresh" severity="secondary" text @click="resetChecklist" />
     </section>
 
-    <section class="season-challenges mb-10">
+    <section v-if="!isAuthenticated" class="season-challenges mb-10">
       <h2 class="text-3xl font-bold mb-6">Сезонные челленджи</h2>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card v-for="challenge in challenges" :key="challenge.title" class="shadow-1">
@@ -138,6 +144,8 @@ import Accordion from 'primevue/accordion';
 import AccordionPanel from 'primevue/accordionpanel';
 import AccordionHeader from 'primevue/accordionheader';
 import AccordionContent  from 'primevue/accordioncontent';
+import DailyPlanBlock from '@/components/DailyPlanBlock.vue';
+import SeasonalPlanBlock from '@/components/SeasonalPlanBlock.vue';
 
 interface ChecklistItem {
   id: number;

@@ -19,6 +19,31 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
+// Get seasonal schedules for user
+router.get('/seasonal', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const schedulesResult = await pool.query(
+      'SELECT id, title, description, created_at, updated_at FROM schedules WHERE user_id = $1 AND is_seasonal = TRUE ORDER BY created_at DESC',
+      [req.userId]
+    );
+
+    const seasonalSchedules = await Promise.all(
+      schedulesResult.rows.map(async (schedule) => {
+        const tasksResult = await pool.query(
+          'SELECT id, title, frequency, day_of_week, time, is_completed, created_at, estimated_minutes, room FROM tasks WHERE schedule_id = $1 ORDER BY day_of_week, time',
+          [schedule.id]
+        );
+        return { ...schedule, tasks: tasksResult.rows };
+      })
+    );
+
+    res.json(seasonalSchedules);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch seasonal schedules' });
+  }
+});
+
 // Get single schedule with tasks
 router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {

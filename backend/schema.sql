@@ -43,19 +43,33 @@ CREATE TABLE IF NOT EXISTS schedules (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
--- Create tasks table (tasks within a schedule)
 CREATE TABLE IF NOT EXISTS tasks (
   id SERIAL PRIMARY KEY,
   schedule_id INT NOT NULL,
   title VARCHAR(255) NOT NULL,
   frequency VARCHAR(50), -- daily, weekly, monthly, etc.
   day_of_week INT, -- 0-6 (Sunday-Saturday)
+  day_of_month INT, -- 1-31
+  due_date DATE,
   time TIME, -- time when task is scheduled
+  estimated_minutes INT DEFAULT 0,
+  room VARCHAR(255),
   is_completed BOOLEAN DEFAULT FALSE,
   completed_at TIMESTAMP,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (schedule_id) REFERENCES schedules(id) ON DELETE CASCADE
 );
+
+-- Create task checklists table
+CREATE TABLE IF NOT EXISTS task_checklists (
+  id SERIAL PRIMARY KEY,
+  task_id INT NOT NULL,
+  item TEXT NOT NULL,
+  is_completed BOOLEAN DEFAULT FALSE,
+  FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_checklists_task_id ON task_checklists(task_id);
 
 -- Create indexes for faster queries
 CREATE INDEX idx_users_email ON users(email);
