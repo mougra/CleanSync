@@ -131,7 +131,11 @@
     "resetDone": "Password updated. Sign in with the new one.",
     "resetFailed": "Could not update the password: the link expired",
     "toLogin": "Go to sign in",
-    "toHome": "Go home"
+    "toHome": "Go home",
+    "forgotTitle": "Reset password",
+    "forgotHint": "Enter the email you signed up with and we will send a link for a new password.",
+    "forgotSubmit": "Send link",
+    "forgotSent": "If that email is registered, the message is on its way. Check your inbox and spam folder."
   },
   "settings": {
     "appearance": "Appearance",

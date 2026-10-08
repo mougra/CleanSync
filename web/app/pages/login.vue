@@ -60,6 +60,10 @@ useSeoMeta({ title: () => t('auth.loginTitle') });
       </button>
     </form>
 
+    <NuxtLink :to="localePath('/forgot-password')" class="auth__forgot">
+      {{ t('auth.forgot') }}
+    </NuxtLink>
+
     <p class="auth__switch">
       {{ t('auth.noAccount') }}
       <NuxtLink :to="localePath('/register')">{{ t('auth.register') }}</NuxtLink>
@@ -140,5 +144,13 @@ useSeoMeta({ title: () => t('auth.loginTitle') });
   text-align: center;
   color: var(--c-text-muted);
   font-size: var(--fs-caption);
+}
+
+.auth__forgot {
+  align-self: center;
+  color: var(--c-text-muted);
+  font-size: var(--fs-caption);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 </style>
