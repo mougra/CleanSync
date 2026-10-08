@@ -22,6 +22,7 @@ export interface Habit {
   intervalUnit: HabitIntervalUnit;
   dueDate: string | null;
   reminderEnabled: boolean;
+  reminderTime: string | null;
   isCustom: boolean;
   doneToday: boolean;
   isDue: boolean;

@@ -2,59 +2,14 @@ import express, { Request, Response } from 'express';
 import pool from '../db';
 import { authMiddleware } from '../auth';
 import { checkAndAwardAchievements } from '../services/achievementManager';
+import {
+  INTERVAL_UNITS,
+  currentStreak,
+  isHabitDue,
+  todayIso,
+} from '../services/habitSchedule';
 
 const router = express.Router();
-
-const INTERVAL_UNITS = new Set(['once', 'day', 'week', 'month']);
-
-/** Локальная дата пользователя: важна именно она, а не UTC. */
-const todayIso = (): string => {
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${now.getFullYear()}-${month}-${day}`;
-};
-
-const daysBetween = (fromIso: string, toIso: string): number =>
-  Math.round((new Date(toIso).getTime() - new Date(fromIso).getTime()) / 86_400_000);
-
-/** Период повторения в днях; для «один раз» возвращаем null. */
-const intervalDays = (count: number, unit: string): number | null => {
-  if (unit === 'once') {
-    return null;
-  }
-  if (unit === 'week') {
-    return Math.max(1, count) * 7;
-  }
-  if (unit === 'month') {
-    return Math.max(1, count) * 30;
-  }
-  return Math.max(1, count);
-};
-
-/** Серия подряд идущих дней, заканчивающаяся сегодня или вчера. */
-const currentStreak = (dates: string[], today: string): number => {
-  const unique = [...new Set(dates)].sort().reverse();
-  if (unique.length === 0) {
-    return 0;
-  }
-
-  const gapToToday = daysBetween(unique[0]!, today);
-  if (gapToToday > 1) {
-    return 0;
-  }
-
-  let streak = 1;
-  for (let index = 1; index < unique.length; index += 1) {
-    if (daysBetween(unique[index]!, unique[index - 1]!) === 1) {
-      streak += 1;
-    } else {
-      break;
-    }
-  }
-
-  return streak;
-};
 
 /** Сдвиг даты на N дней: нужен для недельной сводки. */
 const shiftDays = (iso: string, delta: number): string => {
@@ -92,6 +47,7 @@ interface HabitRow {
   interval_unit: string;
   due_date: string | null;
   reminder_enabled: boolean;
+  reminder_time: string | null;
   created_at: string;
   template_id: number | null;
   icon: string | null;
@@ -102,7 +58,8 @@ interface HabitRow {
 const loadHabits = async (userId: string): Promise<HabitRow[]> => {
   const result = await pool.query(
     `SELECT h.id, h.title, h.zone, h.interval_count, h.interval_unit, h.due_date,
-            h.reminder_enabled, h.created_at::text AS created_at, h.template_id,
+            h.reminder_enabled, h.reminder_time::text AS reminder_time,
+            h.created_at::text AS created_at, h.template_id,
             t.icon, t.category,
             COALESCE(
               (SELECT array_agg(c.completed_on::text ORDER BY c.completed_on DESC)
@@ -123,18 +80,6 @@ const decorate = (habit: HabitRow, today: string) => {
   const completions = habit.completions ?? [];
   const lastCompletedOn = completions[0] ?? null;
   const doneToday = completions.includes(today);
-  const period = intervalDays(habit.interval_count, habit.interval_unit);
-
-  let isDue: boolean;
-
-  if (period === null) {
-    isDue = completions.length === 0;
-  } else if (lastCompletedOn) {
-    isDue = daysBetween(lastCompletedOn, today) >= period;
-  } else {
-    // Новая привычка актуальна сразу, но не раньше своей даты начала.
-    isDue = !habit.due_date || habit.due_date <= today;
-  }
 
   return {
     id: habit.id,
@@ -146,9 +91,10 @@ const decorate = (habit: HabitRow, today: string) => {
     intervalUnit: habit.interval_unit,
     dueDate: habit.due_date,
     reminderEnabled: habit.reminder_enabled,
+    reminderTime: habit.reminder_time,
     isCustom: habit.template_id === null,
     doneToday,
-    isDue,
+    isDue: isHabitDue(habit, today),
     lastCompletedOn,
     streak: currentStreak(completions, today),
   };
@@ -228,6 +174,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
       intervalUnit?: string;
       dueDate?: string | null;
       reminderEnabled?: boolean;
+      reminderTime?: string | null;
     };
 
     let title = (body.title ?? '').trim();
@@ -265,10 +212,14 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
       return;
     }
 
+    const reminderEnabled = Boolean(body.reminderEnabled);
+    // Напоминание без времени бессмысленно: ставим вечер по умолчанию.
+    const reminderTime = reminderEnabled ? (body.reminderTime || '19:00') : null;
+
     const created = await pool.query(
       `INSERT INTO user_habits
-         (user_id, template_id, title, zone, interval_count, interval_unit, due_date, reminder_enabled)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         (user_id, template_id, title, zone, interval_count, interval_unit, due_date, reminder_enabled, reminder_time)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING id`,
       [
         req.userId,
@@ -278,7 +229,8 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
         Number.isFinite(intervalCount) && intervalCount > 0 ? intervalCount : 1,
         intervalUnit,
         body.dueDate || null,
-        Boolean(body.reminderEnabled),
+        reminderEnabled,
+        reminderTime,
       ]
     );
 
@@ -342,6 +294,9 @@ router.patch('/:id', authMiddleware, async (req: Request, res: Response) => {
     }
     if (typeof body.reminderEnabled === 'boolean') {
       push('reminder_enabled', body.reminderEnabled);
+    }
+    if (typeof body.reminderTime === 'string' || body.reminderTime === null) {
+      push('reminder_time', body.reminderTime);
     }
 
     if (fields.length === 0) {

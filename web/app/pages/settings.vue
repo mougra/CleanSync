@@ -18,6 +18,39 @@ const logout = async () => {
   await navigateTo(localePath('/'));
 };
 
+// Напоминания: объект возвращает обычные refs и функции, деструктуризация безопасна.
+const { supported, permission, devices, busy, refresh, enable, disable, sendTest } =
+  usePushNotifications();
+const pushMessage = ref('');
+
+onMounted(() => {
+  refresh();
+});
+
+const enablePush = async () => {
+  pushMessage.value = '';
+  const ok = await enable();
+
+  if (!ok && permission.value === 'denied') {
+    pushMessage.value = t('settings.remindersDenied');
+  }
+};
+
+const testPush = async () => {
+  pushMessage.value = '';
+  try {
+    const delivered = await sendTest();
+    pushMessage.value = t('settings.remindersSent', { count: delivered });
+  } catch {
+    pushMessage.value = t('settings.remindersNoDevices');
+  }
+};
+
+const disablePush = async () => {
+  pushMessage.value = '';
+  await disable();
+};
+
 useSeoMeta({ title: () => t('nav.settings') });
 </script>
 
@@ -48,6 +81,52 @@ useSeoMeta({ title: () => t('nav.settings') });
         <span class="field__label">{{ t('settings.language') }}</span>
         <LocaleSwitch />
       </div>
+    </section>
+
+    <section class="card">
+      <h2 class="card__title">{{ t('settings.reminders') }}</h2>
+      <p class="card__text">{{ t('settings.remindersHint') }}</p>
+
+      <p v-if="!auth.isAuthenticated" class="card__text">
+        {{ t('settings.remindersSignIn') }}
+      </p>
+
+      <p v-else-if="!supported" class="card__text">
+        {{ t('settings.remindersUnsupported') }}
+      </p>
+
+      <template v-else>
+        <p v-if="permission === 'denied'" class="card__text card__text--warn">
+          {{ t('settings.remindersDenied') }}
+        </p>
+        <p v-else-if="devices > 0" class="card__text">
+          {{ t('settings.remindersActive', { count: devices }) }}
+        </p>
+
+        <div class="actions">
+          <button
+            v-if="devices === 0"
+            type="button"
+            class="btn"
+            :disabled="busy"
+            @click="enablePush"
+          >
+            <i class="pi pi-bell" aria-hidden="true" />
+            {{ t('settings.remindersEnable') }}
+          </button>
+
+          <template v-else>
+            <button type="button" class="btn btn--ghost" :disabled="busy" @click="testPush">
+              {{ t('settings.remindersTest') }}
+            </button>
+            <button type="button" class="btn btn--ghost" :disabled="busy" @click="disablePush">
+              {{ t('settings.remindersDisable') }}
+            </button>
+          </template>
+        </div>
+
+        <p v-if="pushMessage" class="card__text">{{ pushMessage }}</p>
+      </template>
     </section>
 
     <section class="card">
@@ -99,6 +178,10 @@ useSeoMeta({ title: () => t('nav.settings') });
 .card__text {
   color: var(--c-text-muted);
   font-size: var(--fs-caption);
+}
+
+.card__text--warn {
+  color: var(--c-danger);
 }
 
 .field {

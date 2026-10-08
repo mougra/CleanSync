@@ -8,6 +8,13 @@ await useAsyncData('auth-session', () => auth.fetchSession());
 // (lang/dir/seo), поэтому вызов без опций.
 const head = useLocaleHead();
 useHead(() => head.value);
+
+// Значения по умолчанию для соцсетей: без своей картинки страница
+// не покажет превью при шаринге. Страницы со своей обложкой перекрывают это.
+useSeoMeta({
+  ogSiteName: 'Clean Planner',
+  ogImage: '/photos/spring-cleaning.jpg',
+});
 </script>
 
 <template>

@@ -17,15 +17,19 @@
     "@nuxt/fonts": "^0.14.0",
     "@nuxtjs/color-mode": "^4.0.1",
     "@nuxtjs/i18n": "^10.6.0",
+    "@nuxtjs/seo": "^5.3.16",
     "@pinia/nuxt": "^1.0.2",
     "@vueuse/nuxt": "^15.0.0",
+    "h3": "1.15.11",
     "nuxt": "4.4.8",
     "pinia": "^4.0.3",
     "primeicons": "^7.0.0",
-    "vue": "^3.5.43"
+    "vue": "^3.5.43",
+    "workbox-precaching": "^7.4.1"
   },
   "devDependencies": {
     "@nuxt/eslint": "^1.17.0",
+    "@vite-pwa/nuxt": "^1.1.1",
     "eslint": "^9.39.5",
     "typescript": "^6.0.3",
     "vue-tsc": "^3.3.5"

@@ -18,6 +18,7 @@ const intervalCount = ref(1);
 const intervalUnit = ref<HabitIntervalUnit>('day');
 const dueDate = ref('');
 const reminderEnabled = ref(false);
+const reminderTime = ref('19:00');
 const pending = ref(false);
 const frequencyOpen = ref(false);
 
@@ -44,6 +45,7 @@ const reset = () => {
   intervalUnit.value = 'day';
   dueDate.value = '';
   reminderEnabled.value = false;
+  reminderTime.value = '19:00';
   frequencyOpen.value = false;
 };
 
@@ -63,6 +65,7 @@ const submit = async () => {
         intervalUnit: intervalUnit.value,
         dueDate: dueDate.value || null,
         reminderEnabled: reminderEnabled.value,
+        reminderTime: reminderEnabled.value ? reminderTime.value : null,
       },
     });
     reset();
@@ -152,15 +155,30 @@ watch(
         <input v-model="dueDate" class="row__date" type="date" >
       </label>
 
-      <button type="button" class="card row" @click="reminderEnabled = !reminderEnabled">
+      <div class="card row">
         <span class="row__icon" aria-hidden="true"><i class="pi pi-bell" /></span>
         <span class="row__label">
           {{ t('habits.reminder') }}: {{ reminderEnabled ? t('habits.reminderOn') : t('habits.reminderOff') }}
         </span>
-        <span class="switch" :class="{ 'switch--on': reminderEnabled }" aria-hidden="true">
-          <span class="switch__dot" />
-        </span>
-      </button>
+        <input
+          v-if="reminderEnabled"
+          v-model="reminderTime"
+          class="row__date"
+          type="time"
+          :aria-label="t('habits.reminderTime')"
+        >
+        <button
+          type="button"
+          class="row__switch"
+          :aria-pressed="reminderEnabled"
+          :aria-label="t('habits.reminder')"
+          @click="reminderEnabled = !reminderEnabled"
+        >
+          <span class="switch" :class="{ 'switch--on': reminderEnabled }" aria-hidden="true">
+            <span class="switch__dot" />
+          </span>
+        </button>
+      </div>
     </form>
 
     <template #footer>
@@ -252,6 +270,16 @@ watch(
   color: var(--c-text-muted);
   font: inherit;
   font-size: var(--fs-caption);
+}
+
+.row__switch {
+  display: grid;
+  place-items: center;
+  min-height: var(--tap-min);
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
 }
 
 .frequency {
