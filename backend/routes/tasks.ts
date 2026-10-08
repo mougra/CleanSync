@@ -157,11 +157,12 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
     );
 
     // Award achievements if task was completed
+    let awarded: string[] = [];
     if (result.rows[0] && result.rows[0].is_completed) {
-      await checkAndAwardAchievements(req.userId!);
+      awarded = await checkAndAwardAchievements(req.userId!);
     }
 
-    res.json(result.rows[0]);
+    res.json({ ...result.rows[0], awarded });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to update task' });

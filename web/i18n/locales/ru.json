@@ -43,6 +43,16 @@
     "days": "дней",
     "tasks": "задач"
   },
+  "achievements": {
+    "title": "Достижения",
+    "progress": "из {total} получено",
+    "groupTasks": "Задачи",
+    "groupChallenges": "Челленджи",
+    "groupHabits": "Привычки",
+    "earnedOn": "Получено {date}",
+    "toastTitle": "Новое достижение!",
+    "signIn": "Войдите, чтобы видеть свои достижения и прогресс по ним."
+  },
   "checklists": {
     "templates": "Готовые чек-листы",
     "mine": "Мои чек-листы",

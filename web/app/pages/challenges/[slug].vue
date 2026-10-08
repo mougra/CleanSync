@@ -22,6 +22,7 @@ const { data: detail, error } = await useAsyncData(`challenge-${slug}`, () =>
 );
 
 const { active, refreshActive } = await useChallenges();
+const { show: showAchievements } = useAchievementToast();
 
 const isActive = computed(() => active.value?.challenge.slug === slug);
 
@@ -56,9 +57,10 @@ const toggleTask = async (task: ChallengeTask) => {
 
     await refreshActive();
 
-    // Новая ачивка — обновляем блок достижений на главной.
+    // Новая ачивка — показываем уведомление и обновляем прогресс достижений.
     if (response.awarded?.length) {
-      await refreshNuxtData('achievements-earned');
+      await showAchievements(response.awarded);
+      await refreshNuxtData('achievements-progress');
     }
   } finally {
     busy.value = false;

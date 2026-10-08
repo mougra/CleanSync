@@ -11,6 +11,7 @@ const localePath = useLocalePath();
 const auth = useAuthStore();
 const api = useApi();
 const { intervalLabel, categoryLabel } = useHabitLabels();
+const { show: showAchievements } = useAchievementToast();
 
 const { habits, dueToday, doneToday, week, today, catalog, categories, refreshMine } =
   await useHabits();
@@ -39,9 +40,12 @@ const toggle = async (habit: Habit) => {
 
   busy.value = habit.id;
   try {
-    await api.request(`/api/habits/${habit.id}/toggle`, { method: 'POST' });
+    const response = await api.request<{ awarded?: string[] }>(`/api/habits/${habit.id}/toggle`, {
+      method: 'POST',
+    });
     await refreshMine();
-    await refreshNuxtData('achievements-earned');
+    await refreshNuxtData('achievements-progress');
+    await showAchievements(response.awarded);
   } finally {
     busy.value = null;
   }
@@ -52,7 +56,7 @@ const afterChange = async () => {
   createOpen.value = false;
   clearNuxtData('habits-mine');
   await refreshMine();
-  await refreshNuxtData('achievements-earned');
+  await refreshNuxtData('achievements-progress');
 };
 
 const rowMeta = (habit: Habit) =>

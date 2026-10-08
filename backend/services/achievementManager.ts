@@ -9,7 +9,7 @@ import pool from '../db';
  * не нужно, если метрика уже считается.
  */
 
-interface Metrics {
+export interface Metrics {
   total_completed: number;
   challenges_started: number;
   challenges_finished: number;
@@ -47,7 +47,7 @@ const longestStreak = (dates: string[]): number => {
   return best;
 };
 
-const collectMetrics = async (userId: string): Promise<Metrics> => {
+export const collectMetrics = async (userId: string): Promise<Metrics> => {
   const totals = await pool.query(
     `SELECT
        (SELECT COUNT(*) FROM tasks t

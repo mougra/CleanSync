@@ -43,6 +43,16 @@
     "days": "days",
     "tasks": "tasks"
   },
+  "achievements": {
+    "title": "Achievements",
+    "progress": "of {total} earned",
+    "groupTasks": "Tasks",
+    "groupChallenges": "Challenges",
+    "groupHabits": "Habits",
+    "earnedOn": "Earned {date}",
+    "toastTitle": "New achievement!",
+    "signIn": "Sign in to see your achievements and progress towards them."
+  },
   "checklists": {
     "templates": "Ready-made checklists",
     "mine": "My checklists",

@@ -12,6 +12,7 @@ const { t, locale } = useI18n();
 const localePath = useLocalePath();
 const route = useRoute();
 const api = useApi();
+const { show: showAchievements } = useAchievementToast();
 
 const id = Number(route.params.id);
 
@@ -66,11 +67,13 @@ const itemMeta = (item: ChecklistItem) =>
 const toggle = async (item: ChecklistItem) => {
   busy.value = item.id;
   try {
-    await api.request(`/api/tasks/${item.id}`, {
+    const response = await api.request<{ awarded?: string[] }>(`/api/tasks/${item.id}`, {
       method: 'PUT',
       body: { is_completed: !item.done },
     });
     await refresh();
+    await showAchievements(response?.awarded);
+    await refreshNuxtData('achievements-progress');
   } finally {
     busy.value = null;
   }

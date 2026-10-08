@@ -34,6 +34,10 @@ const showCalendar = computed(() => !hideCalendarRoutes.some((path) => route.pat
 
       <AppBottomNav />
       <AppFab />
+
+      <!-- Уведомление о новом достижении живёт в раскладке: его может вызвать
+           действие на любой странице (задача, привычка, пункт чек-листа). -->
+      <AchievementToast />
     </div>
   </div>
 </template>

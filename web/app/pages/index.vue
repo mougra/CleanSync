@@ -8,6 +8,7 @@
  */
 
 import type { ChallengeSummary } from '~/types/challenge';
+import type { AchievementProgress } from '~/types/achievement';
 
 interface SeasonalTemplate {
   title: string;
@@ -23,15 +24,6 @@ interface ChecklistTemplate {
 interface TemplatesResponse {
   seasonal: SeasonalTemplate[];
   checklist: ChecklistTemplate[];
-}
-
-interface Achievement {
-  id: number;
-  code: string;
-  name: string;
-  description: string;
-  icon: string;
-  criteria_value: number;
 }
 
 interface TodayPlan {
@@ -63,18 +55,14 @@ const { data: templates, error: templatesError } = await useAsyncData(
   { default: () => ({ seasonal: [], checklist: [] }) },
 );
 
-const { data: achievements, error: achievementsError } = await useAsyncData(
-  'achievements-all',
-  () => api.request<Achievement[]>('/api/achievements'),
-  { default: () => [] },
-);
+// Достижения: прогресс по каждому — из общего composable (тот же ключ, что
+// на экране достижений), гостю показываем справочник без прогресса.
+const { catalog: achievementsCatalog, progress: achievementsProgress, earned: achievementsEarned, total: achievementsTotal } =
+  await useAchievements();
+const { show: showAchievements } = useAchievementToast();
 
 const { data: today } = await useAsyncData('today-plan', () =>
   auth.isAuthenticated ? api.request<TodayPlan>('/api/tasks/today') : Promise.resolve(null),
-);
-
-const { data: earned } = await useAsyncData('achievements-earned', () =>
-  auth.isAuthenticated ? api.request<Achievement[]>('/api/achievements/user') : Promise.resolve(null),
 );
 
 const checklists = computed(() => templates.value?.checklist ?? []);
@@ -82,8 +70,11 @@ const checklistTasksTotal = computed(() =>
   checklists.value.reduce((sum, checklist) => sum + checklist.items.length, 0),
 );
 
-const achievementsList = computed(() => achievements.value ?? []);
-const earnedCodes = computed(() => new Set((earned.value ?? []).map((item) => item.code)));
+const showcase = computed<AchievementProgress[]>(() =>
+  auth.isAuthenticated
+    ? achievementsProgress.value.slice(0, 2)
+    : achievementsCatalog.value.slice(0, 2).map((item) => ({ ...item, current: 0, earned: false })),
+);
 
 const nextChallenge = computed<ChallengeSummary | null>(() => available.value[0] ?? null);
 
@@ -141,9 +132,13 @@ const toggleHabit = async (habit: { id: number }) => {
 
   habitBusy.value = habit.id;
   try {
-    await api.request(`/api/habits/${habit.id}/toggle`, { method: 'POST' });
+    const response = await api.request<{ awarded?: string[] }>(`/api/habits/${habit.id}/toggle`, {
+      method: 'POST',
+    });
+
     await refreshHabits();
-    await refreshNuxtData('achievements-earned');
+    await refreshNuxtData('achievements-progress');
+    await showAchievements(response.awarded);
   } finally {
     habitBusy.value = null;
   }
@@ -162,7 +157,7 @@ useSeoMeta({
 
 <template>
   <div class="home">
-    <p v-if="templatesError || achievementsError" class="state state--error">
+    <p v-if="templatesError" class="state state--error">
       {{ t('state.error') }}<br >
       <small>{{ t('state.errorHint') }}</small>
     </p>
@@ -301,19 +296,19 @@ useSeoMeta({
         <div class="achievements__summary">
           <h2 class="card__title">{{ t('home.achievements') }}</h2>
           <p class="card__meta">
-            {{ earnedCodes.size }}/{{ achievementsList.length }} {{ t('home.achievementsDone') }}
+            {{ achievementsEarned }}/{{ achievementsTotal }} {{ t('home.achievementsDone') }}
           </p>
         </div>
-        <NuxtLink :to="localePath('/tips')" class="chip-link">
+        <NuxtLink :to="localePath('/achievements')" class="chip-link">
           {{ t('home.seeAll') }}
           <i class="pi pi-chevron-right" aria-hidden="true" />
         </NuxtLink>
       </header>
 
       <ul class="achievements__list">
-        <li v-for="item in achievementsList.slice(0, 2)" :key="item.code" class="achievement">
+        <li v-for="item in showcase" :key="item.code" class="achievement">
           <span class="icon-box icon-box--surface" aria-hidden="true">
-            {{ earnedCodes.has(item.code) ? '🏆' : '🏅' }}
+            {{ item.earned ? '🏆' : '🏅' }}
           </span>
           <div class="achievement__body">
             <strong>{{ item.name }}</strong>
@@ -321,11 +316,9 @@ useSeoMeta({
             <div class="achievement__progress">
               <ProgressBar
                 thin
-                :value="earnedCodes.has(item.code) ? 100 : 0"
+                :value="Math.round((item.current / item.criteria_value) * 100)"
               />
-              <span>
-                {{ earnedCodes.has(item.code) ? item.criteria_value : 0 }}/{{ item.criteria_value }}
-              </span>
+              <span>{{ item.current }}/{{ item.criteria_value }}</span>
             </div>
           </div>
         </li>
