@@ -9,6 +9,7 @@ import analyticsRoutes from './routes/analytics';
 import templatesRoutes from './routes/templates';
 import challengesRoutes from './routes/challenges';
 import habitsRoutes from './routes/habits';
+import checklistsRoutes from './routes/checklists';
 import pushRoutes from './routes/push';
 import pool from './db';
 import { csrfProtection } from './cookies';
@@ -47,6 +48,7 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/templates', templatesRoutes);
 app.use('/api/challenges', challengesRoutes);
 app.use('/api/habits', habitsRoutes);
+app.use('/api/checklists', checklistsRoutes);
 app.use('/api/push', pushRoutes);
 
 export default app;
