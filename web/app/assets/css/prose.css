@@ -1,0 +1,72 @@
+/**
+ * Типографика статей: класс .prose оборачивает HTML, который рендерит
+ * @nuxt/content. Tailwind и плагин typography не тянем — стилей немного,
+ * и все они на токенах.
+ */
+.prose {
+  color: var(--c-text);
+  font-size: 1.0625rem;
+  line-height: 1.7;
+}
+
+.prose > * + * {
+  margin-top: var(--space-4);
+}
+
+.prose h2 {
+  margin-top: var(--space-6);
+  font-size: 1.375rem;
+  line-height: var(--lh-tight);
+}
+
+.prose h3 {
+  margin-top: var(--space-5);
+  font-size: 1.125rem;
+}
+
+.prose ul,
+.prose ol {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-left: 1.35rem;
+}
+
+.prose li::marker {
+  color: var(--c-brand);
+}
+
+.prose strong {
+  font-weight: 600;
+}
+
+.prose a {
+  color: var(--c-brand);
+  text-underline-offset: 3px;
+}
+
+.prose blockquote {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid var(--c-amber);
+  border-radius: var(--r-chip);
+  background: var(--c-surface-warm);
+  color: var(--c-text-muted);
+}
+
+.prose code {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--c-surface-sunken);
+  font-size: 0.9em;
+}
+
+.prose hr {
+  border: none;
+  border-top: 1px solid var(--c-border);
+}
+
+.prose img {
+  max-width: 100%;
+  border-radius: var(--r-thumb);
+}

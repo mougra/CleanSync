@@ -149,6 +149,10 @@ const toggleHabit = async (habit: { id: number }) => {
   }
 };
 
+const { data: tip } = await useAsyncData('tip-of-the-day', () =>
+  queryCollection('tips').order('order', 'ASC').first(),
+);
+
 useSeoMeta({
   title: () => t('nav.today'),
   description: () =>
@@ -328,15 +332,19 @@ useSeoMeta({
       </ul>
     </section>
 
-    <!-- Совет дня: пока один материал, в Фазе 5 приедет из @nuxt/content -->
-    <section class="card card--task tip">
-      <img class="tip__image" src="/photos/laundry.jpg" :alt="t('home.tipTitle')" loading="lazy" >
+    <!-- Совет дня: первый материал из web/content/tips -->
+    <NuxtLink v-if="tip" class="card card--task tip" :to="localePath(tip.path)">
+      <img class="tip__image" :src="tip.cover" :alt="tip.title" loading="lazy" >
       <div class="tip__body">
         <AppBadge variant="amber">{{ t('home.tipOfTheDay') }}</AppBadge>
-        <h2 class="card__title">{{ t('home.tipTitle') }}</h2>
-        <p class="card__text">{{ t('home.tipText') }}</p>
+        <h2 class="card__title">{{ tip.title }}</h2>
+        <p class="card__text">{{ tip.description }}</p>
+        <span class="tip__more">
+          {{ t('home.seeAll') }}
+          <i class="pi pi-chevron-right" aria-hidden="true" />
+        </span>
       </div>
-    </section>
+    </NuxtLink>
   </div>
 </template>
 
@@ -637,6 +645,17 @@ useSeoMeta({
   gap: var(--space-3);
   padding: 0;
   overflow: hidden;
+  color: var(--c-text);
+  text-decoration: none;
+}
+
+.tip__more {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--c-accent);
+  font-size: var(--fs-caption);
+  font-weight: 600;
 }
 
 .tip__image {

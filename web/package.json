@@ -13,6 +13,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@nuxt/content": "^3.16.1",
     "@nuxt/fonts": "^0.14.0",
     "@nuxtjs/color-mode": "^4.0.1",
     "@nuxtjs/i18n": "^10.6.0",

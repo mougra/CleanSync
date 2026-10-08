@@ -15,9 +15,29 @@ export default defineNuxtConfig({
     '@nuxt/fonts',
     '@nuxtjs/color-mode',
     '@nuxtjs/i18n',
+    '@nuxt/content',
     '@nuxt/eslint',
-    // Фаза 5: '@nuxt/content' (MDX-советы), '@nuxtjs/seo' (sitemap, robots, og-image)
+    // Фаза 5: '@nuxtjs/seo' (sitemap, robots, og-image)
   ],
+
+  // Статьи и советы — MDX в git: web/content/**. Правятся как обычный контент,
+  // не требуют БД и доступны поисковикам как статический HTML.
+  content: {
+    experimental: {
+      /**
+       * Встроенный в Node SQLite (node:sqlite, Node 22+) вместо better-sqlite3.
+       * Нативный модуль пришлось бы компилировать под Windows, а установочные
+       * скрипты пакетов в проекте отключены — WASM-драйвер тоже не подходит,
+       * потому что он не умеет писать базу контента.
+       */
+      sqliteConnector: 'native',
+    },
+    build: {
+      markdown: {
+        toc: { depth: 3, searchDepth: 3 },
+      },
+    },
+  },
 
   // Тема: модуль ставит класс на <html>. classSuffix пустой, чтобы это был ровно
   // `dark` — тот же селектор читает PrimeVue (darkModeSelector).
@@ -46,7 +66,7 @@ export default defineNuxtConfig({
     },
   },
 
-  css: ['primeicons/primeicons.css', '~/assets/css/tokens.css'],
+  css: ['primeicons/primeicons.css', '~/assets/css/tokens.css', '~/assets/css/prose.css'],
 
   // Прокси на Express: относительные /api/... работают так же, как в текущем SPA.
   // В продакшене тот же путь должен обслуживаться реверс-прокси или Nitro routeRules.
