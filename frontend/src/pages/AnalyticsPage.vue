@@ -70,7 +70,7 @@ const chartOptions = ref({
 async function fetchAnalytics() {
   try {
     const token = authStore.token;
-    const response = await axios.get('http://localhost:5000/api/analytics/tasks', {
+    const response = await axios.get('/api/analytics/tasks', {
       headers: { Authorization: `Bearer ${token}` }
     });
     analyticsData.value = response.data;

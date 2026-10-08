@@ -26,7 +26,7 @@ onMounted(async () => {
   }
 
   try {
-    const response = await fetch('http://localhost:5000/api/auth/confirm-email', {
+    const response = await fetch('/api/auth/confirm-email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token })

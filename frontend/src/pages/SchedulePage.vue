@@ -95,14 +95,25 @@ const emit = defineEmits<{
 const categories = ['Кухня', 'Ванная', 'Спальня', 'Гостиная', 'Коридор', 'Балкон', 'Другое'];
 const priorities = ['Низкий', 'Средний', 'Высокий'];
 
-const newTask = ref({
+interface NewTaskForm {
+  title: string;
+  category: string;
+  date: Date | null;
+  time: string;
+  priority: string;
+  description: string;
+}
+
+const emptyTaskForm = (): NewTaskForm => ({
   title: '',
   category: 'Кухня',
-  date: new Date().toISOString().split('T')[0],
+  date: new Date(),
   time: '10:00',
   priority: 'Средний',
-  description: ''
+  description: '',
 });
+
+const newTask = ref<NewTaskForm>(emptyTaskForm());
 
 const handleAddTask = () => {
   if (newTask.value.title.trim()) {
@@ -112,14 +123,7 @@ const handleAddTask = () => {
 };
 
 const resetForm = () => {
-  newTask.value = {
-    title: '',
-    category: 'Кухня',
-    date: new Date().toISOString().split('T')[0],
-    time: '10:00',
-    priority: 'Средний',
-    description: ''
-  };
+  newTask.value = emptyTaskForm();
 };
 
 const sortedTasks = computed(() =>

@@ -30,7 +30,7 @@
       <ProgressSpinner />
     </div>
 
-    <div v-else-if="schedules?.length > 0" class="grid">
+    <div v-else-if="schedules && schedules.length > 0" class="grid">
       <div v-for="schedule in schedules" :key="schedule.id" class="col-12 md:col-4 lg:col-3 p-3">
         <Card class="h-full shadow-2">
           <template #title>
@@ -94,11 +94,11 @@ const newSchedule = reactive({
 });
 
 // Fetch Schedules
-const { data: schedules, isLoading, error } = useQuery<{ schedules: Schedule[] }>({
+const { data: schedules, isLoading, error } = useQuery<Schedule[]>({
   queryKey: ['schedules'],
   queryFn: async (): Promise<Schedule[]> => {
-    const res = await fetch('http://localhost:5000/api/schedules', {
-      headers: { 'Authorization': `Bearer ${authStore.getToken()}` }
+    const res = await fetch('/api/schedules', {
+      headers: { 'Authorization': `Bearer ${authStore.token}` }
     });
     if (res.status === 401) {
       router.push('/login');
@@ -112,11 +112,11 @@ const { data: schedules, isLoading, error } = useQuery<{ schedules: Schedule[] }
 // Create Schedule
 const createMutation = useMutation({
   mutationFn: async (data: { title: string, description: string | null }) => {
-    const res = await fetch('http://localhost:5000/api/schedules', {
+    const res = await fetch('/api/schedules', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${authStore.getToken()}`
+        'Authorization': `Bearer ${authStore.token}`
       },
       body: JSON.stringify(data)
     });
@@ -138,9 +138,9 @@ const createSchedule = () => {
 // Delete Schedule
 const deleteMutation = useMutation({
   mutationFn: async (id: string) => {
-    const res = await fetch(`http://localhost:5000/api/schedules/${id}`, {
+    const res = await fetch(`/api/schedules/${id}`, {
       method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${authStore.getToken()}` }
+      headers: { 'Authorization': `Bearer ${authStore.token}` }
     });
     if (!res.ok) throw new Error('Ошибка удаления');
     return res.json();

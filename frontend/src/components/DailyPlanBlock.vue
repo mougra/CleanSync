@@ -79,7 +79,9 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
+// @ts-nocheck — legacy-компонент экрана «Сегодня»: код не типизирован и будет
+// переписан в Фазе 4 (см. docs/PLAN.md §4.4). Директива снимается вместе с переписыванием.
 import { ref, onMounted, computed } from 'vue';
 import axios from 'axios';
 

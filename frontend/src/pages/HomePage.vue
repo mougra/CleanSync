@@ -144,8 +144,11 @@ import Accordion from 'primevue/accordion';
 import AccordionPanel from 'primevue/accordionpanel';
 import AccordionHeader from 'primevue/accordionheader';
 import AccordionContent  from 'primevue/accordioncontent';
-import DailyPlanBlock from '@/components/DailyPlanBlock.vue';
-import SeasonalPlanBlock from '@/components/SeasonalPlanBlock.vue';
+// ВАЖНО: vue-tsc 3 в этом проекте не резолвит `.vue` через алиас `@/` (TS7016),
+// поэтому .vue-компоненты импортируются относительным путём. В Nuxt-приложении
+// это ограничение не действует. Подробнее — docs/PLAN.md §4.4.
+import DailyPlanBlock from '../components/DailyPlanBlock.vue';
+import SeasonalPlanBlock from '../components/SeasonalPlanBlock.vue';
 
 interface ChecklistItem {
   id: number;
@@ -185,7 +188,7 @@ const taskSections = ref<ChecklistSection[]>([]);
 
 async function fetchTemplates() {
   try {
-    const res = await axios.get('http://localhost:5000/api/templates');
+    const res = await axios.get('/api/templates');
     challenges.value = res.data.seasonal;
     taskSections.value = res.data.checklist;
   } catch (err) {
@@ -240,7 +243,7 @@ const toggleTimer = () => {
 };
 
 const resetChecklist = () => {
-  taskSections.forEach((section) => {
+  taskSections.value.forEach((section) => {
     section.items.forEach((item) => {
       item.done = false;
     });

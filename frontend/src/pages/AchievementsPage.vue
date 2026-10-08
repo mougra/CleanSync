@@ -37,11 +37,11 @@ async function fetchAchievements() {
     const token = authStore.token;
 
     // Fetch all available achievements
-    const allRes = await axios.get('http://localhost:5000/api/achievements');
+    const allRes = await axios.get('/api/achievements');
     allAchievements.value = allRes.data;
 
     // Fetch achievements earned by the user
-    const userRes = await axios.get('http://localhost:5000/api/achievements/user', {
+    const userRes = await axios.get('/api/achievements/user', {
       headers: { Authorization: `Bearer ${token}` }
     });
     userAchievements.value = userRes.data;

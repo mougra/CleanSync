@@ -89,7 +89,7 @@ const defaultAvatar = 'https://ui-avatars.com/api/?name=User&background=random&c
 
 const loadProfile = async () => {
   try {
-    const response = await fetch('http://localhost:5000/api/auth/me', {
+    const response = await fetch('/api/auth/me', {
       headers: {
         Authorization: `Bearer ${localStorage.getItem('accessToken')}`
       }
@@ -111,7 +111,7 @@ const loadProfile = async () => {
 
 const updateProfile = async () => {
   try {
-    const response = await fetch('http://localhost:5000/api/auth/profile', {
+    const response = await fetch('/api/auth/profile', {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -136,7 +136,7 @@ const updateProfile = async () => {
 
 const resendConfirmation = async () => {
   try {
-    const response = await fetch('http://localhost:5000/api/auth/resend-confirmation', {
+    const response = await fetch('/api/auth/resend-confirmation', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -164,7 +164,7 @@ const changePassword = async () => {
   }
 
   try {
-    const response = await fetch('http://localhost:5000/api/auth/change-password', {
+    const response = await fetch('/api/auth/change-password', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
