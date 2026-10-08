@@ -1,0 +1,17 @@
+# Единый перевод строки: в репозитории и на диске LF.
+# Без этого git конвертирует LF -> CRLF при checkout, а Prettier (endOfLine: lf) возвращает обратно,
+# и каждый файл вечно «изменён».
+* text=auto eol=lf
+
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+
+package-lock.json -diff linguist-generated
