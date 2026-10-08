@@ -29,6 +29,9 @@
     "tipOfTheDayHint": "A good idea to keep your mood up today",
     "dayLeft": "Day {day}: {minutes} min left",
     "allChallenges": "All challenges",
+    "habitsToday": "Habits for today",
+    "allHabits": "All habits",
+    "noHabits": "Create your first habit",
     "available": "Ready to start",
     "checklistsToday": "Checklists for today"
   },
@@ -102,7 +105,13 @@
     "back": "Back",
     "signInToTrack": "Sign in to tick tasks and track your progress",
     "allDone": "All tasks are done!",
-    "tasksLeft": "tasks left:"
+    "tasksLeft": "tasks left:",
+    "totalTime": "≈ {time} per day",
+    "frequency": {
+      "daily": "every day",
+      "every2days": "every 2 days",
+      "weekly": "once a week"
+    }
   },
   "auth": {
     "loginTitle": "Sign in",

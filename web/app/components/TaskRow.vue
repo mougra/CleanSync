@@ -8,11 +8,13 @@ withDefaults(
     title: string;
     hint?: string | null;
     imageUrl?: string | null;
+    /** Метка справа от заголовка: например, «каждый день». */
+    badge?: string | null;
     done?: boolean;
     interactive?: boolean;
     disabled?: boolean;
   }>(),
-  { done: false, interactive: false, disabled: false, hint: null, imageUrl: null },
+  { done: false, interactive: false, disabled: false, hint: null, imageUrl: null, badge: null },
 );
 
 const emit = defineEmits<{ toggle: [] }>();
@@ -32,7 +34,10 @@ const emit = defineEmits<{ toggle: [] }>();
       <i v-if="done" class="pi pi-check" />
     </span>
     <span class="task__text">
-      {{ title }}
+      <span class="task__title">
+        {{ title }}
+        <span v-if="badge" class="task__badge">{{ badge }}</span>
+      </span>
       <small v-if="hint">{{ hint }}</small>
     </span>
     <img v-if="imageUrl" class="task__thumb" :src="imageUrl" :alt="title" >
@@ -43,7 +48,10 @@ const emit = defineEmits<{ toggle: [] }>();
       <i v-if="done" class="pi pi-check" />
     </span>
     <span class="task__text">
-      {{ title }}
+      <span class="task__title">
+        {{ title }}
+        <span v-if="badge" class="task__badge">{{ badge }}</span>
+      </span>
       <small v-if="hint">{{ hint }}</small>
     </span>
     <img v-if="imageUrl" class="task__thumb" :src="imageUrl" :alt="title" >
@@ -104,6 +112,22 @@ const emit = defineEmits<{ toggle: [] }>();
 
 .task__text small {
   color: var(--c-text-muted);
+}
+
+.task__title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.task__badge {
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  background: var(--c-surface-mint);
+  color: var(--c-brand);
+  font-size: 0.6875rem;
+  font-weight: 600;
 }
 
 .task__thumb {

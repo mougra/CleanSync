@@ -26,6 +26,7 @@ interface ProgressRow {
   hint: string | null;
   room: string | null;
   estimated_minutes: number | null;
+  frequency: string | null;
   is_done: boolean | null;
 }
 
@@ -33,7 +34,7 @@ interface ProgressRow {
 const loadDays = async (challengeId: number, userChallengeId: number | null) => {
   const result = await pool.query<ProgressRow>(
     `SELECT d.id AS day_id, d.day_number, d.title AS day_title, d.subtitle,
-            t.id AS task_id, t.position, t.title, t.hint, t.room, t.estimated_minutes,
+            t.id AS task_id, t.position, t.title, t.hint, t.room, t.estimated_minutes, t.frequency,
             COALESCE(p.is_done, FALSE) AS is_done
        FROM challenge_days d
        LEFT JOIN challenge_tasks t ON t.challenge_day_id = d.id
@@ -56,6 +57,7 @@ const loadDays = async (challengeId: number, userChallengeId: number | null) => 
       hint: string | null;
       room: string | null;
       estimated_minutes: number;
+      frequency: string;
       is_done: boolean;
     }>;
   }> = [];
@@ -82,6 +84,7 @@ const loadDays = async (challengeId: number, userChallengeId: number | null) => 
         hint: row.hint,
         room: row.room,
         estimated_minutes: row.estimated_minutes ?? 0,
+        frequency: row.frequency ?? 'once',
         is_done: Boolean(row.is_done),
       });
     }

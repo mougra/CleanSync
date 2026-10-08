@@ -9,7 +9,7 @@
 
 import type { ChallengeDetail, ChallengeTask } from '~/types/challenge';
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const localePath = useLocalePath();
 const route = useRoute();
 const auth = useAuthStore();
@@ -34,6 +34,13 @@ const progress = computed(() =>
 
 const title = computed(() => detail.value?.challenge.title ?? '');
 const busy = ref(false);
+
+/** Сумма времени по дню и метка частоты для строки задачи. */
+const dayMinutes = (day: { tasks: ChallengeTask[] }) =>
+  day.tasks.reduce((sum, task) => sum + task.estimated_minutes, 0);
+
+const frequencyLabel = (task: ChallengeTask) =>
+  task.frequency && task.frequency !== 'once' ? t(`challenge.frequency.${task.frequency}`) : null;
 
 const toggleTask = async (task: ChallengeTask) => {
   if (!isActive.value || busy.value) {
@@ -125,12 +132,16 @@ useSeoMeta({
           {{ t('challenge.day') }} {{ day.day_number }} — {{ day.title }}
         </h2>
         <p v-if="day.subtitle" class="day__subtitle">{{ day.subtitle }}</p>
+        <p class="day__total">
+          {{ t('challenge.totalTime', { time: formatMinutes(dayMinutes(day), locale) }) }}
+        </p>
 
         <ul class="tasks">
           <li v-for="task in day.tasks" :key="task.id">
             <TaskRow
               :title="task.title"
               :hint="task.hint"
+              :badge="frequencyLabel(task)"
               :done="task.is_done"
               :interactive="isActive"
               :disabled="busy"
@@ -249,6 +260,11 @@ useSeoMeta({
 
 .day__subtitle {
   color: var(--c-text-muted);
+}
+
+.day__total {
+  color: var(--c-text-muted);
+  font-size: var(--fs-caption);
 }
 
 .tasks {

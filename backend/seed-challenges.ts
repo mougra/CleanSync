@@ -3,17 +3,24 @@ import type { PoolClient } from 'pg';
 /**
  * Челленджи: марафон по дням с задачами.
  *
- * Тексты «Весенней уборки» взяты из макетов docs/design/mockups
- * (дни 1-5 и 7). День 6 «Пол и поверхности» собран из блока, который на скрине
- * дня 5 идёт отдельным разделом: иначе 7 дней не дают ровно 35 задач, как
- * написано в макете. Если тема дня 6 другая — поправить здесь и пересеять.
+ * Темы дней взяты из макетов docs/design/mockups (дни 1-7 «Весенней уборки»).
+ * Наполнение переработано: в каждом дне 3 «разовые» задачи по 25-45 минут
+ * и 1-2 задачи регулярного ухода (10-25 минут) с меткой частоты — так видно,
+ * что часть дел повторяется, а не делается один раз в год.
+ *
+ * ВАЖНО: сид идемпотентный по slug, поэтому при изменении текстов нужно
+ * удалить челлендж и запустить `npm run seed` заново. Пока нет админки
+ * контента — это ручной шаг.
  */
+
+export type TaskFrequency = 'once' | 'daily' | 'every2days' | 'weekly';
 
 export interface ChallengeTaskSeed {
   title: string;
   hint?: string;
   room?: string;
-  minutes?: number;
+  minutes: number;
+  frequency?: TaskFrequency;
 }
 
 export interface ChallengeDaySeed {
@@ -32,11 +39,41 @@ export interface ChallengeSeed {
   days: ChallengeDaySeed[];
 }
 
+/** Регулярные дела, которые возвращаются в разные дни. */
+const recurring = {
+  quickKitchen: {
+    title: 'Быстрая уборка кухни за 15 минут',
+    hint: 'столешница, раковина, крошки',
+    room: 'Кухня',
+    minutes: 15,
+    frequency: 'daily' as TaskFrequency,
+  },
+  switches: {
+    title: 'Протереть выключатели, ручки дверей и пульты',
+    room: 'По всему дому',
+    minutes: 10,
+    frequency: 'every2days' as TaskFrequency,
+  },
+  trash: {
+    title: 'Вынести мусор и протереть ведро',
+    room: 'Кухня',
+    minutes: 10,
+    frequency: 'every2days' as TaskFrequency,
+  },
+  floors: {
+    title: 'Пропылесосить или подмести пол',
+    room: 'По всему дому',
+    minutes: 25,
+    frequency: 'weekly' as TaskFrequency,
+  },
+};
+
 export const CHALLENGES: ChallengeSeed[] = [
   {
     slug: 'vesennyaya-uborka',
     title: 'Весенняя уборка',
-    description: '7 дней по 5 небольших шагов — и дом становится свежим без генеральной уборки за один день.',
+    description:
+      'Семь дней по 1,5–2 часа: разовые дела по зонам плюс короткий регулярный уход. Дом свежеет без генеральной уборки за один день.',
     season: 'spring',
     position: 1,
     days: [
@@ -44,51 +81,55 @@ export const CHALLENGES: ChallengeSeed[] = [
         day: 1,
         title: 'Освежаем прихожую и гостиную',
         tasks: [
-          { title: 'Убрать поверхности в прихожей', hint: 'почта, ключи, обувь', room: 'Прихожая' },
-          { title: 'Протереть пыль в гостиной', hint: 'полки, столы', room: 'Гостиная' },
-          { title: 'Пропылесосить или подмести пол', room: 'Гостиная', minutes: 15 },
-          { title: 'Протереть выключатели и ручки дверей', room: 'Гостиная' },
-          { title: 'Проветрить помещение', room: 'Гостиная' },
+          { title: 'Разобрать прихожую', hint: 'почта, ключи, обувь, сумки', room: 'Прихожая', minutes: 25 },
+          { title: 'Протереть пыль в гостиной', hint: 'полки, столы, подоконники', room: 'Гостиная', minutes: 30 },
+          { title: 'Помыть зеркала и стеклянные поверхности', room: 'Гостиная', minutes: 25 },
+          recurring.switches,
+          recurring.floors,
         ],
       },
       {
         day: 2,
         title: 'Порядок на кухне',
         tasks: [
-          { title: 'Очистить и протереть столешницы', room: 'Кухня', minutes: 15 },
-          { title: 'Организовать один ящик или шкаф', room: 'Кухня', minutes: 15 },
+          { title: 'Освободить и вымыть столешницы', room: 'Кухня', minutes: 30 },
+          { title: 'Разобрать один шкаф или ящик', hint: 'просроченное — в мусор', room: 'Кухня', minutes: 40 },
           {
             title: 'Протереть технику',
-            hint: 'микроволновка, ручки холодильника',
+            hint: 'микроволновка, холодильник, вытяжка',
             room: 'Кухня',
+            minutes: 35,
+            frequency: 'weekly',
           },
-          { title: 'Вынести мусор', room: 'Кухня' },
-          { title: 'Подмести или вымыть пол', room: 'Кухня', minutes: 15 },
+          recurring.trash,
+          recurring.quickKitchen,
         ],
       },
       {
         day: 3,
         title: 'Обновляем спальню',
         tasks: [
-          { title: 'Разобрать тумбочки и комод', room: 'Спальня', minutes: 15 },
-          { title: 'Аккуратно заправить кровать', room: 'Спальня' },
-          { title: 'Протереть прикроватные поверхности', room: 'Спальня' },
-          { title: 'Разобрать шкаф', hint: 'убрать 3 вещи на отдачу', room: 'Спальня', minutes: 20 },
-          { title: 'Пропылесосить или подмести пол', room: 'Спальня', minutes: 15 },
+          { title: 'Разобрать тумбочки и комод', room: 'Спальня', minutes: 35 },
+          { title: 'Разобрать шкаф', hint: 'убрать 3 вещи на отдачу', room: 'Спальня', minutes: 45 },
+          { title: 'Сменить постельное бельё', room: 'Спальня', minutes: 25, frequency: 'weekly' },
+          recurring.floors,
+          recurring.switches,
         ],
       },
       {
         day: 4,
         title: 'Освежаем ванную',
         tasks: [
-          { title: 'Протереть зеркала и поверхности', room: 'Ванная' },
-          { title: 'Почистить раковину и кран', room: 'Ванная', minutes: 15 },
+          { title: 'Отмыть плитку и душевую', room: 'Ванная', minutes: 40 },
           {
-            title: 'Разобрать средства, выбросить пустые упаковки',
+            title: 'Почистить раковину, кран и полки',
             room: 'Ванная',
+            minutes: 25,
+            frequency: 'every2days',
           },
-          { title: 'Заменить полотенца и коврики', room: 'Ванная' },
-          { title: 'Почистить унитаз', room: 'Ванная', minutes: 15 },
+          { title: 'Почистить унитаз', room: 'Ванная', minutes: 20, frequency: 'weekly' },
+          { title: 'Разобрать средства и заменить полотенца', room: 'Ванная', minutes: 25 },
+          recurring.trash,
         ],
       },
       {
@@ -96,33 +137,51 @@ export const CHALLENGES: ChallengeSeed[] = [
         title: 'Разобрать и организовать',
         subtitle: 'Сразу вынести лишнее',
         tasks: [
-          { title: 'Выбрать небольшую зону беспорядка', minutes: 5 },
-          { title: 'Отсортировать: оставить, отдать, выбросить', minutes: 20 },
-          { title: 'Аккуратно организовать нужное', minutes: 20 },
-          { title: 'Протереть поверхности' },
-          { title: 'Сразу вынести лишнее' },
+          {
+            title: 'Отсортировать вещи в выбранной зоне',
+            hint: 'оставить, отдать, выбросить',
+            minutes: 45,
+          },
+          { title: 'Организовать удобное хранение', minutes: 40 },
+          { title: 'Протереть поверхности в разобранной зоне', minutes: 30 },
+          recurring.switches,
+          recurring.quickKitchen,
         ],
       },
       {
         day: 6,
         title: 'Пол и поверхности',
         tasks: [
-          { title: 'Пропылесосить ковры', minutes: 15 },
-          { title: 'Вымыть твёрдые полы', minutes: 20 },
-          { title: 'Протереть мебель и электронику', minutes: 15 },
-          { title: 'Протереть ручки и выключатели' },
-          { title: 'Встряхнуть коврики и подушки' },
+          { title: 'Пропылесосить ковры', room: 'По всему дому', minutes: 30, frequency: 'weekly' },
+          { title: 'Вымыть твёрдые полы', room: 'По всему дому', minutes: 40, frequency: 'weekly' },
+          {
+            title: 'Протереть мебель и электронику',
+            room: 'Гостиная',
+            minutes: 35,
+            frequency: 'every2days',
+          },
+          {
+            title: 'Встряхнуть коврики и подушки',
+            room: 'По всему дому',
+            minutes: 15,
+            frequency: 'weekly',
+          },
+          recurring.trash,
         ],
       },
       {
         day: 7,
         title: 'Финальные штрихи',
         tasks: [
-          { title: 'Проверить комнаты' },
-          { title: 'Добавить уютную деталь', hint: 'растение, свеча, цветы' },
-          { title: 'Быстро убрать в зонах с высокой проходимостью', minutes: 15 },
-          { title: 'Протереть забытые места' },
-          { title: 'Насладиться чистым домом!' },
+          { title: 'Проверить комнаты и собрать забытое', minutes: 25 },
+          {
+            title: 'Протереть забытые места',
+            hint: 'плинтусы, подоконники, светильники',
+            minutes: 40,
+          },
+          { title: 'Добавить уютную деталь', hint: 'растение, свеча, цветы', minutes: 40 },
+          recurring.switches,
+          recurring.quickKitchen,
         ],
       },
     ],
@@ -130,7 +189,7 @@ export const CHALLENGES: ChallengeSeed[] = [
   {
     slug: 'osennee-obnovlenie-doma',
     title: 'Осеннее обновление дома',
-    description: 'Подготовь дом к холодам: окна, тепло, гардероб и уют за пять дней.',
+    description: 'Подготовь дом к холодам: окна, тепло, гардероб и уют за пять дней по 1,5 часа.',
     season: 'autumn',
     position: 2,
     days: [
@@ -138,50 +197,50 @@ export const CHALLENGES: ChallengeSeed[] = [
         day: 1,
         title: 'Окна и свет',
         tasks: [
-          { title: 'Помыть окна', minutes: 30 },
-          { title: 'Протереть подоконники' },
-          { title: 'Постирать шторы', minutes: 20 },
-          { title: 'Заменить перегоревшие лампочки' },
+          { title: 'Помыть окна', minutes: 45 },
+          { title: 'Протереть подоконники и откосы', minutes: 25 },
+          { title: 'Постирать и повесить шторы', minutes: 30, frequency: 'weekly' },
+          { title: 'Заменить перегоревшие лампочки', minutes: 20 },
         ],
       },
       {
         day: 2,
         title: 'Тепло в доме',
         tasks: [
-          { title: 'Проверить батареи', minutes: 15 },
-          { title: 'Утеплить окна' },
-          { title: 'Постирать пледы', minutes: 20 },
-          { title: 'Достать тёплые вещи' },
+          { title: 'Проверить батареи и развоздушить', minutes: 30 },
+          { title: 'Утеплить окна и двери', minutes: 40 },
+          { title: 'Постирать пледы и покрывала', minutes: 30, frequency: 'weekly' },
+          { title: 'Достать тёплые вещи', minutes: 25 },
         ],
       },
       {
         day: 3,
         title: 'Гардероб',
         tasks: [
-          { title: 'Разобрать летние вещи', minutes: 20 },
-          { title: 'Отложить лишнее на отдачу' },
-          { title: 'Помыть и просушить обувь', minutes: 20 },
-          { title: 'Убрать сезонное на хранение', minutes: 15 },
+          { title: 'Разобрать летние вещи', minutes: 40 },
+          { title: 'Отложить лишнее на отдачу', minutes: 30 },
+          { title: 'Помыть и просушить обувь', minutes: 35 },
+          { title: 'Убрать сезонное на хранение', minutes: 30 },
         ],
       },
       {
         day: 4,
         title: 'Кухня к зиме',
         tasks: [
-          { title: 'Разобрать шкафы', minutes: 20 },
-          { title: 'Проверить запасы и сроки', minutes: 15 },
-          { title: 'Помыть холодильник', minutes: 25 },
-          { title: 'Протереть технику' },
+          { title: 'Разобрать шкафы и проверить сроки', minutes: 40 },
+          { title: 'Помыть холодильник внутри', minutes: 40, frequency: 'weekly' },
+          { title: 'Протереть технику', minutes: 25, frequency: 'every2days' },
+          { title: 'Вынести мусор и протереть ведро', minutes: 10, frequency: 'every2days' },
         ],
       },
       {
         day: 5,
         title: 'Уют',
         tasks: [
-          { title: 'Добавить текстиль' },
-          { title: 'Расставить свечи и декор' },
-          { title: 'Проветрить все комнаты' },
-          { title: 'Насладиться домом!' },
+          { title: 'Добавить текстиль и свет', minutes: 35 },
+          { title: 'Расставить декор и свечи', minutes: 25 },
+          { title: 'Проветрить все комнаты', minutes: 20, frequency: 'daily' },
+          { title: 'Насладиться домом!', minutes: 20 },
         ],
       },
     ],
@@ -234,9 +293,17 @@ export const seedChallenges = async (
       for (const task of day.tasks) {
         position += 1;
         await client.query(
-          `INSERT INTO challenge_tasks (challenge_day_id, position, title, hint, room, estimated_minutes)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [dayId, position, task.title, task.hint ?? null, task.room ?? null, task.minutes ?? 10]
+          `INSERT INTO challenge_tasks (challenge_day_id, position, title, hint, room, estimated_minutes, frequency)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [
+            dayId,
+            position,
+            task.title,
+            task.hint ?? null,
+            task.room ?? null,
+            task.minutes,
+            task.frequency ?? 'once',
+          ]
         );
       }
     }

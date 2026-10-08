@@ -29,6 +29,9 @@
     "tipOfTheDayHint": "Отличная идея, чтобы сохранить настрой сегодня",
     "dayLeft": "День {day}: осталось {minutes} мин",
     "allChallenges": "Все челленджи",
+    "habitsToday": "Привычки на сегодня",
+    "allHabits": "Все привычки",
+    "noHabits": "Заведите первую привычку",
     "available": "Можно начать",
     "checklistsToday": "Чек-листы на день"
   },
@@ -102,7 +105,13 @@
     "back": "Назад",
     "signInToTrack": "Войдите, чтобы отмечать задачи и видеть прогресс",
     "allDone": "Все задачи выполнены!",
-    "tasksLeft": "осталось задач:"
+    "tasksLeft": "осталось задач:",
+    "totalTime": "≈ {time} на день",
+    "frequency": {
+      "daily": "каждый день",
+      "every2days": "раз в 2 дня",
+      "weekly": "раз в неделю"
+    }
   },
   "auth": {
     "loginTitle": "Вход",

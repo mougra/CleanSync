@@ -51,6 +51,12 @@ const api = useApi();
 
 const { active, available } = await useChallenges();
 
+// Привычки: тот же composable, что и на вкладке «Привычки», ключи общие —
+// отметка на главной сразу видна и там.
+const { habits, dueToday, doneToday, refreshMine: refreshHabits } = await useHabits();
+const { intervalLabel, categoryLabel } = useHabitLabels();
+const habitBusy = ref<number | null>(null);
+
 const { data: templates, error: templatesError } = await useAsyncData(
   'templates',
   () => api.request<TemplatesResponse>('/api/templates'),
@@ -118,6 +124,30 @@ const currentDayNote = computed(() => {
     minutes: state.progress.minutesLeft,
   });
 });
+
+const habitMeta = (habit: { category: string | null; intervalCount: number; intervalUnit: string; streak: number }) =>
+  [
+    categoryLabel(habit.category),
+    intervalLabel(habit.intervalCount, habit.intervalUnit as 'once' | 'day' | 'week' | 'month'),
+    habit.streak > 0 ? t('habits.streak', { count: habit.streak }) : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+const toggleHabit = async (habit: { id: number }) => {
+  if (habitBusy.value !== null) {
+    return;
+  }
+
+  habitBusy.value = habit.id;
+  try {
+    await api.request(`/api/habits/${habit.id}/toggle`, { method: 'POST' });
+    await refreshHabits();
+    await refreshNuxtData('achievements-earned');
+  } finally {
+    habitBusy.value = null;
+  }
+};
 
 useSeoMeta({
   title: () => t('nav.today'),
@@ -221,6 +251,41 @@ useSeoMeta({
           <i class="pi pi-chevron-right" aria-hidden="true" />
         </NuxtLink>
       </article>
+    </section>
+
+    <!-- Привычки на сегодня: отметить можно не уходя с главной -->
+    <section v-if="auth.isAuthenticated" class="card card--mint habits">
+      <header class="habits__head">
+        <span class="icon-box" aria-hidden="true"><i class="pi pi-refresh" /></span>
+        <div class="habits__summary">
+          <h2 class="card__title">{{ t('home.habitsToday') }}</h2>
+          <p class="card__meta">{{ doneToday.length }}/{{ habits.length }}</p>
+        </div>
+        <NuxtLink :to="localePath('/habits')" class="chip-link">
+          {{ t('home.allHabits') }}
+          <i class="pi pi-chevron-right" aria-hidden="true" />
+        </NuxtLink>
+      </header>
+
+      <p v-if="habits.length === 0" class="habits__empty">
+        <NuxtLink :to="localePath('/habits')" class="habits__link">
+          {{ t('home.noHabits') }}
+          <i class="pi pi-chevron-right" aria-hidden="true" />
+        </NuxtLink>
+      </p>
+
+      <ul v-else class="habits__list">
+        <li v-for="habit in [...dueToday, ...doneToday].slice(0, 4)" :key="habit.id">
+          <HabitRow
+            :title="habit.title"
+            :icon="habit.icon"
+            :done="habit.doneToday"
+            :meta="habitMeta(habit)"
+            :disabled="habitBusy !== null"
+            @toggle="toggleHabit(habit)"
+          />
+        </li>
+      </ul>
     </section>
 
     <!-- Достижения -->
@@ -453,6 +518,46 @@ useSeoMeta({
 
 .card--mint .widget__link {
   color: var(--c-brand);
+}
+
+/* ── Привычки ───────────────────────────────────────────────────────── */
+.habits {
+  gap: var(--space-4);
+}
+
+.habits__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.habits__summary {
+  flex: 1;
+  min-width: 0;
+}
+
+.habits__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.habits__empty {
+  margin: 0;
+}
+
+.habits__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--tap-min);
+  color: var(--c-brand);
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  text-decoration: none;
 }
 
 /* ── Достижения ─────────────────────────────────────────────────────── */

@@ -15,6 +15,8 @@ export interface ChallengeTask {
   hint: string | null;
   room: string | null;
   estimated_minutes: number;
+  /** once | daily | every2days | weekly */
+  frequency: string;
   is_done: boolean;
 }
 
