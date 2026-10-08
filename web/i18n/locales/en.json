@@ -26,6 +26,8 @@
     "achievementsDone": "completed",
     "seeAll": "See all",
     "tipOfTheDay": "Tip of the day",
+    "tipTitle": "How to clean your washing machine",
+    "tipText": "Once a month run an empty 60 °C cycle with citric acid and wipe the door seal — the machine stays fresh.",
     "tipOfTheDayHint": "A good idea to keep your mood up today",
     "dayLeft": "Day {day}: {minutes} min left",
     "allChallenges": "All challenges",
@@ -96,6 +98,11 @@
     "count_one": "habit",
     "count_few": "habits",
     "count_many": "habits",
+    "last7days": "Last 7 days",
+    "weekSummary": "{done} of {total} {unit}",
+    "day_one": "day",
+    "day_few": "days",
+    "day_many": "days",
     "nothingFound": "Nothing found"
   },
   "challenge": {

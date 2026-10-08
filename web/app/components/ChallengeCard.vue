@@ -12,18 +12,22 @@ withDefaults(
     badgeLabel: string;
     /** Необязательная строка-пояснение под прогрессом (например, текущий день). */
     note?: string | null;
+    /** Обложка челленджа; если её нет — показываем флажок-заглушку. */
+    coverUrl?: string | null;
   }>(),
-  { description: null, progress: null, note: null },
+  { description: null, progress: null, note: null, coverUrl: null },
 );
 </script>
 
 <template>
   <NuxtLink :to="to" class="card">
+    <img v-if="coverUrl" class="card__image" :src="coverUrl" :alt="title" loading="lazy" >
+
     <div class="card__head">
       <AppBadge :dot="Boolean(progress)" :icon="progress ? undefined : 'pi-flag'">
         {{ badgeLabel }}
       </AppBadge>
-      <span class="card__art" aria-hidden="true">⚑</span>
+      <span v-if="!coverUrl" class="card__art" aria-hidden="true">⚑</span>
     </div>
 
     <h2 class="card__title">{{ title }}</h2>
@@ -52,6 +56,14 @@ withDefaults(
 }
 
 .card:hover {
+  background: var(--c-surface-sunken);
+}
+
+.card__image {
+  width: 100%;
+  height: 148px;
+  object-fit: cover;
+  border-radius: var(--r-thumb);
   background: var(--c-surface-sunken);
 }
 

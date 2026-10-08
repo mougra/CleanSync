@@ -106,6 +106,13 @@ useSeoMeta({
         {{ t('challenge.back') }}
       </NuxtLink>
 
+      <img
+        v-if="detail?.challenge.cover_url"
+        class="hero"
+        :src="detail.challenge.cover_url"
+        :alt="title"
+      >
+
       <section class="card progress-card">
         <span class="progress-card__icon" aria-hidden="true">⚑</span>
         <div class="progress-card__body">
@@ -200,6 +207,14 @@ useSeoMeta({
 
 .back:hover {
   color: var(--c-brand);
+}
+
+.hero {
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+  border-radius: var(--r-card);
+  background: var(--c-surface-sunken);
 }
 
 .progress-card {

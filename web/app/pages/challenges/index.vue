@@ -21,6 +21,7 @@ useSeoMeta({
         :title="active.challenge.title"
         :badge-label="t('home.inProgress')"
         :progress="active.progress"
+        :cover-url="active.challenge.cover_url"
         :to="localePath(`/challenges/${active.challenge.slug}`)"
       />
     </template>
@@ -36,6 +37,7 @@ useSeoMeta({
         :title="challenge.title"
         :description="challenge.description"
         :badge-label="`${challenge.days_count} ${t('challengesPage.days')} · ${challenge.tasks_count} ${t('challengesPage.tasks')}`"
+        :cover-url="challenge.cover_url"
         :to="localePath(`/challenges/${challenge.slug}`)"
       />
     </div>

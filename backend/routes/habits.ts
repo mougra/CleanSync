@@ -56,6 +56,34 @@ const currentStreak = (dates: string[], today: string): number => {
   return streak;
 };
 
+/** Сдвиг даты на N дней: нужен для недельной сводки. */
+const shiftDays = (iso: string, delta: number): string => {
+  const date = new Date(`${iso}T00:00:00`);
+  date.setDate(date.getDate() + delta);
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+};
+
+/**
+ * Последние 7 дней: сколько привычек отмечено и сколько их было в тот день.
+ * «Всего» считаем по дате создания — иначе новые привычки задним числом
+ * ухудшали бы прошлые дни.
+ */
+const buildWeek = (habits: HabitRow[], today: string) => {
+  const days: Array<{ date: string; done: number; total: number }> = [];
+
+  for (let offset = 6; offset >= 0; offset -= 1) {
+    const date = shiftDays(today, -offset);
+    const existed = habits.filter((habit) => habit.created_at.slice(0, 10) <= date);
+    const done = existed.filter((habit) => (habit.completions ?? []).includes(date)).length;
+
+    days.push({ date, done, total: existed.length });
+  }
+
+  return days;
+};
+
 interface HabitRow {
   id: number;
   title: string;
@@ -74,7 +102,7 @@ interface HabitRow {
 const loadHabits = async (userId: string): Promise<HabitRow[]> => {
   const result = await pool.query(
     `SELECT h.id, h.title, h.zone, h.interval_count, h.interval_unit, h.due_date,
-            h.reminder_enabled, h.created_at, h.template_id,
+            h.reminder_enabled, h.created_at::text AS created_at, h.template_id,
             t.icon, t.category,
             COALESCE(
               (SELECT array_agg(c.completed_on::text ORDER BY c.completed_on DESC)
@@ -174,12 +202,14 @@ router.get('/templates', async (req: Request, res: Response) => {
 router.get('/', authMiddleware, async (req: Request, res: Response) => {
   try {
     const today = todayIso();
-    const habits = (await loadHabits(String(req.userId))).map((habit) => decorate(habit, today));
+    const rows = await loadHabits(String(req.userId));
+    const habits = rows.map((habit) => decorate(habit, today));
 
     res.json({
       today,
       habits,
       dueToday: habits.filter((habit) => habit.isDue && !habit.doneToday).length,
+      week: buildWeek(rows, today),
     });
   } catch (err) {
     console.error(err);

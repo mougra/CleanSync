@@ -36,6 +36,8 @@ export interface ChallengeSeed {
   description: string;
   season: string;
   position: number;
+  /** Обложка карточки: файл из web/public/photos (источники — docs/design/photos.md). */
+  cover: string;
   days: ChallengeDaySeed[];
 }
 
@@ -76,6 +78,7 @@ export const CHALLENGES: ChallengeSeed[] = [
       'Семь дней по 1,5–2 часа: разовые дела по зонам плюс короткий регулярный уход. Дом свежеет без генеральной уборки за один день.',
     season: 'spring',
     position: 1,
+    cover: '/photos/spring-cleaning.jpg',
     days: [
       {
         day: 1,
@@ -192,6 +195,7 @@ export const CHALLENGES: ChallengeSeed[] = [
     description: 'Подготовь дом к холодам: окна, тепло, гардероб и уют за пять дней по 1,5 часа.',
     season: 'autumn',
     position: 2,
+    cover: '/photos/autumn-home.jpg',
     days: [
       {
         day: 1,
@@ -265,8 +269,8 @@ export const seedChallenges = async (
     const tasksCount = challenge.days.reduce((sum, day) => sum + day.tasks.length, 0);
 
     const inserted = await client.query(
-      `INSERT INTO challenges (slug, title, description, season, days_count, tasks_count, is_published, position)
-       VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7)
+      `INSERT INTO challenges (slug, title, description, season, days_count, tasks_count, is_published, position, cover_url)
+       VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, $8)
        RETURNING id`,
       [
         challenge.slug,
@@ -276,6 +280,7 @@ export const seedChallenges = async (
         challenge.days.length,
         tasksCount,
         challenge.position,
+        challenge.cover,
       ]
     );
 

@@ -1,4 +1,10 @@
-import type { Habit, HabitCategoryCount, HabitTemplate, HabitsResponse } from '~/types/habit';
+import type {
+  Habit,
+  HabitCategoryCount,
+  HabitTemplate,
+  HabitWeekDay,
+  HabitsResponse,
+} from '~/types/habit';
 
 /**
  * Привычки: каталог и категории — для всех, мои привычки — только для вошедшего.
@@ -30,11 +36,16 @@ export const useHabits = async () => {
   /** Что ещё не отмечено и актуально сегодня. */
   const dueToday = computed(() => habits.value.filter((habit) => habit.isDue && !habit.doneToday));
   const doneToday = computed(() => habits.value.filter((habit) => habit.doneToday));
+  /** Последние 7 дней: для графика отметок. */
+  const week = computed<HabitWeekDay[]>(() => mineState.data.value?.week ?? []);
+  const today = computed(() => mineState.data.value?.today ?? '');
 
   return {
     habits,
     dueToday,
     doneToday,
+    week,
+    today,
     catalog: catalogState.data,
     categories: categoriesState.data,
     refreshMine: mineState.refresh,

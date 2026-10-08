@@ -29,10 +29,17 @@ export interface Habit {
   streak: number;
 }
 
+export interface HabitWeekDay {
+  date: string;
+  done: number;
+  total: number;
+}
+
 export interface HabitsResponse {
   today: string;
   habits: Habit[];
   dueToday: number;
+  week: HabitWeekDay[];
 }
 
 export interface HabitCategoryCount {

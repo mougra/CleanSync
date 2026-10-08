@@ -170,6 +170,7 @@ useSeoMeta({
       :badge-label="t('home.inProgress')"
       :progress="active.progress"
       :note="currentDayNote"
+      :cover-url="active.challenge.cover_url"
       :to="localePath(`/challenges/${active.challenge.slug}`)"
     />
 
@@ -179,6 +180,7 @@ useSeoMeta({
       :title="nextChallenge.title"
       :description="nextChallenge.description"
       :badge-label="t('home.challenges')"
+      :cover-url="nextChallenge.cover_url"
       :to="localePath(`/challenges/${nextChallenge.slug}`)"
     />
 
@@ -326,12 +328,13 @@ useSeoMeta({
       </ul>
     </section>
 
-    <!-- Совет дня: тексты приедут из @nuxt/content в Фазе 5 -->
+    <!-- Совет дня: пока один материал, в Фазе 5 приедет из @nuxt/content -->
     <section class="card card--task tip">
-      <span class="icon-box icon-box--accent" aria-hidden="true"><i class="pi pi-lightbulb" /></span>
-      <div>
-        <h2 class="card__title">{{ t('home.tipOfTheDay') }}</h2>
-        <p class="card__text">{{ t('home.tipOfTheDayHint') }}</p>
+      <img class="tip__image" src="/photos/laundry.jpg" :alt="t('home.tipTitle')" loading="lazy" >
+      <div class="tip__body">
+        <AppBadge variant="amber">{{ t('home.tipOfTheDay') }}</AppBadge>
+        <h2 class="card__title">{{ t('home.tipTitle') }}</h2>
+        <p class="card__text">{{ t('home.tipText') }}</p>
       </div>
     </section>
   </div>
@@ -627,6 +630,28 @@ useSeoMeta({
   font-weight: 600;
   text-decoration: none;
   white-space: nowrap;
+}
+
+/* ── Совет дня ──────────────────────────────────────────────────────── */
+.tip {
+  gap: var(--space-3);
+  padding: 0;
+  overflow: hidden;
+}
+
+.tip__image {
+  width: 100%;
+  height: 160px;
+  object-fit: cover;
+  background: var(--c-surface-sunken);
+}
+
+.tip__body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: 0 var(--space-4) var(--space-4);
 }
 
 /* ── Состояния ──────────────────────────────────────────────────────── */

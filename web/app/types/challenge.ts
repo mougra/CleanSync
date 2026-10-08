@@ -6,6 +6,7 @@ export interface ChallengeSummary {
   season: string | null;
   days_count: number;
   tasks_count: number;
+  cover_url: string | null;
 }
 
 export interface ChallengeTask {

@@ -12,7 +12,8 @@ const auth = useAuthStore();
 const api = useApi();
 const { intervalLabel, categoryLabel } = useHabitLabels();
 
-const { habits, dueToday, doneToday, catalog, categories, refreshMine } = await useHabits();
+const { habits, dueToday, doneToday, week, today, catalog, categories, refreshMine } =
+  await useHabits();
 
 const pickerOpen = ref(false);
 const createOpen = ref(false);
@@ -147,6 +148,8 @@ useSeoMeta({
           {{ t('habits.createOwn') }}
         </button>
       </section>
+
+      <HabitWeek :days="week" :today="today" />
     </template>
 
     <HabitPickerSheet

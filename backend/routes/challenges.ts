@@ -13,6 +13,7 @@ interface ChallengeRow {
   season: string | null;
   days_count: number;
   tasks_count: number;
+  cover_url: string | null;
 }
 
 interface ProgressRow {
@@ -127,7 +128,7 @@ const summarize = (
 router.get('/', async (req: Request, res: Response) => {
   try {
     const result = await pool.query<ChallengeRow>(
-      `SELECT id, slug, title, description, season, days_count, tasks_count
+      `SELECT id, slug, title, description, season, days_count, tasks_count, cover_url
          FROM challenges
         WHERE is_published = TRUE
         ORDER BY position, id`
@@ -148,7 +149,7 @@ router.get('/active', authMiddleware, async (req: Request, res: Response) => {
   try {
     const userChallenge = await pool.query(
       `SELECT uc.id, uc.status, uc.started_at, uc.finished_at,
-              c.id AS challenge_id, c.slug, c.title, c.description, c.days_count, c.tasks_count
+              c.id AS challenge_id, c.slug, c.title, c.description, c.days_count, c.tasks_count, c.cover_url
          FROM user_challenges uc
          JOIN challenges c ON c.id = uc.challenge_id
         WHERE uc.user_id = $1 AND uc.status = 'active'
@@ -177,6 +178,7 @@ router.get('/active', authMiddleware, async (req: Request, res: Response) => {
           description: row.description,
           days_count: row.days_count,
           tasks_count: row.tasks_count,
+          cover_url: row.cover_url,
         },
         progress,
         days,
@@ -192,7 +194,7 @@ router.get('/active', authMiddleware, async (req: Request, res: Response) => {
 router.get('/:slug', async (req: Request, res: Response) => {
   try {
     const challenge = await pool.query<ChallengeRow>(
-      `SELECT id, slug, title, description, season, days_count, tasks_count
+      `SELECT id, slug, title, description, season, days_count, tasks_count, cover_url
          FROM challenges
         WHERE slug = $1 AND is_published = TRUE`,
       [req.params.slug]
