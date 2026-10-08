@@ -27,8 +27,18 @@
     "seeAll": "Посмотреть все",
     "tipOfTheDay": "Совет дня",
     "tipOfTheDayHint": "Отличная идея, чтобы сохранить настрой сегодня",
-    "currentDay": "День",
-    "minutesLeft": "осталось минут:"
+    "dayLeft": "День {day}: осталось {minutes} мин",
+    "allChallenges": "Все челленджи",
+    "available": "Можно начать",
+    "checklistsToday": "Чек-листы на день"
+  },
+  "challengesPage": {
+    "title": "Челленджи",
+    "inProgress": "В процессе",
+    "available": "Готово к началу",
+    "empty": "Пока нет опубликованных челленджей",
+    "days": "дней",
+    "tasks": "задач"
   },
   "challenge": {
     "day": "День",

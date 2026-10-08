@@ -7,43 +7,7 @@
  * (httpOnly-cookie), поэтому показывается приглашение войти.
  */
 
-interface ChallengeTask {
-  id: number;
-  title: string;
-  hint: string | null;
-  room: string | null;
-  estimated_minutes: number;
-  is_done: boolean;
-}
-
-interface ChallengeDay {
-  id: number;
-  day_number: number;
-  title: string;
-  subtitle?: string | null;
-  tasks: ChallengeTask[];
-}
-
-interface ChallengeDetail {
-  challenge: {
-    id: number;
-    slug: string;
-    title: string;
-    description: string | null;
-    days_count: number;
-    tasks_count: number;
-  };
-  progress: { done: number; total: number; percent: number; minutesLeft: number; currentDay: number | null };
-  days: ChallengeDay[];
-}
-
-interface ActiveChallengeResponse {
-  active: {
-    challenge: { slug: string };
-    progress: { done: number; total: number; percent: number; minutesLeft: number; currentDay: number | null };
-    days: ChallengeDay[];
-  } | null;
-}
+import type { ChallengeDetail, ChallengeTask } from '~/types/challenge';
 
 const { t } = useI18n();
 const localePath = useLocalePath();
@@ -57,23 +21,15 @@ const { data: detail, error } = await useAsyncData(`challenge-${slug}`, () =>
   api.request<ChallengeDetail>(`/api/challenges/${slug}`),
 );
 
-const { data: activeState, refresh: refreshActive } = await useAsyncData('active-challenge', () =>
-  auth.isAuthenticated
-    ? api.request<ActiveChallengeResponse>('/api/challenges/active')
-    : Promise.resolve(null),
-);
+const { active, refreshActive } = await useChallenges();
 
-const isActive = computed(() => activeState.value?.active?.challenge.slug === slug);
+const isActive = computed(() => active.value?.challenge.slug === slug);
 
-/** Когда челлендж активен, берём дни с отметками пользователя. */
-const days = computed<ChallengeDay[]>(() =>
-  isActive.value ? (activeState.value?.active?.days ?? []) : (detail.value?.days ?? []),
-);
+/** Когда челлендж активен, показываем дни с отметками пользователя. */
+const days = computed(() => (isActive.value ? (active.value?.days ?? []) : (detail.value?.days ?? [])));
 
 const progress = computed(() =>
-  isActive.value && activeState.value?.active
-    ? activeState.value.active.progress
-    : (detail.value?.progress ?? { done: 0, total: 0, percent: 0, minutesLeft: 0, currentDay: null }),
+  isActive.value && active.value ? active.value.progress : (detail.value?.progress ?? null),
 );
 
 const title = computed(() => detail.value?.challenge.title ?? '');
@@ -86,11 +42,17 @@ const toggleTask = async (task: ChallengeTask) => {
 
   busy.value = true;
   try {
-    await api.request(`/api/challenges/tasks/${task.id}`, {
+    const response = await api.request<{ awarded?: string[] }>(`/api/challenges/tasks/${task.id}`, {
       method: 'PATCH',
       body: { isDone: !task.is_done },
     });
+
     await refreshActive();
+
+    // Новая ачивка — обновляем блок достижений на главной.
+    if (response.awarded?.length) {
+      await refreshNuxtData('achievements-earned');
+    }
   } finally {
     busy.value = false;
   }
@@ -100,9 +62,8 @@ const startChallenge = async () => {
   busy.value = true;
   try {
     await api.request(`/api/challenges/${slug}/start`, { method: 'POST' });
-    clearNuxtData(['active-challenge']);
+    clearNuxtData(['active-challenge', 'challenges']);
     await refreshActive();
-    await refreshNuxtData('today-plan');
   } finally {
     busy.value = false;
   }
@@ -112,7 +73,7 @@ const finishChallenge = async () => {
   busy.value = true;
   try {
     await api.request('/api/challenges/active/finish', { method: 'POST' });
-    clearNuxtData(['active-challenge']);
+    clearNuxtData(['active-challenge', 'challenges']);
     await refreshActive();
   } finally {
     busy.value = false;
@@ -133,7 +94,7 @@ useSeoMeta({
     </p>
 
     <template v-else>
-      <NuxtLink :to="localePath('/')" class="back">
+      <NuxtLink :to="localePath('/challenges')" class="back">
         <i class="pi pi-arrow-left" aria-hidden="true" />
         {{ t('challenge.back') }}
       </NuxtLink>
@@ -142,10 +103,8 @@ useSeoMeta({
         <span class="progress-card__icon" aria-hidden="true">⚑</span>
         <div class="progress-card__body">
           <strong>{{ title }}</strong>
-          <small>{{ progress.done }}/{{ progress.total }} · {{ progress.percent }}%</small>
-          <div class="progress">
-            <div class="progress__fill" :style="{ width: `${progress.percent}%` }" />
-          </div>
+          <small v-if="progress">{{ progress.done }}/{{ progress.total }} · {{ progress.percent }}%</small>
+          <ProgressBar :value="progress?.percent ?? 0" />
         </div>
       </section>
 
@@ -154,7 +113,10 @@ useSeoMeta({
         <NuxtLink :to="localePath('/login')">{{ t('auth.login') }}</NuxtLink>
       </p>
 
-      <p v-else-if="progress.total > 0 && progress.done === progress.total" class="notice notice--done">
+      <p
+        v-else-if="progress && progress.total > 0 && progress.done === progress.total"
+        class="notice notice--done"
+      >
         {{ t('challenge.allDone') }}
       </p>
 
@@ -166,50 +128,42 @@ useSeoMeta({
 
         <ul class="tasks">
           <li v-for="task in day.tasks" :key="task.id">
-            <button
-              type="button"
-              class="task"
-              :class="{ 'task--done': task.is_done, 'task--static': !isActive }"
-              :aria-pressed="task.is_done"
-              :disabled="!isActive || busy"
-              @click="toggleTask(task)"
-            >
-              <span class="task__check" aria-hidden="true">
-                <i v-if="task.is_done" class="pi pi-check" />
-              </span>
-              <span class="task__text">
-                {{ task.title }}
-                <small v-if="task.hint">{{ task.hint }}</small>
-              </span>
-            </button>
+            <TaskRow
+              :title="task.title"
+              :hint="task.hint"
+              :done="task.is_done"
+              :interactive="isActive"
+              :disabled="busy"
+              @toggle="toggleTask(task)"
+            />
           </li>
         </ul>
       </section>
 
       <div class="actions">
-        <button
+        <AppButton
           v-if="auth.isAuthenticated && !isActive"
-          type="button"
-          class="btn btn--filled"
+          variant="filled"
+          block
           :disabled="busy"
           @click="startChallenge"
         >
           {{ t('challenge.start') }}
-        </button>
+        </AppButton>
 
-        <button
+        <AppButton
           v-else-if="isActive"
-          type="button"
-          class="btn btn--outline"
+          variant="outline"
+          block
           :disabled="busy"
           @click="finishChallenge"
         >
           {{ t('challenge.finish') }}
-        </button>
+        </AppButton>
 
-        <NuxtLink v-else :to="localePath('/login')" class="btn btn--filled">
+        <AppButton v-else variant="filled" block :to="localePath('/login')">
           {{ t('auth.login') }}
-        </NuxtLink>
+        </AppButton>
       </div>
     </template>
   </div>
@@ -239,8 +193,8 @@ useSeoMeta({
 
 .progress-card {
   display: flex;
-  gap: var(--space-4);
   align-items: center;
+  gap: var(--space-4);
   padding: var(--space-4);
   border-radius: var(--r-card);
   background: var(--c-surface);
@@ -267,21 +221,6 @@ useSeoMeta({
 
 .progress-card__body small {
   color: var(--c-text-muted);
-}
-
-.progress {
-  height: 8px;
-  border-radius: var(--r-pill);
-  background: var(--c-track);
-  overflow: hidden;
-}
-
-.progress__fill {
-  width: 0%;
-  height: 100%;
-  border-radius: var(--r-pill);
-  background: var(--c-brand);
-  transition: width 0.25s ease;
 }
 
 .notice {
@@ -321,89 +260,11 @@ useSeoMeta({
   gap: var(--space-3);
 }
 
-.task {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  width: 100%;
-  min-height: 64px;
-  padding: var(--space-3) var(--space-4);
-  border: none;
-  border-radius: var(--r-row);
-  background: var(--c-surface-task);
-  color: var(--c-text);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: opacity 0.15s ease;
-}
-
-.task--static {
-  cursor: default;
-}
-
-.task--done {
-  opacity: 0.6;
-  text-decoration: line-through;
-}
-
-.task__check {
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  flex: 0 0 24px;
-  border: 1.5px solid var(--c-brand);
-  border-radius: var(--r-pill);
-  color: var(--c-brand);
-  font-size: 0.75rem;
-}
-
-.task__text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.task__text small {
-  color: var(--c-text-muted);
-}
-
 .actions {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
   margin-top: var(--space-2);
-}
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 52px;
-  padding: 0 var(--space-5);
-  border-radius: var(--r-pill);
-  font: inherit;
-  font-weight: 600;
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.btn:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.btn--filled {
-  border: none;
-  background: var(--c-brand);
-  color: var(--c-onbrand);
-}
-
-.btn--outline {
-  border: 1.5px solid var(--c-brand);
-  background: transparent;
-  color: var(--c-brand);
 }
 
 .state {

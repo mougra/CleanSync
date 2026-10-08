@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import pool from '../db';
 import { authMiddleware } from '../auth';
+import { checkAndAwardAchievements } from '../services/achievementManager';
 
 const router = express.Router();
 
@@ -297,7 +298,10 @@ router.patch('/tasks/:taskId', authMiddleware, async (req: Request, res: Respons
     const days = await loadDays(challengeId, userChallengeId);
     const progress = summarize(days);
 
-    res.json({ progress, days });
+    // Отметка задачи в челлендже тоже двигает достижения.
+    const awarded = await checkAndAwardAchievements(String(req.userId));
+
+    res.json({ progress, days, awarded });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to update task' });

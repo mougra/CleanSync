@@ -2,14 +2,22 @@ import pool from '../db';
 
 export const checkAndAwardAchievements = async (userId: string) => {
   try {
-    // 1. Get total completed tasks for this user
+    // 1. Сколько задач пользователь выполнил всего: свои задачи плюс задачи челленджей
     const result = await pool.query(
-      `SELECT COUNT(*) as total FROM tasks
-       JOIN schedules ON tasks.schedule_id = schedules.id
-       WHERE schedules.user_id = $1 AND tasks.is_completed = TRUE`,
+      `SELECT
+         (SELECT COUNT(*)
+            FROM tasks t
+            JOIN schedules s ON t.schedule_id = s.id
+           WHERE s.user_id = $1 AND t.is_completed = TRUE)
+         +
+         (SELECT COUNT(*)
+            FROM user_task_progress p
+            JOIN user_challenges uc ON uc.id = p.user_challenge_id
+           WHERE uc.user_id = $1 AND p.is_done = TRUE)
+         AS total`,
       [userId]
     );
-    const totalCompleted = parseInt(result.rows[0].total);
+    const totalCompleted = parseInt(result.rows[0].total, 10);
 
     // 2. Find achievements the user hasn't earned yet but meets criteria for
     const pendingAchievements = await pool.query(

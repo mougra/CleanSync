@@ -1,0 +1,75 @@
+<script setup lang="ts">
+/** Список челленджей: активный и доступные к старту. */
+const { t } = useI18n();
+const localePath = useLocalePath();
+const { list, active, available } = await useChallenges();
+
+useSeoMeta({
+  title: () => t('challengesPage.title'),
+  description: () =>
+    'Челленджи уборки по дням: выберите марафон и отмечайте шаги — дом становится чище без генеральной уборки за один день.',
+});
+</script>
+
+<template>
+  <div class="page">
+    <h1 class="page__title">{{ t('challengesPage.title') }}</h1>
+
+    <template v-if="active">
+      <h2 class="section-title">{{ t('challengesPage.inProgress') }}</h2>
+      <ChallengeCard
+        :title="active.challenge.title"
+        :badge-label="t('home.inProgress')"
+        :progress="active.progress"
+        :to="localePath(`/challenges/${active.challenge.slug}`)"
+      />
+    </template>
+
+    <h2 class="section-title">{{ t('challengesPage.available') }}</h2>
+
+    <p v-if="!list.length" class="state">{{ t('challengesPage.empty') }}</p>
+
+    <div v-else class="list">
+      <ChallengeCard
+        v-for="challenge in available"
+        :key="challenge.slug"
+        :title="challenge.title"
+        :description="challenge.description"
+        :badge-label="`${challenge.days_count} ${t('challengesPage.days')} · ${challenge.tasks_count} ${t('challengesPage.tasks')}`"
+        :to="localePath(`/challenges/${challenge.slug}`)"
+      />
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.page__title {
+  font-size: var(--fs-display);
+  margin-bottom: var(--space-2);
+}
+
+.section-title {
+  margin-top: var(--space-3);
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--c-text-muted);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.state {
+  color: var(--c-text-muted);
+}
+</style>

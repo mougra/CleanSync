@@ -27,8 +27,18 @@
     "seeAll": "See all",
     "tipOfTheDay": "Tip of the day",
     "tipOfTheDayHint": "A good idea to keep your mood up today",
-    "currentDay": "Day",
-    "minutesLeft": "minutes left:"
+    "dayLeft": "Day {day}: {minutes} min left",
+    "allChallenges": "All challenges",
+    "available": "Ready to start",
+    "checklistsToday": "Checklists for today"
+  },
+  "challengesPage": {
+    "title": "Challenges",
+    "inProgress": "In progress",
+    "available": "Ready to start",
+    "empty": "No published challenges yet",
+    "days": "days",
+    "tasks": "tasks"
   },
   "challenge": {
     "day": "Day",
