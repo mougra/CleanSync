@@ -67,8 +67,16 @@ const sendEmail = async ({ to, subject, html }: { to: string; subject: string; h
   return true;
 };
 
+/**
+ * Публичный адрес приложения для ссылок в письмах.
+ * Раньше здесь был жёстко зашит прежний SPA на порту 5173 — письма вели
+ * на несуществующий адрес. Теперь это настройка окружения.
+ */
+const appBaseUrl = (process.env.APP_BASE_URL || 'http://localhost:3000').replace(/\/+$/, '');
+const appLink = (path: string) => `${appBaseUrl}${path}`;
+
 const sendPasswordResetEmail = async (to: string, resetToken: string) => {
-  const resetLink = `http://localhost:5173/reset-password?token=${resetToken}`;
+  const resetLink = appLink(`/reset-password?token=${resetToken}`);
   return sendEmail({
     to,
     subject: 'Сброс пароля Clean Planner',
@@ -82,7 +90,7 @@ const sendPasswordResetEmail = async (to: string, resetToken: string) => {
 };
 
 const sendConfirmationEmail = async (to: string, confirmToken: string) => {
-  const confirmLink = `http://localhost:5173/confirm-email?token=${confirmToken}`;
+  const confirmLink = appLink(`/confirm-email?token=${confirmToken}`);
   return sendEmail({
     to,
     subject: 'Подтвердите email для Clean Planner',
@@ -136,7 +144,7 @@ router.post('/register', async (req: Request, res: Response) => {
 
     const user = result.rows[0];
 
-    const confirmLink = `http://localhost:5173/confirm-email?token=${emailConfirmToken}`;
+    const confirmLink = appLink(`/confirm-email?token=${emailConfirmToken}`);
     try {
       const emailSent = await sendConfirmationEmail(email, emailConfirmToken);
       if (!emailSent) {
@@ -251,7 +259,7 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
     );
 
     // Send email if SMTP is configured
-    const resetLink = `http://localhost:5173/reset-password?token=${resetToken}`;
+    const resetLink = appLink(`/reset-password?token=${resetToken}`);
     try {
       const emailSent = await sendPasswordResetEmail(email, resetToken);
       if (!emailSent) {
@@ -368,7 +376,7 @@ router.post('/resend-confirmation', async (req: Request, res: Response) => {
       'UPDATE users SET email_confirm_token = $1 WHERE email = $2',
       [confirmToken, email],
     );
-    const confirmLink = `http://localhost:5173/confirm-email?token=${confirmToken}`;
+    const confirmLink = appLink(`/confirm-email?token=${confirmToken}`);
 
     try {
       const emailSent = await sendConfirmationEmail(email, confirmToken);

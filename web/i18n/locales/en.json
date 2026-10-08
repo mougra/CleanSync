@@ -40,6 +40,61 @@
     "days": "days",
     "tasks": "tasks"
   },
+  "habitCategory": {
+    "all": "All",
+    "home": "Home",
+    "family": "Family",
+    "selfcare": "Self-care",
+    "pets": "Pets",
+    "plants": "Plants",
+    "planning": "Planning",
+    "custom": "Custom"
+  },
+  "habitInterval": {
+    "once": "Once",
+    "every_day": "Every day",
+    "every_week": "Every week",
+    "every_month": "Every month",
+    "everyN": "Every {count} {unit}"
+  },
+  "habitUnit": {
+    "day": "Day",
+    "week": "Week",
+    "month": "Month"
+  },
+  "common": {
+    "close": "Close"
+  },
+  "habits": {
+    "title": "Habits",
+    "emptyTitle": "Start small today",
+    "emptyText": "Turn useful actions into habits: five minutes of tidying, time for yourself or your family. Start with one or two and tick them off every time you do them.",
+    "pick": "Choose a habit",
+    "createOwn": "Create your own habit",
+    "ideasTitle": "Habit ideas",
+    "ideasSubtitle": "Pick a small action you want to repeat.",
+    "searchPlaceholder": "Search habits…",
+    "addSelected": "Add selected",
+    "todayTitle": "Habits for today",
+    "edit": "Edit",
+    "allDone": "Everything is done for today",
+    "createTitle": "Create a habit",
+    "fieldTitle": "Habit",
+    "fieldTitlePlaceholder": "Which action do you want to repeat?",
+    "fieldZone": "Zone",
+    "fieldZonePlaceholder": "Whole home",
+    "dueDate": "Due date",
+    "reminder": "Task reminder",
+    "reminderOn": "on",
+    "reminderOff": "off",
+    "save": "Create habit",
+    "streak": "Streak: {count}",
+    "signInHint": "Sign in to keep habits and earn achievements for them",
+    "count_one": "habit",
+    "count_few": "habits",
+    "count_many": "habits",
+    "nothingFound": "Nothing found"
+  },
   "challenge": {
     "day": "Day",
     "start": "Start challenge",
@@ -62,7 +117,21 @@
     "loginFailed": "Could not sign in. Check your email and password.",
     "registerFailed": "Could not create the account.",
     "profile": "Profile",
-    "guestHint": "Sign in to see your plan and achievements."
+    "guestHint": "Sign in to see your plan and achievements.",
+    "confirmTitle": "Email confirmation",
+    "confirmPending": "Confirming your email…",
+    "confirmDone": "Email confirmed! You can sign in now.",
+    "confirmNoToken": "The link has no confirmation token",
+    "confirmFailed": "The link is invalid or already used",
+    "resetTitle": "New password",
+    "newPassword": "New password",
+    "passwordRepeat": "Repeat password",
+    "passwordMismatch": "Passwords do not match",
+    "resetSubmit": "Save password",
+    "resetDone": "Password updated. Sign in with the new one.",
+    "resetFailed": "Could not update the password: the link expired",
+    "toLogin": "Go to sign in",
+    "toHome": "Go home"
   },
   "settings": {
     "appearance": "Appearance",

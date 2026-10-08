@@ -8,6 +8,7 @@ import achievementsRoutes from './routes/achievements';
 import analyticsRoutes from './routes/analytics';
 import templatesRoutes from './routes/templates';
 import challengesRoutes from './routes/challenges';
+import habitsRoutes from './routes/habits';
 import pool from './db';
 import { csrfProtection } from './cookies';
 
@@ -44,5 +45,6 @@ app.use('/api/achievements', achievementsRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/templates', templatesRoutes);
 app.use('/api/challenges', challengesRoutes);
+app.use('/api/habits', habitsRoutes);
 
 export default app;

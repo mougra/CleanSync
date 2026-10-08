@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 import pool from './db';
 import { seedChallenges } from './seed-challenges';
+import { seedHabitTemplates } from './seed-habits';
 
 dotenv.config();
 
@@ -31,30 +32,36 @@ interface TemplateSeed {
 }
 
 const ACHIEVEMENTS: AchievementSeed[] = [
-  {
-    code: 'first_step',
-    name: 'Первый шаг',
-    description: 'Выполните первую задачу по уборке',
-    icon: 'pi-check-circle',
-    criteriaType: 'total_completed',
-    criteriaValue: 1,
-  },
-  {
-    code: 'dedicated',
-    name: 'Настойчивость',
-    description: 'Выполните 10 задач по уборке',
-    icon: 'pi-star',
-    criteriaType: 'total_completed',
-    criteriaValue: 10,
-  },
-  {
-    code: 'pro_cleaner',
-    name: 'Профессионал',
-    description: 'Выполните 50 задач по уборке',
-    icon: 'pi-trophy',
-    criteriaType: 'total_completed',
-    criteriaValue: 50,
-  },
+  // ── Задачи ──────────────────────────────────────────────────────────
+  { code: 'first_step', name: 'Первый шаг', description: 'Выполните первую задачу по уборке', icon: 'pi-check-circle', criteriaType: 'total_completed', criteriaValue: 1 },
+  { code: 'getting_started', name: 'Взялся за дело', description: 'Выполните 5 задач', icon: 'pi-play', criteriaType: 'total_completed', criteriaValue: 5 },
+  { code: 'dedicated', name: 'Настойчивость', description: 'Выполните 10 задач по уборке', icon: 'pi-star', criteriaType: 'total_completed', criteriaValue: 10 },
+  { code: 'quarter_century', name: 'Двадцать пять', description: 'Выполните 25 задач', icon: 'pi-chart-line', criteriaType: 'total_completed', criteriaValue: 25 },
+  { code: 'pro_cleaner', name: 'Профессионал', description: 'Выполните 50 задач по уборке', icon: 'pi-trophy', criteriaType: 'total_completed', criteriaValue: 50 },
+  { code: 'centurion', name: 'Сотня', description: 'Выполните 100 задач', icon: 'pi-crown', criteriaType: 'total_completed', criteriaValue: 100 },
+
+  // ── Челленджи ───────────────────────────────────────────────────────
+  { code: 'challenge_started', name: 'Любитель испытаний', description: 'Начните первое испытание', icon: 'pi-flag', criteriaType: 'challenges_started', criteriaValue: 1 },
+  { code: 'challenge_three', name: 'Три испытания', description: 'Начните три испытания', icon: 'pi-flag-fill', criteriaType: 'challenges_started', criteriaValue: 3 },
+  { code: 'challenge_finished', name: 'Финишёр', description: 'Завершите испытание до конца', icon: 'pi-verified', criteriaType: 'challenges_finished', criteriaValue: 1 },
+  { code: 'challenge_finished_three', name: 'Марафонец', description: 'Завершите три испытания', icon: 'pi-trophy', criteriaType: 'challenges_finished', criteriaValue: 3 },
+  { code: 'day_complete', name: 'Чек-лист завершён', description: 'Выполните все задачи одного дня', icon: 'pi-list-check', criteriaType: 'challenge_days_done', criteriaValue: 1 },
+  { code: 'week_of_days', name: 'Целая неделя', description: 'Закройте семь дней челленджей', icon: 'pi-calendar', criteriaType: 'challenge_days_done', criteriaValue: 7 },
+
+  // ── Привычки ────────────────────────────────────────────────────────
+  { code: 'habit_added', name: 'Первая привычка', description: 'Добавьте привычку из каталога', icon: 'pi-plus-circle', criteriaType: 'habits_added', criteriaValue: 1 },
+  { code: 'habit_three', name: 'Три привычки', description: 'Ведите три привычки одновременно', icon: 'pi-list', criteriaType: 'habits_added', criteriaValue: 3 },
+  { code: 'habit_five', name: 'Пять привычек', description: 'Ведите пять привычек одновременно', icon: 'pi-th-large', criteriaType: 'habits_added', criteriaValue: 5 },
+  { code: 'custom_habit', name: 'Своя привычка', description: 'Создайте привычку с нуля', icon: 'pi-pencil', criteriaType: 'custom_habits', criteriaValue: 1 },
+  { code: 'custom_habit_three', name: 'Автор привычек', description: 'Создайте три свои привычки', icon: 'pi-file-edit', criteriaType: 'custom_habits', criteriaValue: 3 },
+  { code: 'habit_first_check', name: 'Отмечено!', description: 'Отметьте привычку впервые', icon: 'pi-check', criteriaType: 'habit_checkins', criteriaValue: 1 },
+  { code: 'habit_check_ten', name: 'Десять отметок', description: 'Отметьте привычки десять раз', icon: 'pi-check-square', criteriaType: 'habit_checkins', criteriaValue: 10 },
+  { code: 'habit_check_fifty', name: 'Пятьдесят отметок', description: 'Отметьте привычки пятьдесят раз', icon: 'pi-verified', criteriaType: 'habit_checkins', criteriaValue: 50 },
+  { code: 'habit_streak_three', name: 'Три дня подряд', description: 'Держите привычку три дня подряд', icon: 'pi-bolt', criteriaType: 'habit_streak', criteriaValue: 3 },
+  { code: 'habit_streak_week', name: 'Неделя без пропусков', description: 'Держите привычку семь дней подряд', icon: 'pi-fire', criteriaType: 'habit_streak', criteriaValue: 7 },
+  { code: 'habit_streak_month', name: 'Месяц привычки', description: 'Держите привычку тридцать дней подряд', icon: 'pi-crown', criteriaType: 'habit_streak', criteriaValue: 30 },
+  { code: 'habit_variety', name: 'Разносторонний', description: 'Заведите привычки из трёх категорий', icon: 'pi-share-alt', criteriaType: 'habit_categories', criteriaValue: 3 },
+  { code: 'habit_variety_five', name: 'Пять сфер', description: 'Заведите привычки из пяти категорий', icon: 'pi-globe', criteriaType: 'habit_categories', criteriaValue: 5 },
 ];
 
 const TEMPLATES: TemplateSeed[] = [
@@ -158,6 +165,11 @@ const seed = async (): Promise<void> => {
 
     const challenges = await seedChallenges(client);
     console.log(`Челленджи: создано ${challenges.created}, уже существовало ${challenges.skipped}`);
+
+    const habitTemplates = await seedHabitTemplates(client);
+    console.log(
+      `Шаблоны привычек: создано ${habitTemplates.created}, уже существовало ${habitTemplates.skipped}`
+    );
 
     await client.query('COMMIT');
     console.log(`Шаблоны: создано ${created}, уже существовало ${skipped}`);
