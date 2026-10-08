@@ -1,0 +1,29 @@
+# Домен, на котором живёт приложение. Caddy сам получит и продлит сертификат.
+cleansync.example.com {
+	encode zstd gzip
+
+	# API обслуживает Express, остальное — Nuxt.
+	# Внутри compose сервисы доступны по именам: backend и web.
+	handle /api/* {
+		reverse_proxy backend:5000
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+
+	# Заголовки безопасности для HTML отдаёт Nuxt; здесь добавляем только то,
+	# что нужно на уровне прокси.
+	header {
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Content-Type-Options nosniff
+		-Server
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+	}
+}

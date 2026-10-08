@@ -1,19 +1,33 @@
+# Продакшен-развёртывание: postgres + API (Express) + приложение (Nuxt).
+#
+# Локальная разработка запускается иначе: `npm run dev` на хосте и
+# `docker compose up -d postgres` для базы. Здесь же всё в контейнерах,
+# с рестартом и проверками живости — это то, что поднимается на VPS.
+#
+# Перед первым запуском:
+#   cp backend/.env.example backend/.env   # и заполнить секреты
+#   docker compose up -d --build
+#   docker compose exec backend npm run db:setup
+#
+# Подробности, HTTPS и бэкапы — в docs/DEPLOY.md.
+
 services:
   postgres:
     image: postgres:15-alpine
     container_name: clean_planner_db
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: clean_planner
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-clean_planner}
+    # Наружу порт не публикуем: база нужна только сервисам compose.
+    expose:
+      - '5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # Схему создают миграции (backend/migrations), а не initdb:
-      # после первого запуска контейнера выполни `npm --prefix backend run db:setup`.
+      # Схему создают только миграции (backend/migrations), а не initdb.
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USER:-postgres}']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -25,51 +39,69 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: clean_planner_backend
-    # Перед первым запуском применить миграции и сид:
-    #   npm --prefix backend run db:setup
-    # (файл schema.sql больше не монтируется в initdb — схему создают миграции)
+    restart: unless-stopped
     env_file:
       - ./backend/.env
     environment:
-      DB_USER: postgres
-      DB_PASSWORD: postgres
+      NODE_ENV: production
+      # Внутри compose база доступна по имени сервиса
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_NAME: clean_planner
-      ACCESS_TOKEN_SECRET: your_super_secret_access_key_change_this_in_production
-      REFRESH_TOKEN_SECRET: your_super_secret_refresh_key_change_this_in_production
-      PORT: 5000
-      NODE_ENV: development
-    ports:
-      - "5000:5000"
+      # За прокси реальный IP приходит в X-Forwarded-For
+      TRUST_PROXY: 'true'
+    expose:
+      - '5000'
     depends_on:
       postgres:
         condition: service_healthy
-    volumes:
-      - ./backend:/app
-      - /app/node_modules
     networks:
       - clean_planner_network
-    command: npm run dev
 
-  frontend:
+  web:
     build:
-      context: ./frontend
+      context: ./web
       dockerfile: Dockerfile
-    container_name: clean_planner_frontend
-    ports:
-      - "5173:5173"
+    container_name: clean_planner_web
+    restart: unless-stopped
     environment:
-      VITE_API_URL: http://localhost:5000
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
+      NODE_ENV: production
+      # Внутренний адрес API для серверного рендера (см. правило в CLAUDE.md)
+      NUXT_API_BASE: http://backend:5000
+      # Публичный адрес: canonical, карта сайта, ссылки в письмах.
+      # Заменить на реальный домен!
+      NUXT_PUBLIC_SITE_URL: ${SITE_URL:-http://localhost:3000}
+    ports:
+      - '3000:3000'
+    depends_on:
+      - backend
     networks:
       - clean_planner_network
-    command: npm run dev -- --host
+
+  # Обратный прокси с автоматическим HTTPS. Раскомментировать, когда есть домен:
+  # Caddy сам получит сертификат Let's Encrypt и будет проксировать /api в backend,
+  # остальное — в web (см. Caddyfile).
+  #
+  # caddy:
+  #   image: caddy:2-alpine
+  #   container_name: clean_planner_caddy
+  #   restart: unless-stopped
+  #   ports:
+  #     - '80:80'
+  #     - '443:443'
+  #   volumes:
+  #     - ./Caddyfile:/etc/caddy/Caddyfile:ro
+  #     - caddy_data:/data
+  #     - caddy_config:/config
+  #   depends_on:
+  #     - web
+  #     - backend
+  #   networks:
+  #     - clean_planner_network
 
 volumes:
   postgres_data:
+  # caddy_data:
+  # caddy_config:
 
 networks:
   clean_planner_network:

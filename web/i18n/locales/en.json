@@ -43,6 +43,13 @@
     "days": "days",
     "tasks": "tasks"
   },
+  "error": {
+    "notFoundTitle": "Page not found",
+    "notFoundText": "The link may be outdated or the address has a typo.",
+    "serverTitle": "Something broke",
+    "serverText": "We already know about the problem. Try reloading in a minute.",
+    "home": "Go home"
+  },
   "achievements": {
     "title": "Achievements",
     "progress": "of {total} earned",
