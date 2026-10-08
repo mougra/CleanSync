@@ -1,21 +1,21 @@
 # Clean Planner / CleanSync
 
-Веб-приложение для домашней уборки: челленджи по дням с прогрессом, инсайты-статьи, чек-листы, достижения и статистика.
+Веб-приложение для домашней уборки: челленджи по дням с прогрессом, привычки с напоминаниями, чек-листы по зонам, статьи-советы, достижения и статистика. Адаптивный веб + PWA.
 
 ## Стек
 
 | Слой | Технологии |
 |---|---|
-| Приложение | Nuxt 4.4.8 (SSR), Vue 3.5, Pinia 4, шрифт Onest, тёмная тема, i18n RU/EN, авторизация на httpOnly cookies |
-| Прежний SPA | Vue 3 + Vite 6, @tanstack/vue-query — эталон до паритета, затем удаляется |
-| Backend | Node.js, Express 4, TypeScript (tsx), PostgreSQL, JWT (access + refresh), nodemailer |
-| Качество | ESLint 9 (flat config), Prettier, Vitest (+ supertest), Playwright |
-| Данные | Миграции `node-pg-migrate`, идемпотентный сид |
-| Инфра | Docker Compose (PostgreSQL), concurrently |
+| Приложение | Nuxt 4.4.8 (SSR, версия зафиксирована точно), Vue 3.5, Pinia, тёмная тема, i18n RU/EN, авторизация на httpOnly cookies, PWA (манифест + Web Push) |
+| Контент и SEO | `@nuxt/content` (статьи-советы в Markdown), `@nuxtjs/seo`: карта сайта, robots, canonical, og-теги, schema.org |
+| API | Node.js 24, Express 4, TypeScript (tsx), PostgreSQL, JWT (access + refresh), nodemailer, web-push, helmet + rate-limit |
+| Качество | ESLint 9 (flat config), Prettier, Vitest + supertest, `typecheck` по обоим пакетам |
+| Данные | Миграции `node-pg-migrate`, идемпотентный сид, бэкапы скриптом с ротацией |
+| Инфра | Docker Compose (Postgres + backend + web), Caddy для HTTPS |
 
 ## Быстрый старт
 
-Требования: Node.js 20+, Docker.
+Требования: Node.js 24+, Docker.
 
 ```bash
 npm run install:all                            # зависимости всех пакетов
@@ -23,7 +23,6 @@ npm run install:all                            # зависимости всех
 docker compose up -d postgres                  # база данных
 
 cp backend/.env.example backend/.env           # и поправь секреты
-cp web/.env.example web/.env                   # опционально
 
 npm --prefix backend run db:setup              # миграции + сид
 
@@ -32,44 +31,45 @@ npm run dev                                    # API + приложение
 
 - API — <http://localhost:5000>, состояние БД видно на `GET /api/health`
 - Приложение (Nuxt, SSR) — <http://localhost:3000>
-- Прежний SPA, если нужен для сравнения — `npm run dev:legacy` → <http://localhost:5173>
+- Визуальный эталон дизайн-системы — <http://localhost:3000/dev/ui-kit>
 
 ## Скрипты
 
 | Команда | Что делает |
 |---|---|
 | `npm run dev` | Express + Nuxt параллельно |
-| `npm run dev:legacy` | Express + прежний SPA |
-| `npm run typecheck` | `tsc --noEmit` + `nuxt typecheck` + `vue-tsc --noEmit` |
-| `npm run lint` | ESLint по трём пакетам |
-| `npm test` | Vitest (backend + прежний SPA) |
+| `npm run typecheck` | `tsc --noEmit` (backend) + `nuxt typecheck` (web) |
+| `npm run lint` | ESLint по обоим пакетам |
+| `npm test` | Vitest: тесты API |
 | `npm run build` | production-сборка Nuxt |
 | `npm --prefix backend run migrate:up` | применить миграции |
-| `npm --prefix backend run seed` | справочные данные (достижения, шаблоны) |
+| `npm --prefix backend run seed` | справочные данные (достижения, челленджи, шаблоны) |
 | `npm --prefix backend run db:setup` | `migrate:up` + `seed` |
 
 ## Структура
 
 ```
-backend/    Express API: app.ts (сборка приложения), server.ts (запуск), auth.ts, db.ts,
-            seed.ts, migrations/, routes/, services/, tests/
-web/        Nuxt 4 (SSR): nuxt.config.ts, app/{pages,plugins,assets/css/tokens.css}
-frontend/   прежний Vue 3 SPA — эталон до паритета, затем удаляется
+backend/    Express API: app.ts (сборка приложения), server.ts (запуск), auth.ts, cookies.ts, db.ts,
+            seed.ts, seed-challenges.ts, seed-habits.ts, migrations/, routes/, services/, tests/
+web/        Nuxt 4 (SSR): nuxt.config.ts, content.config.ts, content/tips/ (статьи),
+            app/{pages,components,composables,layouts,assets/css}, server/routes (источник карты сайта),
+            public/{photos,icons}
 shared/     Общие типы
-docs/       PLAN.md — план разработки и открытые вопросы
-            design/mockups/ — 10 макетов интерфейса с описью
+docs/       DEPLOY.md — выкладка на VPS, HTTPS, бэкапы, 152-ФЗ
+            design/mockups/ — макеты интерфейса с описью, design/photos.md — источники фото
+scripts/    backup-db.sh — бэкап базы с ротацией
 ```
 
 ## Состояние проекта
 
-**Фаза 0 (стабилизация) закрыта:** исправлены критичные баги (потеря владельца графиков при старте сервера, дублирование шаблонов), внедрены миграции и идемпотентный сид, настроены линт и тесты, `typecheck`/`lint`/`test`/`build` проходят, API проверен end-to-end.
+Закрыты: стабилизация (миграции, идемпотентный сид, линт, тесты), каркас Nuxt, дизайн-система, навигация,
+челленджи, экран «Сегодня», контент и SEO-фундамент, геймификация (25 достижений), привычки, PWA с
+push-напоминаниями, чек-листы и свои задачи, экран достижений, статистика, безопасность и подготовка к запуску.
 
-**Фаза 0.5 (каркас Nuxt):** пакет `web/` создан и проверен — SSR отдаёт данные из Express, дизайн-токены сняты с макетов и уже в коде, шрифт Onest подключён.
+Осталось до публичного запуска: аналитика посещаемости и мониторинг (Sentry), CI, юридические страницы
+по 152-ФЗ, а также наполнение контентом и открытые решения (название бренда, домен, монетизация).
 
-**Фаза 1 (дизайн-система, в работе):** светлая и тёмная тема с переключателем, i18n RU/EN с автопоределением и `hreflang`, шелл приложения (нижняя навигация на мобильном, боковое меню на десктопе), главная «Сегодня» и разделы на живых данных API.
-
-Дальше: перенос авторизации на httpOnly cookies (после него план дня и достижения станут персональными), библиотека компонентов, пресет PrimeVue на токенах. Затем Фаза 3 — челленджи: таблицы дней и задач, сид «Весенней уборки» (7 дней, 35 задач) из макетов.
-
-**Подробности, план по фазам, SEO-стратегия, дизайн-токены и список открытых вопросов — в [docs/PLAN.md](docs/PLAN.md).**
+**План по фазам, открытые вопросы и решения — в [docs/PLAN.md](docs/PLAN.md),
+выкладка на сервер — в [docs/DEPLOY.md](docs/DEPLOY.md).**
 
 Документация для разработки и агентов — в [CLAUDE.md](CLAUDE.md).
