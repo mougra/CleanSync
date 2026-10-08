@@ -1,12 +1,19 @@
-import jwt from 'jsonwebtoken';
+import jwt, { JwtPayload } from 'jsonwebtoken';
 import { Request, Response, NextFunction } from 'express';
+import { readAccessToken } from './cookies';
 
+// Расширение типа Request из Express: без namespace-augmentation не обойтись.
 declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace Express {
     interface Request {
       userId?: string;
     }
   }
+}
+
+export interface TokenPayload extends JwtPayload {
+  userId: string;
 }
 
 const ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET || 'your_access_secret_key';
@@ -26,24 +33,26 @@ export const generateTokens = (userId: string) => {
   return { accessToken, refreshToken };
 };
 
-export const verifyAccessToken = (token: string) => {
+export const verifyAccessToken = (token: string): TokenPayload | null => {
   try {
-    return jwt.verify(token, ACCESS_TOKEN_SECRET);
-  } catch (err) {
+    return jwt.verify(token, ACCESS_TOKEN_SECRET) as TokenPayload;
+  } catch {
     return null;
   }
 };
 
-export const verifyRefreshToken = (token: string) => {
+export const verifyRefreshToken = (token: string): TokenPayload | null => {
   try {
-    return jwt.verify(token, REFRESH_TOKEN_SECRET);
-  } catch (err) {
+    return jwt.verify(token, REFRESH_TOKEN_SECRET) as TokenPayload;
+  } catch {
     return null;
   }
 };
 
 export const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
-  const token = req.headers.authorization?.split(' ')[1];
+  // Токен берём из httpOnly-cookie, с запасным вариантом Bearer-заголовка
+  // (он нужен тестам и внешним клиентам).
+  const token = readAccessToken(req);
 
   if (!token) {
     return res.status(401).json({ error: 'No token provided' });
@@ -55,9 +64,7 @@ export const authMiddleware = (req: Request, res: Response, next: NextFunction) 
     return res.status(401).json({ error: 'Invalid token' });
   }
 
-  if (typeof decoded === 'object' && decoded !== null && 'userId' in decoded) {
-    req.userId = decoded.userId as string;
-  }
+  req.userId = decoded.userId;
 
   next();
 };

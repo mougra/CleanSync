@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import pool from '../db';
 import { generateTokens, verifyRefreshToken, authMiddleware } from '../auth';
+import { clearAuthCookies, ensureCsrfToken, issueCsrfToken, readRefreshToken, setAuthCookies } from '../cookies';
 
 const router = express.Router();
 
@@ -94,6 +95,16 @@ const sendConfirmationEmail = async (to: string, confirmToken: string) => {
   });
 };
 
+/**
+ * Bootstrap для клиента: выдаёт CSRF-cookie и возвращает её значение.
+ * Клиент вызывает это до первого изменяющего запроса и повторяет токен
+ * в заголовке X-CSRF-Token.
+ */
+router.get('/csrf', (req: Request, res: Response) => {
+  const csrfToken = issueCsrfToken(res);
+  res.json({ csrfToken });
+});
+
 // Register
 router.post('/register', async (req: Request, res: Response) => {
   try {
@@ -183,6 +194,12 @@ router.post('/login', async (req: Request, res: Response) => {
       'INSERT INTO refresh_tokens (user_id, token) VALUES ($1, $2)',
       [user.id, refreshToken],
     );
+
+    // Токены кладём в httpOnly-cookie. В теле ответа оставлены для прежнего SPA
+    // (он ещё живёт как эталон) — новое приложение их не читает и не хранит.
+    setAuthCookies(res, { accessToken, refreshToken });
+    // Токен не перевыпускаем: клиент уже держит его в памяти после bootstrap.
+    ensureCsrfToken(req, res);
 
     res.json({
       user: {
@@ -464,7 +481,8 @@ router.post('/change-password', authMiddleware, async (req: Request, res: Respon
 // Refresh token
 router.post('/refresh', async (req: Request, res: Response) => {
   try {
-    const { refreshToken } = req.body;
+    // refresh-токен берём из httpOnly-cookie; тело читаем для совместимости.
+    const refreshToken = readRefreshToken(req);
 
     if (!refreshToken) {
       return res.status(400).json({ error: 'Refresh token required' });
@@ -496,6 +514,8 @@ router.post('/refresh', async (req: Request, res: Response) => {
       [newRefreshToken, decoded.userId],
     );
 
+    setAuthCookies(res, { accessToken: newAccessToken, refreshToken: newRefreshToken });
+
     res.json({
       accessToken: newAccessToken,
       refreshToken: newRefreshToken,
@@ -503,6 +523,26 @@ router.post('/refresh', async (req: Request, res: Response) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Token refresh failed' });
+  }
+});
+
+/**
+ * Выход: удаляем refresh-токен из БД (серверный отзыв) и чистим cookie.
+ * Даже если токена в cookie нет — отвечаем успехом, клиенту важно очистить состояние.
+ */
+router.post('/logout', async (req: Request, res: Response) => {
+  try {
+    const refreshToken = readRefreshToken(req);
+
+    if (refreshToken) {
+      await pool.query('DELETE FROM refresh_tokens WHERE token = $1', [refreshToken]);
+    }
+
+    clearAuthCookies(res);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Logout failed' });
   }
 });
 
