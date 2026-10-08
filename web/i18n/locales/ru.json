@@ -1,0 +1,60 @@
+{
+  "nav": {
+    "today": "Сегодня",
+    "habits": "Привычки",
+    "tips": "Советы",
+    "checklists": "Чек-листы",
+    "settings": "Настройки"
+  },
+  "home": {
+    "inProgress": "В процессе",
+    "challenges": "Челленджи",
+    "readyToStart": "Готово к началу",
+    "tomorrow": "Завтра",
+    "planChip": "Сегодняшний план",
+    "tasks": "задач",
+    "minutes": "минут",
+    "openPlan": "Открыть план",
+    "weekStats": "Статистика",
+    "weekStatsHint": "Посмотреть прогресс",
+    "completed": "Выполнено",
+    "seeProgress": "Посмотреть прогресс",
+    "allTasks": "Все задачи",
+    "taskManagement": "Управление задачами",
+    "schedule": "Расписание",
+    "achievements": "Достижения",
+    "achievementsDone": "выполнено",
+    "seeAll": "Посмотреть все",
+    "tipOfTheDay": "Совет дня",
+    "tipOfTheDayHint": "Отличная идея, чтобы сохранить настрой сегодня"
+  },
+  "auth": {
+    "loginTitle": "Вход",
+    "registerTitle": "Регистрация",
+    "email": "E-mail",
+    "password": "Пароль",
+    "login": "Войти",
+    "register": "Зарегистрироваться",
+    "logout": "Выйти",
+    "noAccount": "Нет аккаунта?",
+    "haveAccount": "Уже есть аккаунт?",
+    "loginFailed": "Не удалось войти. Проверьте e-mail и пароль.",
+    "registerFailed": "Не удалось зарегистрироваться.",
+    "profile": "Профиль",
+    "guestHint": "Войдите, чтобы видеть свой план и достижения."
+  },
+  "settings": {
+    "appearance": "Оформление",
+    "theme": "Тема",
+    "themeLight": "Светлая",
+    "themeDark": "Тёмная",
+    "themeSystem": "Как в системе",
+    "language": "Язык"
+  },
+  "state": {
+    "loading": "Загрузка…",
+    "error": "Не удалось загрузить данные",
+    "errorHint": "Проверь, что запущены база и API: docker compose up -d postgres и npm run dev:backend",
+    "empty": "Пока пусто"
+  }
+}

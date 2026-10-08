@@ -1,0 +1,170 @@
+/*
+ * Дизайн-токены Clean Planner.
+ *
+ * Значения сняты сэмплированием пикселей из макетов docs/design/mockups/*.jpg
+ * (гистограмма по изображению), а не подобраны «на глаз». Разбор — docs/PLAN.md §9.
+ *
+ * Схема: семантические токены. Светлая тема — в :root, тёмная — в .dark
+ * (класс ставит @nuxtjs/color-mode, тот же класс читает PrimeVue как darkModeSelector).
+ */
+
+:root {
+  /* ── Поверхности ─────────────────────────────────────────────────── */
+  --c-bg: #fef9f6; /* кремовый фон приложения */
+  --c-surface: #fcfcfc; /* белая карточка (прогресс) */
+  --c-surface-mint: #eff7f4; /* мятные карточки: челлендж, достижения, навигация */
+  --c-surface-warm: #fdf6ec; /* тёплая карточка «Статистика» */
+  --c-surface-task: #fceae4; /* розовая карточка задачи, «Совет дня» */
+  --c-surface-sunken: #f7f1ec; /* утопленные зоны, скелетоны */
+
+  /* ── Акценты ─────────────────────────────────────────────────────── */
+  --c-brand: #2a584d; /* тёмно-зелёный: FAB, кнопки челленджа, акценты */
+  --c-brand-hover: #234b41;
+  --c-brand-soft: #d5e0d0; /* заливка прогресс-бара в мятной карточке */
+  --c-accent: #d8664e; /* коралловый: главный CTA («Открыть план») */
+  --c-accent-hover: #c4573f;
+  --c-accent-soft: #fceade; /* фон чипа «Сегодняшний план» */
+  --c-amber: #c8893f; /* охристый: «Неделя», ссылки прогресса */
+  --c-amber-soft: #fceab4;
+  --c-lilac: #9078ba; /* иллюстрации */
+  --c-onbrand: #ffffff;
+
+  /* ── Текст ───────────────────────────────────────────────────────── */
+  --c-text: #22302c;
+  --c-text-muted: #8a8a8a;
+  --c-text-on-accent: #ffffff;
+
+  /* ── Служебное ───────────────────────────────────────────────────── */
+  --c-track: #e9edee; /* пустой прогресс-бар */
+  --c-border: rgb(34 48 44 / 8%);
+  --c-danger: #c0392b;
+  --c-lock: #e8806b;
+
+  /* ── Скругления ──────────────────────────────────────────────────── */
+  --r-card: 24px;
+  --r-row: 20px;
+  --r-thumb: 14px;
+  --r-chip: 12px;
+  --r-pill: 999px;
+
+  /* ── Типографика ─────────────────────────────────────────────────── */
+  --font-sans: 'Onest', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --fs-display: 1.75rem; /* заголовок дня */
+  --fs-title: 1.125rem;
+  --fs-body: 1rem;
+  --fs-caption: 0.875rem;
+  --lh-tight: 1.25;
+  --lh-body: 1.5;
+
+  /* ── Форма и раскладка ───────────────────────────────────────────── */
+  --shadow-card: 0 2px 8px rgb(34 48 44 / 6%);
+  --shadow-fab: 0 8px 20px rgb(42 88 77 / 28%);
+  --tap-min: 44px; /* минимальная зона нажатия */
+  --content-max: 640px;
+  --sidebar-w: 248px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+}
+
+/* ── Тёмная тема ─────────────────────────────────────────────────────
+ * Не инверсия: поверхности с зелёным подтоном, акценты светлее настолько,
+ * чтобы сохранить контраст текста и иконок (проверять по WCAG AA).
+ */
+.dark {
+  --c-bg: #121715;
+  --c-surface: #1a211e;
+  --c-surface-mint: #1c2724;
+  --c-surface-warm: #241e19;
+  --c-surface-task: #2a211e;
+  --c-surface-sunken: #171d1b;
+
+  --c-brand: #6fb3a0; /* светлее: на тёмном фоне тёмно-зелёный не читается */
+  --c-brand-hover: #7fc2af;
+  --c-brand-soft: #2f4a43;
+  --c-accent: #e3836b;
+  --c-accent-hover: #ec937c;
+  --c-accent-soft: #35251f;
+  --c-amber: #d9a45c;
+  --c-amber-soft: #3a2f1c;
+  --c-lilac: #a892cf;
+  --c-onbrand: #10201c;
+
+  --c-text: #e9efec;
+  --c-text-muted: #9aa5a0;
+  --c-text-on-accent: #1b1512;
+
+  --c-track: #26302c;
+  --c-border: rgb(233 239 236 / 10%);
+  --c-danger: #e2725f;
+  --c-lock: #e8806b;
+
+  --shadow-card: 0 2px 10px rgb(0 0 0 / 32%);
+  --shadow-fab: 0 8px 20px rgb(0 0 0 / 45%);
+}
+
+/* ── База ──────────────────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--c-bg);
+  color: var(--c-text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  font-weight: 700;
+  line-height: var(--lh-tight);
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--c-brand);
+}
+
+button {
+  font-family: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--c-brand);
+  outline-offset: 2px;
+}
+
+/* Уважаем системную настройку «меньше движения» */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
