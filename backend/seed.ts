@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 import pool from './db';
+import { seedChallenges } from './seed-challenges';
 
 dotenv.config();
 
@@ -155,10 +156,12 @@ const seed = async (): Promise<void> => {
       created += 1;
     }
 
+    const challenges = await seedChallenges(client);
+    console.log(`Челленджи: создано ${challenges.created}, уже существовало ${challenges.skipped}`);
+
     await client.query('COMMIT');
     console.log(`Шаблоны: создано ${created}, уже существовало ${skipped}`);
-  } catch (err) {
-    await client.query('ROLLBACK');
+  } catch (err) {    await client.query('ROLLBACK');
     throw err;
   } finally {
     client.release();

@@ -14,7 +14,7 @@ const themeOptions = [
 
 const logout = async () => {
   await auth.logout();
-  clearNuxtData(['today-plan', 'achievements-earned']);
+  clearNuxtData(['today-plan', 'achievements-earned', 'active-challenge']);
   await navigateTo(localePath('/'));
 };
 

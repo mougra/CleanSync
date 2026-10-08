@@ -13,8 +13,8 @@ const submit = async () => {
   error.value = false;
   try {
     await auth.login(email.value.trim(), password.value);
-    // Сбрасываем кеш страниц: после входа план дня и достижения должны перечитаться.
-    clearNuxtData(['today-plan', 'achievements-earned']);
+    // Сбрасываем кеш страниц: после входа план дня, достижения и челлендж должны перечитаться.
+    clearNuxtData(['today-plan', 'achievements-earned', 'active-challenge']);
     await navigateTo(localePath('/'));
   } catch {
     error.value = true;

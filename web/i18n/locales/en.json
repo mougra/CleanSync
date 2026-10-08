@@ -26,7 +26,18 @@
     "achievementsDone": "completed",
     "seeAll": "See all",
     "tipOfTheDay": "Tip of the day",
-    "tipOfTheDayHint": "A good idea to keep your mood up today"
+    "tipOfTheDayHint": "A good idea to keep your mood up today",
+    "currentDay": "Day",
+    "minutesLeft": "minutes left:"
+  },
+  "challenge": {
+    "day": "Day",
+    "start": "Start challenge",
+    "finish": "Finish challenge",
+    "back": "Back",
+    "signInToTrack": "Sign in to tick tasks and track your progress",
+    "allDone": "All tasks are done!",
+    "tasksLeft": "tasks left:"
   },
   "auth": {
     "loginTitle": "Sign in",

@@ -43,6 +43,40 @@ interface TodayPlan {
   };
 }
 
+interface ChallengeTask {
+  id: number;
+  title: string;
+  hint: string | null;
+  room: string | null;
+  estimated_minutes: number;
+  is_done: boolean;
+}
+
+interface ChallengeDay {
+  id: number;
+  day_number: number;
+  title: string;
+  tasks: ChallengeTask[];
+}
+
+interface ActiveChallenge {
+  userChallengeId: number;
+  challenge: {
+    id: number;
+    slug: string;
+    title: string;
+    description: string | null;
+    days_count: number;
+    tasks_count: number;
+  };
+  progress: { done: number; total: number; percent: number; minutesLeft: number; currentDay: number | null };
+  days: ChallengeDay[];
+}
+
+interface ActiveChallengeResponse {
+  active: ActiveChallenge | null;
+}
+
 const { t } = useI18n();
 const localePath = useLocalePath();
 const auth = useAuthStore();
@@ -68,6 +102,12 @@ const { data: earned } = await useAsyncData('achievements-earned', () =>
   auth.isAuthenticated ? api.request<Achievement[]>('/api/achievements/user') : Promise.resolve(null),
 );
 
+const { data: activeChallenge } = await useAsyncData('active-challenge', () =>
+  auth.isAuthenticated
+    ? api.request<ActiveChallengeResponse>('/api/challenges/active')
+    : Promise.resolve(null),
+);
+
 const seasonal = computed(() => templates.value?.seasonal ?? []);
 const featured = computed(() => seasonal.value[0] ?? null);
 const upcoming = computed(() => seasonal.value[1] ?? null);
@@ -84,6 +124,26 @@ const planTasks = computed(() => today.value?.summary.total_tasks ?? checklistTa
 const planMinutes = computed(() => today.value?.summary.total_estimated_time ?? 0);
 const completedTasks = computed(() => today.value?.summary.completed_tasks ?? 0);
 
+const active = computed(() => activeChallenge.value?.active ?? null);
+
+/** День челленджа, который пользователь проходит сейчас. */
+const currentDay = computed(() => {
+  const state = active.value;
+  if (!state?.progress.currentDay) {
+    return null;
+  }
+  return state.days.find((day) => day.day_number === state.progress.currentDay) ?? null;
+});
+
+const dayTaskCount = computed(() => currentDay.value?.tasks.length ?? planTasks.value);
+const dayMinutesLeft = computed(() => {
+  const day = currentDay.value;
+  if (!day) {
+    return planMinutes.value;
+  }
+  return day.tasks.filter((task) => !task.is_done).reduce((sum, task) => sum + task.estimated_minutes, 0);
+});
+
 useSeoMeta({
   title: () => t('nav.today'),
   description: () =>
@@ -98,8 +158,8 @@ useSeoMeta({
       <small>{{ t('state.errorHint') }}</small>
     </p>
 
-    <!-- Карточка активного/ближайшего челленджа -->
-    <section v-if="featured" class="card card--mint card--challenge">
+    <!-- Активный челлендж, а для гостя — ближайший из шаблонов -->
+    <section v-if="active || featured" class="card card--mint card--challenge">
       <div class="card__head">
         <span class="badge">
           <i class="pi pi-circle-fill" aria-hidden="true" />
@@ -107,11 +167,19 @@ useSeoMeta({
         </span>
         <span class="card__art" aria-hidden="true">⚑</span>
       </div>
-      <h2 class="card__title">{{ featured.title }}</h2>
+      <h2 class="card__title">{{ active?.challenge.title ?? featured?.title }}</h2>
       <div class="progress">
-        <div class="progress__fill" />
+        <div class="progress__fill" :style="{ width: `${active?.progress.percent ?? 0}%` }" />
       </div>
-      <p class="card__meta">{{ featured.steps.length }} / {{ featured.steps.length }} · 0%</p>
+      <p class="card__meta">
+        {{ active?.progress.done ?? 0 }} /
+        {{ active?.progress.total ?? featured?.steps.length ?? 0 }} ·
+        {{ active?.progress.percent ?? 0 }}%
+      </p>
+      <p v-if="active?.progress.currentDay" class="card__text">
+        {{ t('home.currentDay') }} {{ active.progress.currentDay }}:
+        {{ t('home.minutesLeft') }} {{ active.progress.minutesLeft }}
+      </p>
     </section>
 
     <!-- Следующий челлендж -->
@@ -130,10 +198,17 @@ useSeoMeta({
 
       <template v-if="auth.isAuthenticated">
         <p class="plan__count">
-          <strong>{{ planTasks }}</strong>
+          <strong>{{ dayTaskCount }}</strong>
           <span>{{ t('home.tasks') }}</span>
         </p>
-        <p v-if="planMinutes" class="plan__minutes">{{ planMinutes }} {{ t('home.minutes') }}</p>
+        <p v-if="dayMinutesLeft" class="plan__minutes">{{ dayMinutesLeft }} {{ t('home.minutes') }}</p>
+        <NuxtLink
+          v-if="active"
+          :to="localePath(`/challenges/${active.challenge.slug}`)"
+          class="btn btn--accent"
+        >
+          {{ t('home.openPlan') }}
+        </NuxtLink>
       </template>
 
       <template v-else>
@@ -143,7 +218,12 @@ useSeoMeta({
         </NuxtLink>
       </template>
 
-      <ul v-if="checklists.length" class="plan__list">
+      <ul v-if="currentDay" class="plan__list">
+        <li v-for="task in currentDay.tasks.filter((item) => !item.is_done)" :key="task.id">
+          {{ task.title }}
+        </li>
+      </ul>
+      <ul v-else-if="checklists.length" class="plan__list">
         <li v-for="checklist in checklists" :key="checklist.title">
           {{ checklist.title }} — {{ checklist.items.length }}
         </li>

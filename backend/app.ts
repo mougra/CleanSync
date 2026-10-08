@@ -7,6 +7,7 @@ import tasksRoutes from './routes/tasks';
 import achievementsRoutes from './routes/achievements';
 import analyticsRoutes from './routes/analytics';
 import templatesRoutes from './routes/templates';
+import challengesRoutes from './routes/challenges';
 import pool from './db';
 import { csrfProtection } from './cookies';
 
@@ -42,5 +43,6 @@ app.use('/api/tasks', tasksRoutes);
 app.use('/api/achievements', achievementsRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/templates', templatesRoutes);
+app.use('/api/challenges', challengesRoutes);
 
 export default app;
