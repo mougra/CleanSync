@@ -1,161 +1,75 @@
-# Clean Planner
+# Clean Planner / CleanSync
 
-Полноценное веб-приложение для управления графиками уборки с JWT авторизацией.
+Веб-приложение для домашней уборки: челленджи по дням с прогрессом, инсайты-статьи, чек-листы, достижения и статистика.
 
 ## Стек
 
-- **Backend**: Node.js + Express + PostgreSQL
-- **Frontend**: Vue 3 + Vite + Vue Router
-- **Auth**: JWT (Access + Refresh tokens)
-
-## Структура проекта
-
-```
-clean-planner/
-├── backend/              # Express API
-│   ├── server.js        # Main server
-│   ├── db.js            # Database connection
-│   ├── auth.js          # JWT utilities
-│   ├── schema.sql       # Database schema
-│   ├── routes/
-│   │   ├── auth.js      # Auth endpoints
-│   │   ├── schedules.js # Schedules CRUD
-│   │   └── tasks.js     # Tasks CRUD
-│   ├── package.json
-│   ├── .env.example
-│   └── README.md
-│
-├── frontend/             # Vue 3 приложение
-│   ├── src/
-│   │   ├── App.vue
-│   │   ├── main.ts
-│   │   ├── pages/       # Page components
-│   │   ├── components/  # Reusable components
-│   │   ├── router/      # Vue Router config
-│   │   └── styles/
-│   ├── package.json
-│   ├── vite.config.js
-│   └── README.md
-│
-├── shared/              # (опционально) Общие типы/утилиты
-├── package.json         # Root package (npm workspaces)
-├── CLAUDE.md           # Документация
-└── .gitignore
-```
+| Слой | Технологии |
+|---|---|
+| Приложение | Nuxt 4.4.8 (SSR), Vue 3.5, Pinia 4, шрифт Onest, тёмная тема, i18n RU/EN, авторизация на httpOnly cookies |
+| Прежний SPA | Vue 3 + Vite 6, @tanstack/vue-query — эталон до паритета, затем удаляется |
+| Backend | Node.js, Express 4, TypeScript (tsx), PostgreSQL, JWT (access + refresh), nodemailer |
+| Качество | ESLint 9 (flat config), Prettier, Vitest (+ supertest), Playwright |
+| Данные | Миграции `node-pg-migrate`, идемпотентный сид |
+| Инфра | Docker Compose (PostgreSQL), concurrently |
 
 ## Быстрый старт
 
-### Требования
-
-- Node.js (v16+)
-- PostgreSQL (локально или Docker)
-
-### 1. Установка и настройка БД
+Требования: Node.js 20+, Docker.
 
 ```bash
-# Docker (опционально)
-docker run --name postgres -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d postgres
+npm run install:all                            # зависимости всех пакетов
 
-# Создание БД
-psql -U postgres -c "CREATE DATABASE clean_planner;"
-psql -U postgres -d clean_planner -f backend/schema.sql
+docker compose up -d postgres                  # база данных
+
+cp backend/.env.example backend/.env           # и поправь секреты
+cp web/.env.example web/.env                   # опционально
+
+npm --prefix backend run db:setup              # миграции + сид
+
+npm run dev                                    # API + приложение
 ```
 
-### 2. Backend
+- API — <http://localhost:5000>, состояние БД видно на `GET /api/health`
+- Приложение (Nuxt, SSR) — <http://localhost:3000>
+- Прежний SPA, если нужен для сравнения — `npm run dev:legacy` → <http://localhost:5173>
 
-```bash
-cd backend
-npm install
-cp .env.example .env
-# Отредактируйте .env если нужно
+## Скрипты
 
-npm run dev
+| Команда | Что делает |
+|---|---|
+| `npm run dev` | Express + Nuxt параллельно |
+| `npm run dev:legacy` | Express + прежний SPA |
+| `npm run typecheck` | `tsc --noEmit` + `nuxt typecheck` + `vue-tsc --noEmit` |
+| `npm run lint` | ESLint по трём пакетам |
+| `npm test` | Vitest (backend + прежний SPA) |
+| `npm run build` | production-сборка Nuxt |
+| `npm --prefix backend run migrate:up` | применить миграции |
+| `npm --prefix backend run seed` | справочные данные (достижения, шаблоны) |
+| `npm --prefix backend run db:setup` | `migrate:up` + `seed` |
+
+## Структура
+
+```
+backend/    Express API: app.ts (сборка приложения), server.ts (запуск), auth.ts, db.ts,
+            seed.ts, migrations/, routes/, services/, tests/
+web/        Nuxt 4 (SSR): nuxt.config.ts, app/{pages,plugins,assets/css/tokens.css}
+frontend/   прежний Vue 3 SPA — эталон до паритета, затем удаляется
+shared/     Общие типы
+docs/       PLAN.md — план разработки и открытые вопросы
+            design/mockups/ — 10 макетов интерфейса с описью
 ```
 
-Backend будет доступен на `http://localhost:5000`
+## Состояние проекта
 
-### 3. Frontend
+**Фаза 0 (стабилизация) закрыта:** исправлены критичные баги (потеря владельца графиков при старте сервера, дублирование шаблонов), внедрены миграции и идемпотентный сид, настроены линт и тесты, `typecheck`/`lint`/`test`/`build` проходят, API проверен end-to-end.
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+**Фаза 0.5 (каркас Nuxt):** пакет `web/` создан и проверен — SSR отдаёт данные из Express, дизайн-токены сняты с макетов и уже в коде, шрифт Onest подключён.
 
-Frontend будет доступен на `http://localhost:5173`
+**Фаза 1 (дизайн-система, в работе):** светлая и тёмная тема с переключателем, i18n RU/EN с автопоределением и `hreflang`, шелл приложения (нижняя навигация на мобильном, боковое меню на десктопе), главная «Сегодня» и разделы на живых данных API.
 
-## Запуск обоих одновременно (из корня)
+Дальше: перенос авторизации на httpOnly cookies (после него план дня и достижения станут персональными), библиотека компонентов, пресет PrimeVue на токенах. Затем Фаза 3 — челленджи: таблицы дней и задач, сид «Весенней уборки» (7 дней, 35 задач) из макетов.
 
-```bash
-npm install
-npm run dev
-```
+**Подробности, план по фазам, SEO-стратегия, дизайн-токены и список открытых вопросов — в [docs/PLAN.md](docs/PLAN.md).**
 
-## API Endpoints
-
-### Auth
-
-- `POST /api/auth/register` - Регистрация
-- `POST /api/auth/login` - Вход
-- `POST /api/auth/refresh` - Обновить токен
-
-### Schedules (требуется авторизация)
-
-- `GET /api/schedules` - Получить все графики
-- `GET /api/schedules/:id` - Получить график с задачами
-- `POST /api/schedules` - Создать график
-- `PUT /api/schedules/:id` - Обновить график
-- `DELETE /api/schedules/:id` - Удалить график
-
-### Tasks (требуется авторизация)
-
-- `POST /api/tasks` - Создать задачу
-- `PUT /api/tasks/:id` - Обновить задачу
-- `DELETE /api/tasks/:id` - Удалить задачу
-
-## Использование
-
-1. **Зарегистрируйтесь** на странице `/register`
-2. **Войдите** на странице `/login`
-3. **Создайте график** кликнув "+ Новый график"
-4. **Просмотрите и отредактируйте** графики
-
-## Переменные окружения
-
-### Backend (.env)
-
-```env
-DB_USER=postgres
-DB_PASSWORD=postgres
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=clean_planner
-ACCESS_TOKEN_SECRET=your_secret_key_here
-REFRESH_TOKEN_SECRET=your_secret_key_here
-PORT=5000
-NODE_ENV=development
-```
-
-## Безопасность
-
-- Пароли хешируются с bcryptjs
-- JWT tokens используются для авторизации
-- Refresh tokens хранятся в БД
-- Все защищенные endpoints проверяют access token
-
-## Дальнейшее развитие
-
-- [ ] Страница деталей графика с управлением задачами
-- [ ] Визуализация графиков (календарь/диаграммы)
-- [ ] Напоминания и уведомления
-- [ ] Экспорт в PDF
-- [ ] Мобильная версия
-- [ ] Юнит тесты (Jest, Vitest)
-- [ ] E2E тесты (Playwright, Cypress)
-- [ ] Docker Compose для полного стека
-
-## Документация
-
-- Подробная информация в [backend/README.md](./backend/README.md)
-- Подробная информация в [frontend/README.md](./frontend/README.md)
-- Полная документация в [CLAUDE.md](./CLAUDE.md)
+Документация для разработки и агентов — в [CLAUDE.md](CLAUDE.md).
