@@ -98,6 +98,8 @@ export default defineNuxtConfig({
       '/reset-password',
       '/forgot-password',
       '/settings',
+      '/analytics',
+      '/achievements',
     ],
   },
 

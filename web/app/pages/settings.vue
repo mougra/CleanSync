@@ -5,6 +5,7 @@ const localePath = useLocalePath();
 const auth = useAuthStore();
 // Не деструктурируем: preference — пара геттер/сеттер, деструктуризация ломает запись.
 const colorMode = useColorMode();
+const api = useApi();
 
 const themeOptions = [
   { value: 'light', icon: 'pi-sun', label: 'settings.themeLight' },
@@ -49,6 +50,74 @@ const testPush = async () => {
 const disablePush = async () => {
   pushMessage.value = '';
   await disable();
+};
+
+// Смена пароля. Сервер требует подтверждённую почту, поэтому при 403
+// предлагаем отправить письмо повторно, а не оставляем тупик.
+const currentPassword = ref('');
+const newPassword = ref('');
+const repeatPassword = ref('');
+const passwordBusy = ref(false);
+const passwordMessage = ref('');
+const passwordError = ref(false);
+const needsEmailConfirmation = ref(false);
+
+const canSubmitPassword = computed(
+  () => currentPassword.value.length > 0 && newPassword.value.length >= 8,
+);
+
+const changePassword = async () => {
+  passwordMessage.value = '';
+  passwordError.value = false;
+
+  if (newPassword.value !== repeatPassword.value) {
+    passwordError.value = true;
+    passwordMessage.value = t('auth.passwordMismatch');
+    return;
+  }
+
+  passwordBusy.value = true;
+  try {
+    await api.request('/api/auth/change-password', {
+      method: 'POST',
+      body: { currentPassword: currentPassword.value, newPassword: newPassword.value },
+    });
+
+    passwordMessage.value = t('settings.passwordChanged');
+    currentPassword.value = '';
+    newPassword.value = '';
+    repeatPassword.value = '';
+  } catch (err) {
+    const failure = err as { statusCode?: number; response?: { status?: number } };
+    const status = failure.statusCode ?? failure.response?.status;
+
+    passwordError.value = true;
+
+    if (status === 401) {
+      passwordMessage.value = t('settings.passwordWrong');
+    } else if (status === 403) {
+      needsEmailConfirmation.value = true;
+      passwordMessage.value = t('settings.passwordNeedsEmail');
+    } else {
+      passwordMessage.value = t('state.error');
+    }
+  } finally {
+    passwordBusy.value = false;
+  }
+};
+
+const resendConfirmation = async () => {
+  passwordBusy.value = true;
+  try {
+    await api.request('/api/auth/resend-confirmation', {
+      method: 'POST',
+      body: { email: auth.user?.email },
+    });
+    passwordError.value = false;
+    passwordMessage.value = t('settings.confirmationSent');
+  } finally {
+    passwordBusy.value = false;
+  }
 };
 
 useSeoMeta({ title: () => t('nav.settings') });
@@ -152,6 +221,67 @@ useSeoMeta({ title: () => t('nav.settings') });
         </div>
       </template>
     </section>
+
+    <!-- Смена пароля: доступна только вошедшему с подтверждённой почтой -->
+    <section v-if="auth.isAuthenticated" class="card">
+      <h2 class="card__title">{{ t('settings.password') }}</h2>
+      <p class="card__text">{{ t('settings.passwordHint') }}</p>
+
+      <form class="form" @submit.prevent="changePassword">
+        <label class="field">
+          <span class="field__label">{{ t('settings.currentPassword') }}</span>
+          <input
+            v-model="currentPassword"
+            class="field__input"
+            type="password"
+            autocomplete="current-password"
+            required
+          >
+        </label>
+
+        <label class="field">
+          <span class="field__label">{{ t('auth.newPassword') }}</span>
+          <input
+            v-model="newPassword"
+            class="field__input"
+            type="password"
+            minlength="8"
+            autocomplete="new-password"
+            required
+          >
+        </label>
+
+        <label class="field">
+          <span class="field__label">{{ t('auth.passwordRepeat') }}</span>
+          <input
+            v-model="repeatPassword"
+            class="field__input"
+            type="password"
+            minlength="8"
+            autocomplete="new-password"
+            required
+          >
+        </label>
+
+        <p v-if="passwordMessage" class="card__text" :class="{ 'card__text--warn': passwordError }">
+          {{ passwordMessage }}
+        </p>
+
+        <div class="actions">
+          <AppButton variant="filled" type="submit" :disabled="!canSubmitPassword || passwordBusy">
+            {{ t('settings.passwordChange') }}
+          </AppButton>
+          <AppButton
+            v-if="needsEmailConfirmation"
+            variant="outline"
+            :disabled="passwordBusy"
+            @click="resendConfirmation"
+          >
+            {{ t('settings.resendConfirmation') }}
+          </AppButton>
+        </div>
+      </form>
+    </section>
   </div>
 </template>
 
@@ -193,6 +323,22 @@ useSeoMeta({ title: () => t('nav.settings') });
 .field__label {
   color: var(--c-text-muted);
   font-size: var(--fs-caption);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.field__input {
+  min-height: 52px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-row);
+  background: var(--c-surface);
+  color: var(--c-text);
+  font: inherit;
 }
 
 .segmented {

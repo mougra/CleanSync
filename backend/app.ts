@@ -26,10 +26,11 @@ import { csrfProtection } from './cookies';
 const app = express();
 
 /**
- * За обратным прокси (Caddy в проде) реальный IP приходит в X-Forwarded-For.
- * Без доверия к прокси rate-limit считал бы все запросы одним клиентом.
+ * За обратным прокси (Nitro devProxy локально, Caddy в проде) реальный IP
+ * приходит в X-Forwarded-For. Без доверия к прокси rate-limit считал бы все
+ * запросы одним клиентом и ругался на неожиданный заголовок.
  */
-if (process.env.TRUST_PROXY === 'true') {
+if (process.env.TRUST_PROXY === 'true' || process.env.NODE_ENV !== 'production') {
   app.set('trust proxy', 1);
 }
 

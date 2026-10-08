@@ -235,7 +235,7 @@ useSeoMeta({
         <p class="widget__text">{{ t('home.weekStatsHint') }}</p>
         <p class="widget__value">{{ completedTasks }}</p>
         <p class="widget__caption">{{ t('home.completed') }}</p>
-        <NuxtLink :to="localePath('/habits')" class="widget__link">
+        <NuxtLink :to="localePath('/analytics')" class="widget__link">
           {{ t('home.seeProgress') }}
           <i class="pi pi-chevron-right" aria-hidden="true" />
         </NuxtLink>
