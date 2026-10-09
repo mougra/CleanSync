@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Отменяем предыдущий прогон той же ветки: смысла держать оба нет
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Типы, линт, тесты, сборка
+    runs-on: ubuntu-latest
+
+    # Тесты API работают с настоящей базой: поднимаем Postgres и накатываем миграции
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: clean_planner_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_NAME: clean_planner_test
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/clean_planner_test
+      ACCESS_TOKEN_SECRET: ci_access_secret_ci_access_secret
+      REFRESH_TOKEN_SECRET: ci_refresh_secret_ci_refresh_secret
+      NODE_ENV: test
+      # Публичный адрес нужен сборке: canonical, карта сайта, письма
+      NUXT_PUBLIC_SITE_URL: https://example.com
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
+            web/package-lock.json
+
+      # Отдельные lock-файлы в каждом пакете: ставим именно по ним, а не npm install
+      - name: Установка зависимостей
+        run: |
+          npm ci
+          npm --prefix backend ci
+          npm --prefix web ci
+
+      - name: Схема базы
+        run: npm --prefix backend run migrate:up
+
+      - name: Типы
+        run: npm run typecheck
+
+      - name: Линт
+        run: npm run lint
+
+      - name: Тесты
+        run: npm test
+
+      - name: Сборка приложения
+        run: npm run build
+
+  docker:
+    name: Сборка Docker-образов
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Образы собираются, но не публикуются: проверяем, что Dockerfile не сломан
+      - name: backend
+        run: docker build --tag cleansync-backend:ci ./backend
+
+      - name: web
+        run: docker build --tag cleansync-web:ci ./web

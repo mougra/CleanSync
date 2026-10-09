@@ -15,6 +15,8 @@ import checklistsRoutes from './routes/checklists';
 import pushRoutes from './routes/push';
 import pool from './db';
 import { csrfProtection } from './cookies';
+import { sentryEnabled } from './services/observability';
+import * as Sentry from '@sentry/node';
 
 /**
  * Express-приложение без запуска сервера: так его можно импортировать в тестах
@@ -118,5 +120,19 @@ app.use('/api/challenges', challengesRoutes);
 app.use('/api/habits', habitsRoutes);
 app.use('/api/checklists', checklistsRoutes);
 app.use('/api/push', pushRoutes);
+
+/** Неизвестный маршрут API отвечает JSON, а не HTML-страницей Express. */
+app.use('/api', (req: Request, res: Response) => {
+  res.status(404).json({ error: 'Not found' });
+});
+
+/**
+ * Обработчик ошибок Sentry ставится последним: он перехватывает всё, что
+ * долетело до конца цепочки, отправляет событие и отдаёт клиенту 500.
+ * Без DSN Sentry не активирован — работает штатный обработчик Express.
+ */
+if (sentryEnabled()) {
+  Sentry.setupExpressErrorHandler(app);
+}
 
 export default app;

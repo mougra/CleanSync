@@ -2,12 +2,16 @@ import dotenv from 'dotenv';
 import app from './app';
 import pool from './db';
 import { startReminderScheduler } from './services/push';
+import { initObservability } from './services/observability';
 
 dotenv.config();
 
 const PORT = process.env.PORT || 5000;
 
 const start = async (): Promise<void> => {
+  // Мониторинг поднимаем до первого запроса: падения на старте тоже должны попадать в Sentry
+  initObservability();
+
   try {
     await pool.query('SELECT 1');
     console.log('PostgreSQL: соединение установлено');

@@ -22,10 +22,10 @@ export default defineNuxtConfig({
   ],
 
   /**
-   * SEO-фундамент: canonical, og-теги, sitemap, robots, schema.org.
-   * `site.url` — база для canonical и карты сайта; в продакшене задаётся
-   * переменной NUXT_PUBLIC_SITE_URL (тот же домен, что у API: cookie
-   * ходят только внутри одного origin).
+   * Sentry подключается напрямую через SDK, а не модулем `@sentry/nuxt`:
+   * модуль тянет build-плагины и растягивал production-сборку с полутора минут
+   * до пятнадцати. Оба обработчика включаются переменной NUXT_PUBLIC_SENTRY_DSN —
+   * см. app/plugins/sentry.client.ts и server/plugins/sentry.ts.
    */
   seo: {
     // Проверка дублей в head ругается на значения, которые Nuxt ставит сам
@@ -192,7 +192,12 @@ export default defineNuxtConfig({
      * Переопределяется переменной окружения NUXT_API_BASE.
      */
     apiBase: 'http://localhost:5000',
-    public: {},
+    public: {
+      // Пусто = мониторинг выключен (значения приходят из окружения:
+      // NUXT_PUBLIC_SENTRY_DSN и NUXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE)
+      sentryDsn: '',
+      sentryTracesSampleRate: 0.1,
+    },
   },
 
   fonts: {
