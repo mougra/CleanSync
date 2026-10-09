@@ -38,6 +38,9 @@ const showCalendar = computed(() => !hideCalendarRoutes.some((path) => route.pat
       <!-- Уведомление о новом достижении живёт в раскладке: его может вызвать
            действие на любой странице (задача, привычка, пункт чек-листа). -->
       <AchievementToast />
+
+      <!-- Информирование об использовании cookie: у нас только технически необходимые -->
+      <CookieBanner />
     </div>
   </div>
 </template>

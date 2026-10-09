@@ -66,6 +66,22 @@
     "serverText": "We already know about the problem. Try reloading in a minute.",
     "home": "Go home"
   },
+  "legal": {
+    "updatedAt": "Updated",
+    "operator": "Data controller",
+    "status": "Status",
+    "name": "Name",
+    "inn": "Tax ID",
+    "email": "Email",
+    "address": "Address",
+    "ruOnly": "Legal documents are available in Russian only for now.",
+    "notFound": "Document not found"
+  },
+  "cookies": {
+    "text": "We use only strictly necessary cookies: sign-in, request protection, theme and language.",
+    "more": "Learn more",
+    "accept": "Got it"
+  },
   "achievements": {
     "title": "Achievements",
     "progress": "of {total} earned",
@@ -127,7 +143,9 @@
       "kitchen": "Kitchen",
       "bathroom": "Bathroom",
       "habits": "Habits",
-      "planning": "Planning"
+      "planning": "Planning",
+      "family": "Family",
+      "pets": "Pets"
     }
   },
   "habitCategory": {
@@ -234,6 +252,8 @@
     "resetFailed": "Could not update the password: the link expired",
     "toLogin": "Go to sign in",
     "toHome": "Go home",
+    "terms": "I agree to the privacy policy",
+    "termsRequired": "Please accept the privacy policy — sign-up is not possible without it",
     "forgotTitle": "Reset password",
     "forgotHint": "Enter the email you signed up with and we will send a link for a new password.",
     "forgotSubmit": "Send link",
@@ -262,6 +282,11 @@
     "passwordNeedsEmail": "Confirm your email first — the password cannot be changed without it.",
     "resendConfirmation": "Send the email again",
     "confirmationSent": "The email is on its way — check your inbox and spam folder.",
+    "danger": "Delete account",
+    "dangerHint": "Lists, habits, challenge progress and achievements will be deleted permanently.",
+    "deleteAccount": "Delete account permanently",
+    "deleteAccountConfirm": "Enter your password to confirm deletion",
+    "deleteAccountDone": "Account deleted",
     "themeLight": "Light",
     "themeDark": "Dark",
     "themeSystem": "System",

@@ -19,11 +19,32 @@ export default defineContentConfig({
         title: z.string(),
         description: z.string(),
         cover: z.string(),
-        category: z.enum(['home', 'kitchen', 'bathroom', 'habits', 'planning']),
+        category: z.enum(['home', 'kitchen', 'bathroom', 'habits', 'planning', 'family', 'pets']),
         icon: z.string().default('pi-lightbulb'),
         minutes: z.number().int().positive().default(10),
         publishedAt: z.string(),
         order: z.number().int().default(100),
+      }),
+    }),
+
+    /**
+     * Юридические документы. Реквизиты оператора — в front-matter: их нужно
+     * заполнить перед публикацией, и лучше в одном месте, чем по тексту.
+     */
+    legal: defineCollection({
+      type: 'page',
+      source: 'legal/*.md',
+      schema: z.object({
+        title: z.string(),
+        description: z.string(),
+        updatedAt: z.string(),
+        operator: z.object({
+          status: z.string(),
+          name: z.string(),
+          inn: z.string(),
+          email: z.string(),
+          address: z.string(),
+        }),
       }),
     }),
   },

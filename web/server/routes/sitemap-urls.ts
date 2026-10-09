@@ -15,6 +15,10 @@ export default defineSitemapEventHandler(async (event) => {
     .select('path', 'title', 'publishedAt')
     .all();
 
+  // Юридические документы лежат в динамическом маршруте /privacy,
+  // поэтому в карту их добавляем вручную.
+  const legal = await queryCollection(event, 'legal').select('path', 'updatedAt').all();
+
   let challenges: Array<{ slug: string }>;
   try {
     challenges = await $fetch<Array<{ slug: string }>>(`${config.apiBase}/api/challenges`);
@@ -24,6 +28,10 @@ export default defineSitemapEventHandler(async (event) => {
   }
 
   return [
+    ...legal.map((document) => ({
+      loc: document.path,
+      lastmod: document.updatedAt ?? undefined,
+    })),
     ...articles.map((article) => ({
       loc: article.path,
       lastmod: article.publishedAt ?? undefined,
