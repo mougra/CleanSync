@@ -67,11 +67,20 @@ export const useAuthStore = defineStore('auth', () => {
     ready.value = true;
   };
 
-  const register = async (email: string, password: string): Promise<string> => {
+  /**
+   * Регистрация. Согласие на обработку персональных данных передаём
+   * обязательным полем: сервер без него отвечает 400 и не создаёт аккаунт,
+   * а при согласии сохраняет дату (152-ФЗ).
+   */
+  const register = async (
+    email: string,
+    password: string,
+    acceptTerms: boolean,
+  ): Promise<string> => {
     await ensureCsrf();
     const response = await useApi().request<{ message?: string }>('/api/auth/register', {
       method: 'POST',
-      body: { email, password },
+      body: { email, password, acceptTerms },
     });
     return response.message ?? '';
   };

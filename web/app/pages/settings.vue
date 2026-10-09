@@ -120,6 +120,55 @@ const resendConfirmation = async () => {
   }
 };
 
+/**
+ * Удаление аккаунта. Действие необратимое, поэтому спрашиваем пароль
+ * и подтверждение; сервер удаляет все связанные данные каскадом (152-ФЗ).
+ */
+const deletePassword = ref('');
+const deleting = ref(false);
+const deleteMessage = ref('');
+const deleteError = ref(false);
+
+const deleteAccount = async () => {
+  if (!deletePassword.value) {
+    return;
+  }
+
+  if (!window.confirm(t('settings.dangerHint'))) {
+    return;
+  }
+
+  deleting.value = true;
+  deleteMessage.value = '';
+  deleteError.value = false;
+
+  try {
+    await api.request('/api/auth/account', {
+      method: 'DELETE',
+      body: { password: deletePassword.value },
+    });
+
+    // Аккаунта больше нет — сессия на сервере уже недействительна,
+    // поэтому ошибку выхода игнорируем и просто чистим локальное состояние.
+    try {
+      await auth.logout();
+    } catch {
+      auth.user = null;
+    }
+
+    clearNuxtData();
+    await navigateTo(localePath('/'));
+  } catch (err) {
+    const failure = err as { statusCode?: number; response?: { status?: number } };
+    const status = failure.statusCode ?? failure.response?.status;
+
+    deleteError.value = true;
+    deleteMessage.value = status === 401 ? t('settings.passwordWrong') : t('state.error');
+  } finally {
+    deleting.value = false;
+  }
+};
+
 useSeoMeta({ title: () => t('nav.settings') });
 </script>
 
@@ -282,6 +331,35 @@ useSeoMeta({ title: () => t('nav.settings') });
         </div>
       </form>
     </section>
+
+    <!-- Удаление аккаунта: право на удаление данных (152-ФЗ) -->
+    <section v-if="auth.isAuthenticated" class="card card--danger">
+      <h2 class="card__title">{{ t('settings.danger') }}</h2>
+      <p class="card__text">{{ t('settings.dangerHint') }}</p>
+
+      <label class="field">
+        <span class="field__label">{{ t('settings.deleteAccountConfirm') }}</span>
+        <input
+          v-model="deletePassword"
+          class="field__input"
+          type="password"
+          autocomplete="current-password"
+        >
+      </label>
+
+      <p v-if="deleteMessage" class="card__text" :class="{ 'card__text--warn': deleteError }">
+        {{ deleteMessage }}
+      </p>
+
+      <AppButton
+        variant="outline"
+        block
+        :disabled="!deletePassword || deleting"
+        @click="deleteAccount"
+      >
+        {{ t('settings.deleteAccount') }}
+      </AppButton>
+    </section>
   </div>
 </template>
 
@@ -312,6 +390,11 @@ useSeoMeta({ title: () => t('nav.settings') });
 
 .card__text--warn {
   color: var(--c-danger);
+}
+
+/* Опасная зона: удаление аккаунта выделяем фоном, чтобы не нажать случайно */
+.card--danger {
+  background: var(--c-surface-warm);
 }
 
 .field {

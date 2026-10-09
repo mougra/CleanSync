@@ -116,10 +116,16 @@ router.get('/csrf', (req: Request, res: Response) => {
 // Register
 router.post('/register', async (req: Request, res: Response) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, acceptTerms } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password required' });
+    }
+
+    // Согласие на обработку персональных данных обязательно (152-ФЗ):
+    // без него регистрация не проходит, а факт согласия фиксируем в базе.
+    if (acceptTerms !== true) {
+      return res.status(400).json({ error: 'Terms acceptance required' });
     }
 
     // Check if user exists
@@ -138,7 +144,9 @@ router.post('/register', async (req: Request, res: Response) => {
     const hashedPassword = await bcryptjs.hash(password, 10);
 
     const result = await pool.query(
-      'INSERT INTO users (email, password, username, avatar_url, email_confirm_token) VALUES ($1, $2, $3, $4, $5) RETURNING id, email',
+      `INSERT INTO users (email, password, username, avatar_url, email_confirm_token, terms_accepted_at)
+       VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+       RETURNING id, email`,
       [email, hashedPassword, username, avatarUrl, emailConfirmToken],
     );
 
@@ -483,6 +491,46 @@ router.post('/change-password', authMiddleware, async (req: Request, res: Respon
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to change password' });
+  }
+});
+
+/**
+ * Удаление аккаунта вместе со всеми данными.
+ *
+ * Это право субъекта персональных данных на удаление (152-ФЗ), поэтому кнопка
+ * в настройках должна работать без обращения в поддержку. Пароль спрашиваем
+ * потому, что действие необратимо: связанные записи удаляются каскадом.
+ */
+router.delete('/account', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { password } = req.body;
+
+    if (!password) {
+      return res.status(400).json({ error: 'Password required' });
+    }
+
+    const userResult = await pool.query('SELECT password FROM users WHERE id = $1', [
+      req.userId,
+    ]);
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const validPassword = await bcryptjs.compare(password, userResult.rows[0].password);
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Password is incorrect' });
+    }
+
+    // Графики, задачи, привычки, челленджи, достижения и push-подписки
+    // удаляются каскадом по внешним ключам.
+    await pool.query('DELETE FROM users WHERE id = $1', [req.userId]);
+    clearAuthCookies(res);
+
+    res.json({ deleted: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete account' });
   }
 });
 

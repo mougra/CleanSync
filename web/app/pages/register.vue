@@ -5,6 +5,7 @@ const localePath = useLocalePath();
 
 const email = ref('');
 const password = ref('');
+const acceptedTerms = ref(false);
 const pending = ref(false);
 const error = ref(false);
 const successMessage = ref('');
@@ -14,8 +15,9 @@ const submit = async () => {
   error.value = false;
   try {
     // Регистрация не логинит: бэкенд включает «мягкое» подтверждение e-mail
-    // и возвращает только сообщение.
-    successMessage.value = await auth.register(email.value.trim(), password.value);
+    // и возвращает только сообщение. Согласие на обработку данных обязательно:
+    // сервер отклонит запрос без него и запишет дату согласия.
+    successMessage.value = await auth.register(email.value.trim(), password.value, acceptedTerms.value);
   } catch {
     error.value = true;
   } finally {
@@ -56,9 +58,17 @@ useSeoMeta({ title: () => t('auth.registerTitle') });
         >
       </label>
 
+      <label class="consent">
+        <input v-model="acceptedTerms" type="checkbox" required >
+        <span>
+          {{ t('auth.terms') }}
+          <NuxtLink :to="localePath('/privacy')" class="consent__link">{{ t('cookies.more') }}</NuxtLink>
+        </span>
+      </label>
+
       <p v-if="error" class="auth__error">{{ t('auth.registerFailed') }}</p>
 
-      <button type="submit" class="btn" :disabled="pending">
+      <button type="submit" class="btn" :disabled="pending || !acceptedTerms">
         {{ pending ? t('state.loading') : t('auth.register') }}
       </button>
     </form>
@@ -111,6 +121,29 @@ useSeoMeta({ title: () => t('auth.registerTitle') });
   background: var(--c-surface);
   color: var(--c-text);
   font: inherit;
+}
+
+/* Согласие на обработку персональных данных: чекбокс и текст в одну строку */
+.consent {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  color: var(--c-text-muted);
+  font-size: var(--fs-caption);
+  cursor: pointer;
+}
+
+.consent input {
+  margin-top: 3px;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  accent-color: var(--c-brand);
+}
+
+.consent__link {
+  color: var(--c-brand);
+  text-underline-offset: 3px;
 }
 
 .btn {
