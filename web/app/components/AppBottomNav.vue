@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { appNavItems } from '~/composables/useAppNav';
+import { bottomNavItems } from '~/composables/useAppNav';
 
 const { t } = useI18n();
 const route = useRoute();
@@ -11,7 +11,7 @@ const isActive = (to: string) =>
 <template>
   <nav class="bottom-nav" :aria-label="t('nav.today')">
     <NuxtLink
-      v-for="item in appNavItems"
+      v-for="item in bottomNavItems"
       :key="item.key"
       :to="item.to"
       class="bottom-nav__item"

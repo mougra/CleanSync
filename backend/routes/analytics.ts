@@ -153,4 +153,144 @@ router.get('/tasks', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
+type Period = 'week' | 'month' | 'all';
+
+const PERIOD_SINCE: Record<Period, string> = {
+  week: '7 days',
+  month: '30 days',
+  // «За всё время» — заведомо раньше любых данных, чтобы не городить ветки в SQL
+  all: '2000 days',
+};
+
+const isPeriod = (value: unknown): value is Period =>
+  value === 'week' || value === 'month' || value === 'all';
+
+/**
+ * Обзор для раздела «Статистика»: периоды, распределение по дням недели,
+ * последние 7 дней, самая долгая задача и история уборки.
+ *
+ * Считаем по двум источникам — свои задачи (включая семейные, если их закрыл
+ * я) и задачи челленджей: у них есть и название, и оценка времени, поэтому
+ * история получается честной. Отметки привычек в историю не попадают: у них
+ * нет длительности, а придумывать её нельзя.
+ */
+router.get('/overview', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const period: Period = isPeriod(req.query.period) ? req.query.period : 'all';
+    const since = PERIOD_SINCE[period];
+
+    const items = `
+      SELECT t.title,
+             DATE(t.completed_at) AS day,
+             t.completed_at,
+             COALESCE(t.estimated_minutes, 0)::int AS minutes,
+             t.room,
+             'task' AS kind
+        FROM tasks t
+        JOIN schedules s ON s.id = t.schedule_id
+       WHERE (s.user_id = $1 OR t.completed_by = $1)
+         AND t.is_completed
+         AND t.completed_at >= CURRENT_DATE - ($2 || ' days')::interval
+      UNION ALL
+      SELECT ct.title,
+             DATE(p.done_at) AS day,
+             p.done_at AS completed_at,
+             COALESCE(ct.estimated_minutes, 0)::int AS minutes,
+             ct.room,
+             'challenge' AS kind
+        FROM user_task_progress p
+        JOIN challenge_tasks ct ON ct.id = p.challenge_task_id
+        JOIN user_challenges uc ON uc.id = p.user_challenge_id
+       WHERE uc.user_id = $1 AND p.is_done
+         AND p.done_at >= CURRENT_DATE - ($2 || ' days')::interval
+    `;
+
+    const totals = await pool.query(
+      `WITH items AS (${items})
+       SELECT COUNT(*)::int AS tasks,
+              COALESCE(SUM(minutes), 0)::int AS minutes,
+              COUNT(DISTINCT day)::int AS days
+         FROM items`,
+      [req.userId, since]
+    );
+
+    // Последние 7 дней показываем всегда, независимо от выбранного периода
+    const last7 = await pool.query(
+      `WITH items AS (${items})
+       SELECT COUNT(*)::int AS tasks, COALESCE(SUM(minutes), 0)::int AS minutes
+         FROM items
+        WHERE day >= CURRENT_DATE - INTERVAL '6 days'`,
+      [req.userId, since]
+    );
+
+    const weekday = await pool.query(
+      `WITH items AS (${items})
+       SELECT EXTRACT(DOW FROM day)::int AS weekday,
+              COUNT(*)::int AS tasks,
+              COALESCE(SUM(minutes), 0)::int AS minutes
+         FROM items
+        GROUP BY 1`,
+      [req.userId, since]
+    );
+
+    const longest = await pool.query(
+      `WITH items AS (${items})
+       SELECT title, minutes, day::text AS date
+         FROM items
+        WHERE minutes > 0
+        ORDER BY minutes DESC, completed_at DESC
+        LIMIT 1`,
+      [req.userId, since]
+    );
+
+    // История ограничена тремя сотнями записей: этого хватает надолго,
+    // а ответ остаётся лёгким.
+    const history = await pool.query(
+      `WITH items AS (${items})
+       SELECT title, day::text AS date, minutes, room, kind
+         FROM items
+        ORDER BY completed_at DESC
+        LIMIT 300`,
+      [req.userId, since]
+    );
+
+    const byWeekday = Array.from({ length: 7 }, (_, index) => {
+      const found = weekday.rows.find(
+        (row: { weekday: number }) => Number(row.weekday) === index
+      );
+
+      return {
+        weekday: index,
+        tasks: Number(found?.tasks ?? 0),
+        minutes: Number(found?.minutes ?? 0),
+      };
+    });
+
+    const busiest = byWeekday.reduce<{ weekday: number; tasks: number } | null>(
+      (best, day) => (day.tasks > 0 && (!best || day.tasks > best.tasks) ? day : best),
+      null
+    );
+
+    res.json({
+      period,
+      totals: {
+        tasks: Number(totals.rows[0]?.tasks ?? 0),
+        minutes: Number(totals.rows[0]?.minutes ?? 0),
+        days: Number(totals.rows[0]?.days ?? 0),
+      },
+      last7: {
+        tasks: Number(last7.rows[0]?.tasks ?? 0),
+        minutes: Number(last7.rows[0]?.minutes ?? 0),
+      },
+      weekday: byWeekday,
+      busiestWeekday: busiest?.weekday ?? null,
+      longest: longest.rows[0] ?? null,
+      history: history.rows,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch analytics overview' });
+  }
+});
+
 export default router;

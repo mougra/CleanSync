@@ -9,6 +9,7 @@
 
 import type { ChallengeSummary } from '~/types/challenge';
 import type { AchievementProgress } from '~/types/achievement';
+import type { StatsPeriod } from '~/types/stats';
 
 interface SeasonalTemplate {
   title: string;
@@ -99,10 +100,18 @@ const dayMinutesLeft = computed(() => {
   return day.tasks.filter((task) => !task.is_done).reduce((sum, task) => sum + task.estimated_minutes, 0);
 });
 
-const completedTasks = computed(() => today.value?.summary.completed_tasks ?? 0);
 const tasksWidgetValue = computed(
   () => today.value?.summary.total_tasks ?? checklistTasksTotal.value,
 );
+
+/**
+ * Статистика на главной берётся из того же источника, что и раздел
+ * «Статистика»: числа обязаны совпадать, иначе виджет врёт.
+ */
+const statsPeriod = ref<StatsPeriod>('week');
+const { overview: statsOverview } = await useStats(statsPeriod);
+const statsValue = computed(() => statsOverview.value?.last7.tasks ?? 0);
+const statsNote = computed(() => formatClock(statsOverview.value?.last7.minutes ?? 0));
 
 /** «День 3: осталось 55 мин» для карточки активного челленджа. */
 const currentDayNote = computed(() => {
@@ -239,8 +248,8 @@ useSeoMeta({
         <AppBadge variant="amber">{{ t('home.weekStats') }}</AppBadge>
         <h3 class="widget__title">{{ t('home.weekStats') }}</h3>
         <p class="widget__text">{{ t('home.weekStatsHint') }}</p>
-        <p class="widget__value">{{ completedTasks }}</p>
-        <p class="widget__caption">{{ t('home.completed') }}</p>
+        <p class="widget__value">{{ statsValue }}</p>
+        <p class="widget__caption">{{ t('home.last7') }} · {{ statsNote }}</p>
         <NuxtLink :to="localePath('/analytics')" class="widget__link">
           {{ t('home.seeProgress') }}
           <i class="pi pi-chevron-right" aria-hidden="true" />
