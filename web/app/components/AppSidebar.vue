@@ -29,9 +29,11 @@ const isActive = (to: string) =>
     </nav>
 
     <div class="sidebar__footer">
-      <AppAuthLink />
-      <ThemeToggle />
-      <LocaleSwitch />
+      <AppSidebarProfile />
+      <div class="sidebar__controls">
+        <ThemeToggle />
+        <LocaleSwitch />
+      </div>
     </div>
   </aside>
 </template>
@@ -116,5 +118,11 @@ const isActive = (to: string) =>
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+}
+
+.sidebar__controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 </style>
