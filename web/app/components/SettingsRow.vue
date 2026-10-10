@@ -27,9 +27,31 @@ const isToggle = computed(() => props.expandable || hasBody.value);
 </script>
 
 <template>
-  <component
-    :is="to ? 'NuxtLink' : 'div'"
-    :to="to || undefined"
+  <!--
+    Две ветки вместо динамического `:is="'NuxtLink'"`: строковое имя компонента
+    Vue не разрешает, и в разметку попадал неизвестный тег `<NuxtLink>` — строки
+    настроек выглядели как ссылки, но никуда не вели.
+  -->
+  <NuxtLink
+    v-if="to"
+    :to="to"
+    class="row"
+    :class="[`row--${tone}`, { 'row--button': isToggle }]"
+    @click="isToggle && (open = !open)"
+  >
+    <span class="row__icon" aria-hidden="true"><i :class="['pi', icon]" /></span>
+    <span class="row__title">{{ title }}</span>
+
+    <span v-if="$slots.control" class="row__control" @click.stop>
+      <slot name="control" />
+    </span>
+    <span v-else-if="value" class="row__value">{{ value }}</span>
+
+    <i class="pi pi-chevron-right row__chevron" aria-hidden="true" />
+  </NuxtLink>
+
+  <div
+    v-else
     class="row"
     :class="[`row--${tone}`, { 'row--button': isToggle }]"
     @click="isToggle && (open = !open)"
@@ -48,8 +70,7 @@ const isToggle = computed(() => props.expandable || hasBody.value);
       :class="{ 'row__chevron--open': open }"
       aria-hidden="true"
     />
-    <i v-else-if="to" class="pi pi-chevron-right row__chevron" aria-hidden="true" />
-  </component>
+  </div>
 
   <div v-if="isToggle && open && $slots.body" class="row__body">
     <slot name="body" />
