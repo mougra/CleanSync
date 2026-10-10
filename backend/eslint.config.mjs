@@ -4,7 +4,9 @@ import prettier from 'eslint-config-prettier'
 
 export default tseslint.config(
   {
-    ignores: ['dist/**', 'coverage/**', 'node_modules/**', 'migrations/**'],
+    // scripts/** — одноразовые проверки вручную: они гоняют API и читают
+    // ответы как есть, подробные типы там только мешают.
+    ignores: ['dist/**', 'coverage/**', 'node_modules/**', 'migrations/**', 'scripts/**'],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

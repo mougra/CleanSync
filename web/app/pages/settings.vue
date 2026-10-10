@@ -12,6 +12,10 @@ const auth = useAuthStore();
 const colorMode = useColorMode();
 const api = useApi();
 
+/** Мастер «Настройка по дому» и признак того, что анкета уже заполнена. */
+const wizardOpen = ref(false);
+const { completed: homeProfileDone } = await useHomeProfile();
+
 /** Почта для обратной связи: с неё же уходят письма сервиса. */
 const SUPPORT_EMAIL = 'tidyflowup@gmail.com';
 
@@ -39,7 +43,7 @@ const initials = computed(() => displayName.value.slice(0, 1).toUpperCase());
 
 const logout = async () => {
   await auth.logout();
-  clearNuxtData(['today-plan', 'achievements-earned', 'active-challenge']);
+  clearNuxtData(['today-plan', 'achievements-earned', 'active-challenge', 'households']);
   await navigateTo(localePath('/'));
 };
 
@@ -298,6 +302,13 @@ useSeoMeta({ title: () => t('nav.settings') });
     <section class="card card--flush">
       <SettingsRow icon="pi-home" :title="t('settings.household')" :to="localePath('/household')" />
 
+      <SettingsRow
+        icon="pi-sliders-h"
+        :title="t('homeSetup.title')"
+        :value="homeProfileDone ? t('homeSetup.done') : ''"
+        @click="wizardOpen = true"
+      />
+
       <SettingsRow icon="pi-bell" :title="t('settings.notifications')" expandable>
         <template #control>
           <span class="switch" role="presentation" :class="{ 'switch--on': notificationsOn }">
@@ -446,6 +457,9 @@ useSeoMeta({ title: () => t('nav.settings') });
     <AppButton v-if="auth.isAuthenticated" variant="outline" block @click="logout">
       {{ t('auth.logout') }}
     </AppButton>
+
+    <!-- Мастер «Настройка по дому»: 12 шагов и генерация плана по ответам -->
+    <HomeSetupWizard :open="wizardOpen" @close="wizardOpen = false" />
   </div>
 </template>
 

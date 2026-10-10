@@ -1,0 +1,480 @@
+import express, { Request, Response } from 'express';
+import pool from '../db';
+import { authMiddleware } from '../auth';
+import {
+  buildHomePlan,
+  CLEANING_LEVELS,
+  CLEANING_STYLES,
+  COMPOSITIONS,
+  DAILY_MINUTES_OPTIONS,
+  DEFAULT_HOME_ANSWERS,
+  DRYING_OPTIONS,
+  HARDEST_ZONES,
+  HOUSING_TYPES,
+  OUTDOOR_OPTIONS,
+  PET_OPTIONS,
+  ROOM_OPTIONS,
+  withDefaultAnswers,
+  type HomePlan,
+  type PartialHomeAnswers,
+} from '../services/homePlan';
+
+/**
+ * Мастер «Настройка по дому»: анкета о доме и ритме уборки + генерация плана.
+ *
+ * Профиль дома один на пользователя (home_profiles.user_id — первичный ключ),
+ * ответы можно сохранять пошагово: PUT принимает и одно поле, и все сразу.
+ * Сгенерированный план живёт в обычных schedules/tasks с заголовком «План по
+ * дому», поэтому он сразу работает в «Сегодня», статистике и достижениях.
+ */
+const router = express.Router();
+
+/** Заголовок сгенерированного плана: по нему находим прошлый план при пересборке. */
+const PLAN_TITLE = 'План по дому';
+
+interface HomeProfileRow {
+  housing_type: string;
+  rooms: string;
+  composition: string;
+  pets: string[] | null;
+  outdoor: string;
+  has_kids_room: boolean;
+  has_garage: boolean;
+  works_from_home: boolean;
+  drying: string;
+  cleaning_level: string;
+  daily_minutes: string;
+  cleaning_style: string;
+  cleaning_days: number[] | null;
+  hardest_zone: string;
+  completed_at: string | null;
+  updated_at: string | null;
+}
+
+/** Колонка → поле ответа и допустимые значения (по вариантам шагов макета). */
+const FIELD_RULES: Record<
+  keyof PartialHomeAnswers,
+  { column: string; values?: readonly string[]; kind: 'string' | 'boolean' | 'intArray' | 'textArray' }
+> = {
+  housingType: { column: 'housing_type', values: HOUSING_TYPES, kind: 'string' },
+  rooms: { column: 'rooms', values: ROOM_OPTIONS, kind: 'string' },
+  composition: { column: 'composition', values: COMPOSITIONS, kind: 'string' },
+  pets: { column: 'pets', values: PET_OPTIONS, kind: 'textArray' },
+  outdoor: { column: 'outdoor', values: OUTDOOR_OPTIONS, kind: 'string' },
+  hasKidsRoom: { column: 'has_kids_room', kind: 'boolean' },
+  hasGarage: { column: 'has_garage', kind: 'boolean' },
+  worksFromHome: { column: 'works_from_home', kind: 'boolean' },
+  drying: { column: 'drying', values: DRYING_OPTIONS, kind: 'string' },
+  cleaningLevel: { column: 'cleaning_level', values: CLEANING_LEVELS, kind: 'string' },
+  dailyMinutes: { column: 'daily_minutes', values: DAILY_MINUTES_OPTIONS, kind: 'string' },
+  cleaningStyle: { column: 'cleaning_style', values: CLEANING_STYLES, kind: 'string' },
+  cleaningDays: { column: 'cleaning_days', kind: 'intArray' },
+  hardestZone: { column: 'hardest_zone', values: HARDEST_ZONES, kind: 'string' },
+};
+
+const SELECT_FIELDS = `housing_type, rooms, composition, pets, outdoor, has_kids_room, has_garage,
+  works_from_home, drying, cleaning_level, daily_minutes, cleaning_style, cleaning_days,
+  hardest_zone, completed_at::text AS completed_at, updated_at::text AS updated_at`;
+
+/** Профиль дома пользователя или null, если анкету ещё не начинали. */
+const loadProfile = async (userId: string): Promise<HomeProfileRow | null> => {
+  const result = await pool.query<HomeProfileRow>(
+    `SELECT ${SELECT_FIELDS} FROM home_profiles WHERE user_id = $1`,
+    [userId]
+  );
+
+  return result.rows[0] ?? null;
+};
+
+/** Ответ интерфейсу: те же ключи, что ждёт мастер, плюс флаг завершённости. */
+const toProfileResponse = (row: HomeProfileRow | null) => {
+  if (!row) {
+    return { profile: null, completed: false };
+  }
+
+  const profile = {
+    housingType: row.housing_type,
+    rooms: row.rooms,
+    composition: row.composition,
+    pets: row.pets ?? [],
+    outdoor: row.outdoor,
+    hasKidsRoom: row.has_kids_room,
+    hasGarage: row.has_garage,
+    worksFromHome: row.works_from_home,
+    drying: row.drying,
+    cleaningLevel: row.cleaning_level,
+    dailyMinutes: row.daily_minutes,
+    cleaningStyle: row.cleaning_style,
+    cleaningDays: row.cleaning_days ?? [],
+    hardestZone: row.hardest_zone,
+    completedAt: row.completed_at,
+    updatedAt: row.updated_at,
+  };
+
+  return { profile, completed: row.completed_at !== null };
+};
+
+/**
+ * Разбирает тело запроса: пустой PUT не должен затирать ответы, а явно
+ * переданные поля — обновляться, даже если это false или пустой массив.
+ */
+const parseAnswers = (
+  body: unknown
+): { answers: PartialHomeAnswers; error?: string; provided: number; reachedEnd: boolean } => {
+  const input = (body ?? {}) as Record<string, unknown>;
+  const answers: PartialHomeAnswers = {};
+  // Мастер присылает complete: true на последнем шаге: только тогда анкета
+  // считается пройденной. Без этого флага значения по умолчанию в базе
+  // выглядели бы как «человек ответил на всё» уже после первого шага.
+  const reachedEnd = input.complete === true;
+  let provided = 0;
+
+  for (const key of Object.keys(FIELD_RULES) as (keyof PartialHomeAnswers)[]) {
+    if (!(key in input)) continue;
+
+    const value = input[key];
+    const rule = FIELD_RULES[key];
+    provided += 1;
+
+    if (rule.kind === 'boolean') {
+      if (typeof value !== 'boolean') {
+        return { answers, error: `Поле «${key}» должно быть true или false`, provided, reachedEnd };
+      }
+      Object.assign(answers, { [key]: value });
+      continue;
+    }
+
+    if (rule.kind === 'string') {
+      if (typeof value !== 'string' || !rule.values?.includes(value)) {
+        return {
+          answers,
+          error: `Недопустимое значение «${key}»: ${value}. Допустимо: ${rule.values?.join(', ')}`,
+          provided,
+          reachedEnd,
+        };
+      }
+      Object.assign(answers, { [key]: value });
+      continue;
+    }
+
+    if (rule.kind === 'textArray') {
+      if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+        return { answers, error: `Поле «${key}» должно быть массивом строк`, provided, reachedEnd };
+      }
+      const unknown = value.find((item) => !rule.values?.includes(item as string));
+      if (unknown !== undefined) {
+        return {
+          answers,
+          error: `Недопустимое значение «${key}»: ${unknown}. Допустимо: ${rule.values?.join(', ')}`,
+          provided,
+          reachedEnd,
+        };
+      }
+      Object.assign(answers, { [key]: value as string[] });
+      continue;
+    }
+
+    // intArray: дни недели 0-6, каждый день не больше одного раза
+    if (!Array.isArray(value) || value.some((item) => !Number.isInteger(item))) {
+      return { answers, error: `Поле «${key}» должно быть массивом чисел`, provided, reachedEnd };
+    }
+
+    const dayNumbers = value as number[];
+    if (dayNumbers.some((day) => day < 0 || day > 6)) {
+      return { answers, error: `Дни недели — числа от 0 (воскресенье) до 6 (суббота)`, provided, reachedEnd };
+    }
+
+    Object.assign(answers, { [key]: [...new Set(dayNumbers)].sort((left, right) => left - right) });
+  }
+
+  return { answers, provided, reachedEnd };
+};
+
+/** GET /api/home-profile — анкета пользователя или null. */
+router.get('/', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    res.json(toProfileResponse(await loadProfile(String(req.userId))));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch home profile' });
+  }
+});
+
+/**
+ * PUT /api/home-profile — сохранить ответы.
+ *
+ * Можно частично, шаг за шагом: присылайте только те поля, которые человек
+ * успел выбрать. Первое сохранение заводит профиль, дальнейшие обновляют.
+ * `completed_at` ставится, когда заполнены все шаги анкеты.
+ */
+router.put('/', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const parsed = parseAnswers(req.body);
+
+    if (parsed.error) {
+      res.status(400).json({ error: parsed.error });
+      return;
+    }
+
+    if (parsed.provided === 0) {
+      res.status(400).json({ error: 'Нужно передать хотя бы одно поле анкеты' });
+      return;
+    }
+
+    const userId = String(req.userId);
+    const current = await loadProfile(userId);
+    const merged = { ...DEFAULT_HOME_ANSWERS, ...(current ? toAnswers(current) : {}), ...parsed.answers };
+
+    if (current) {
+      const fields = Object.keys(parsed.answers) as (keyof PartialHomeAnswers)[];
+      const values = fields.map((field) => parsed.answers[field]);
+      const setters = fields.map((field, index) => `${FIELD_RULES[field].column} = $${index + 1}`);
+
+      await pool.query(
+        `UPDATE home_profiles
+            SET ${setters.join(', ')},
+                completed_at = CASE WHEN $${values.length + 1} THEN COALESCE(completed_at, CURRENT_TIMESTAMP) ELSE completed_at END,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE user_id = $${values.length + 2}`,
+        [...values, parsed.reachedEnd && isComplete(merged), userId]
+      );
+    } else {
+      const fields = Object.keys(parsed.answers) as (keyof PartialHomeAnswers)[];
+      const columns = ['user_id', ...fields.map((field) => FIELD_RULES[field].column), 'completed_at'];
+      const values: unknown[] = [userId, ...fields.map((field) => parsed.answers[field])];
+      values.push(parsed.reachedEnd && isComplete(merged) ? new Date() : null);
+
+      const placeholders = values.map((_, index) => `$${index + 1}`);
+
+      await pool.query(
+        `INSERT INTO home_profiles (${columns.join(', ')})
+         VALUES (${placeholders.join(', ')})
+         ON CONFLICT (user_id) DO NOTHING`,
+        values
+      );
+    }
+
+    res.json(toProfileResponse(await loadProfile(userId)));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to save home profile' });
+  }
+});
+
+/** Есть ли ответ на каждый из 12 шагов анкеты. */
+const isComplete = (answers: PartialHomeAnswers): boolean => {
+  const required: (keyof PartialHomeAnswers)[] = [
+    'housingType',
+    'rooms',
+    'composition',
+    'pets',
+    'outdoor',
+    'hasKidsRoom',
+    'hasGarage',
+    'worksFromHome',
+    'drying',
+    'cleaningLevel',
+    'dailyMinutes',
+    'cleaningStyle',
+    'cleaningDays',
+    'hardestZone',
+  ];
+
+  return required.every((field) => {
+    const value = answers[field];
+
+    if (Array.isArray(value)) return value.length > 0;
+    if (typeof value === 'boolean') return true;
+
+    return value !== undefined && value !== null;
+  });
+};
+
+/** Строка БД → ответы анкеты для генератора. */
+const toAnswers = (row: HomeProfileRow): PartialHomeAnswers =>
+  withDefaultAnswers({
+    housingType: row.housing_type as PartialHomeAnswers['housingType'],
+    rooms: row.rooms as PartialHomeAnswers['rooms'],
+    composition: row.composition as PartialHomeAnswers['composition'],
+    pets: (row.pets ?? []) as PartialHomeAnswers['pets'],
+    outdoor: row.outdoor as PartialHomeAnswers['outdoor'],
+    hasKidsRoom: row.has_kids_room,
+    hasGarage: row.has_garage,
+    worksFromHome: row.works_from_home,
+    drying: row.drying as PartialHomeAnswers['drying'],
+    cleaningLevel: row.cleaning_level as PartialHomeAnswers['cleaningLevel'],
+    dailyMinutes: row.daily_minutes as PartialHomeAnswers['dailyMinutes'],
+    cleaningStyle: row.cleaning_style as PartialHomeAnswers['cleaningStyle'],
+    cleaningDays: row.cleaning_days ?? [],
+    hardestZone: row.hardest_zone as PartialHomeAnswers['hardestZone'],
+  });
+
+/**
+ * Записывает план в обычные schedules/tasks.
+ *
+ * Идемпотентность: прошлый «План по дому» вместе с задачами удаляется, новое
+ * расписание создаётся заново. Так повторный вызов не плодит дубли, а отметки
+ * о выполнении старого плана всё равно теряют смысл вместе с самим планом.
+ */
+const savePlan = async (userId: string, plan: HomePlan) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    await client.query(
+      `DELETE FROM tasks
+        WHERE schedule_id IN (SELECT id FROM schedules WHERE user_id = $1 AND title = $2)`,
+      [userId, PLAN_TITLE]
+    );
+    await client.query('DELETE FROM schedules WHERE user_id = $1 AND title = $2', [
+      userId,
+      PLAN_TITLE,
+    ]);
+
+    const schedule = await client.query<{ id: number; created_at: string; updated_at: string }>(
+      `INSERT INTO schedules (user_id, title, description)
+       VALUES ($1, $2, $3)
+       RETURNING id, created_at::text AS created_at, updated_at::text AS updated_at`,
+      [
+        userId,
+        PLAN_TITLE,
+        `Собрано по настройкам дома: ${plan.summary.totalTasks} задач, ${plan.summary.totalMinutes} минут в неделю`,
+      ]
+    );
+
+    const scheduleId = schedule.rows[0].id;
+    const savedTasks: Array<{
+      id: number;
+      day_of_week: number;
+      title: string;
+      room: string;
+      estimated_minutes: number;
+      position: number;
+    }> = [];
+
+    for (const day of plan.days) {
+      for (const task of day.tasks) {
+        const inserted = await client.query<{ id: number }>(
+          `INSERT INTO tasks (schedule_id, title, room, estimated_minutes, frequency, day_of_week)
+           VALUES ($1, $2, $3, $4, 'weekly', $5)
+           RETURNING id`,
+          [scheduleId, task.title, task.room, task.estimatedMinutes, day.dayOfWeek]
+        );
+
+        savedTasks.push({
+          id: inserted.rows[0].id,
+          day_of_week: day.dayOfWeek,
+          title: task.title,
+          room: task.room,
+          estimated_minutes: task.estimatedMinutes,
+          position: task.position,
+        });
+      }
+    }
+
+    await client.query('COMMIT');
+
+    return {
+      scheduleId,
+      createdAt: schedule.rows[0].created_at,
+      tasks: savedTasks,
+    };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+};
+
+/**
+ * POST /api/home-profile/plan — собрать план по сохранённым ответам.
+ *
+ * Повторный вызов заменяет прошлый план, поэтому кнопку «пересобрать» можно
+ * нажимать сколько угодно раз.
+ */
+router.post('/plan', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = String(req.userId);
+    const row = await loadProfile(userId);
+
+    if (!row) {
+      res.status(400).json({ error: 'Сначала заполните анкету о доме' });
+      return;
+    }
+
+    const plan = buildHomePlan(toAnswers(row));
+    const saved = await savePlan(userId, plan);
+
+    // Задачам присваиваем настоящие id: интерфейс сразу может их отмечать
+    // тем же PUT /api/tasks/:id, что и любую другую задачу.
+    let cursor = 0;
+    const days = plan.days.map((day) => ({
+      ...day,
+      tasks: day.tasks.map((task) => {
+        const savedTask = saved.tasks[cursor];
+        cursor += 1;
+
+        return {
+          ...task,
+          id: savedTask?.id ?? null,
+          frequency: 'weekly',
+          dayOfWeek: day.dayOfWeek,
+        };
+      }),
+    }));
+
+    res.json({
+      schedule: {
+        id: saved.scheduleId,
+        title: plan.title,
+        createdAt: saved.createdAt,
+      },
+      level: plan.level,
+      focusZone: plan.focusZone,
+      days,
+      summary: plan.summary,
+      generatedFor: toAnswers(row),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to generate home plan' });
+  }
+});
+
+/** DELETE /api/home-profile — сбросить анкету и созданный по ней план. */
+router.delete('/', authMiddleware, async (req: Request, res: Response) => {
+  const client = await pool.connect();
+  const userId = String(req.userId);
+
+  try {
+    await client.query('BEGIN');
+
+    const deletedSchedule = await client.query<{ id: number }>(
+      `DELETE FROM schedules WHERE user_id = $1 AND title = $2 RETURNING id`,
+      [userId, PLAN_TITLE]
+    );
+    const deletedProfile = await client.query(
+      'DELETE FROM home_profiles WHERE user_id = $1 RETURNING user_id',
+      [userId]
+    );
+
+    await client.query('COMMIT');
+
+    res.json({
+      profileReset: (deletedProfile.rowCount ?? 0) > 0,
+      planDeleted: (deletedSchedule.rowCount ?? 0) > 0,
+      profile: null,
+      completed: false,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ error: 'Failed to reset home profile' });
+  } finally {
+    client.release();
+  }
+});
+
+export default router;

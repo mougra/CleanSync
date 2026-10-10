@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import pool from './db';
 import { seedChallenges } from './seed-challenges';
 import { seedHabitTemplates } from './seed-habits';
+import { taskCatalogSize, taskCountByLevel, validateTaskCatalog } from './services/taskCatalog';
 
 dotenv.config();
 
@@ -141,6 +142,23 @@ const TEMPLATES: TemplateSeed[] = [
 ];
 
 const seed = async (): Promise<void> => {
+  /**
+   * Каталог задач «Настройки по дому» живёт в коде (services/taskCatalog.ts):
+   * из него генератор собирает план, в БД попадают уже конкретные задачи
+   * пользователя. Сид его не заливает, а проверяет — дубли названий, пустые
+   * поля и неизвестные теги ломают генератор незаметно, поэтому падаем здесь.
+   */
+  const catalogProblems = validateTaskCatalog();
+
+  if (catalogProblems.length > 0) {
+    throw new Error(`Каталог задач некорректен:\n  - ${catalogProblems.join('\n  - ')}`);
+  }
+
+  const byLevel = taskCountByLevel();
+  console.log(
+    `Каталог задач: ${taskCatalogSize()} (лёгких ${byLevel.light}, обычных ${byLevel.normal}, глубоких ${byLevel.deep})`
+  );
+
   const client = await pool.connect();
 
   try {
