@@ -227,6 +227,12 @@ useSeoMeta({
       </ul>
     </section>
 
+    <!-- Серия и недельная цель: день засчитывается за любой закрытый пункт -->
+    <StreakCard v-if="auth.isAuthenticated" />
+
+    <!-- Дом: общий план семьи и кто что делает -->
+    <HouseholdCard v-if="auth.isAuthenticated" />
+
     <!-- Виджеты -->
     <section class="widgets">
       <article class="card card--warm widget">

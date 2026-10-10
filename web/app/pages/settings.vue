@@ -332,6 +332,16 @@ useSeoMeta({ title: () => t('nav.settings') });
       </form>
     </section>
 
+    <!-- Дом и семья: отдельная страница с общим планом и участниками -->
+    <section v-if="auth.isAuthenticated" class="card">
+      <h2 class="card__title">{{ t('household.title') }}</h2>
+      <p class="card__text">{{ t('household.createHint') }}</p>
+      <NuxtLink :to="localePath('/household')" class="btn btn--ghost">
+        <i class="pi pi-users" aria-hidden="true" />
+        {{ t('household.homeTitle') }}
+      </NuxtLink>
+    </section>
+
     <!-- Удаление аккаунта: право на удаление данных (152-ФЗ) -->
     <section v-if="auth.isAuthenticated" class="card card--danger">
       <h2 class="card__title">{{ t('settings.danger') }}</h2>

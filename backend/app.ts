@@ -12,6 +12,8 @@ import templatesRoutes from './routes/templates';
 import challengesRoutes from './routes/challenges';
 import habitsRoutes from './routes/habits';
 import checklistsRoutes from './routes/checklists';
+import householdRoutes from './routes/household';
+import streakRoutes from './routes/streak';
 import pushRoutes from './routes/push';
 import pool from './db';
 import { csrfProtection } from './cookies';
@@ -119,6 +121,8 @@ app.use('/api/templates', templatesRoutes);
 app.use('/api/challenges', challengesRoutes);
 app.use('/api/habits', habitsRoutes);
 app.use('/api/checklists', checklistsRoutes);
+app.use('/api/household', householdRoutes);
+app.use('/api/streak', streakRoutes);
 app.use('/api/push', pushRoutes);
 
 /** Неизвестный маршрут API отвечает JSON, а не HTML-страницей Express. */

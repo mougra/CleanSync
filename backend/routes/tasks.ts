@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import pool from '../db';
 import { authMiddleware } from '../auth';
 import { checkAndAwardAchievements } from '../services/achievementManager';
+import { canAccessSchedule, getMembership } from '../services/household';
 
 const router = express.Router();
 
@@ -38,13 +39,19 @@ router.get('/today', authMiddleware, async (req: Request, res: Response) => {
       `SELECT t.*, s.title as schedule_title
        FROM tasks t
        JOIN schedules s ON t.schedule_id = s.id
-       WHERE s.user_id = $1
-       AND (
-         (t.frequency = 'daily') OR
-         (t.frequency = 'weekly' AND t.day_of_week = $2) OR
-         (t.frequency = 'monthly' AND t.day_of_month = $3) OR
-         (t.due_date = $4)
-       )
+       WHERE (
+               s.user_id = $1
+               -- Общий план дома: задачи мои или ничейные, чужие не показываем
+               OR (s.household_id IS NOT NULL
+                   AND s.household_id IN (SELECT household_id FROM household_members WHERE user_id = $1)
+                   AND (t.assignee_id IS NULL OR t.assignee_id = $1))
+             )
+         AND (
+           (t.frequency = 'daily') OR
+           (t.frequency = 'weekly' AND t.day_of_week = $2) OR
+           (t.frequency = 'monthly' AND t.day_of_month = $3) OR
+           (t.due_date = $4)
+         )
        ORDER BY t.time ASC`,
       [req.userId, currentDayOfWeek, currentDayOfMonth, todayStr]
     );
@@ -127,12 +134,10 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Task not found' });
     }
 
-    const scheduleResult = await pool.query(
-      'SELECT user_id FROM schedules WHERE id = $1',
-      [taskResult.rows[0].schedule_id]
-    );
+    // Доступ: своё расписание или общий план дома, в котором я состою
+    const access = await canAccessSchedule(String(req.userId), taskResult.rows[0].schedule_id);
 
-    if (scheduleResult.rows[0].user_id !== req.userId) {
+    if (!access.allowed) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
@@ -150,10 +155,16 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
         completed_at = CASE
           WHEN COALESCE($9, is_completed) = TRUE THEN CURRENT_TIMESTAMP
           ELSE NULL
+        END,
+        -- Кто именно закрыл: нужно для личной серии и статистики дома.
+        -- Приведение к int обязательно: из JWT идентификатор приходит строкой.
+        completed_by = CASE
+          WHEN COALESCE($9, is_completed) = TRUE THEN $11::int
+          ELSE NULL
         END
       WHERE id = $10
-      RETURNING id, title, frequency, day_of_week, day_of_month, due_date, time, estimated_minutes, room, is_completed, completed_at, created_at`,
-      [title || null, frequency || null, day_of_week || null, day_of_month || null, due_date || null, time || null, estimated_minutes || null, room || null, is_completed !== undefined ? is_completed : null, id]
+      RETURNING id, title, frequency, day_of_week, day_of_month, due_date, time, estimated_minutes, room, is_completed, completed_at, created_at, assignee_id, completed_by`,
+      [title || null, frequency || null, day_of_week || null, day_of_month || null, due_date || null, time || null, estimated_minutes || null, room || null, is_completed !== undefined ? is_completed : null, id, req.userId]
     );
 
     // Award achievements if task was completed
@@ -166,6 +177,50 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to update task' });
+  }
+});
+
+/**
+ * Удалить задачу.
+ *
+ * Свою — можно всегда. В общем плане дома участник удаляет только свою или
+ * ничейную задачу, владелец — любую. Отдельного DELETE раньше не было вовсе,
+ * поэтому кнопка удаления пункта в чек-листе упиралась в 404.
+ */
+router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const taskResult = await pool.query<{ schedule_id: number; assignee_id: number | null }>(
+      'SELECT schedule_id, assignee_id FROM tasks WHERE id = $1',
+      [id]
+    );
+
+    if (taskResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    const access = await canAccessSchedule(String(req.userId), taskResult.rows[0].schedule_id);
+
+    if (!access.allowed) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const assigneeId = taskResult.rows[0].assignee_id;
+
+    if (access.householdId !== null && assigneeId !== null && String(assigneeId) !== String(req.userId)) {
+      const membership = await getMembership(String(req.userId));
+
+      if (membership?.role !== 'owner') {
+        return res.status(403).json({ error: 'This task is assigned to another member' });
+      }
+    }
+
+    await pool.query('DELETE FROM tasks WHERE id = $1', [id]);
+    res.json({ deleted: true, id: Number(id) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete task' });
   }
 });
 
