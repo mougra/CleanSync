@@ -20,9 +20,11 @@ services:
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
       POSTGRES_DB: ${DB_NAME:-clean_planner}
-    # Наружу порт не публикуем: база нужна только сервисам compose.
-    expose:
-      - '5432'
+    # Публикуем только на loopback хоста: локальная разработка запускает
+    # backend и web на хосте (`npm run dev`) и подключается к этой базе,
+    # а из интернета порт закрыт — наружу смотрят только 80/443 прокси.
+    ports:
+      - '127.0.0.1:5432:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
       # Схему создают только миграции (backend/migrations), а не initdb.

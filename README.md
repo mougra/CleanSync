@@ -17,10 +17,14 @@
 
 Требования: Node.js 24+, Docker.
 
+Есть два способа запустить проект локально.
+
+**1. Код на хосте, база в Docker (обычный режим разработки):**
+
 ```bash
 npm run install:all                            # зависимости всех пакетов
 
-docker compose up -d postgres                  # база данных
+docker compose up -d postgres                  # база (порт 5432 только на 127.0.0.1)
 
 cp backend/.env.example backend/.env           # и поправь секреты
 
@@ -28,6 +32,18 @@ npm --prefix backend run db:setup              # миграции + сид
 
 npm run dev                                    # API + приложение
 ```
+
+**2. Весь стек в Docker, с горячей перезагрузкой:**
+
+```bash
+docker compose -f docker-compose.dev.yml up --build
+
+# миграции и сид для этого режима — отдельной командой:
+docker compose -f docker-compose.dev.yml exec backend npm run db:setup
+```
+
+**Продовый запуск** (собранные образы, без монтирования кода) — основной `docker-compose.yml`,
+подробности в [docs/DEPLOY.md](docs/DEPLOY.md).
 
 - API — <http://localhost:5000>, состояние БД видно на `GET /api/health`
 - Приложение (Nuxt, SSR) — <http://localhost:3000>

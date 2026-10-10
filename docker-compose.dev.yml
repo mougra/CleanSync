@@ -1,0 +1,94 @@
+# Режим разработки: весь стек в Docker с горячей перезагрузкой.
+#
+#   docker compose -f docker-compose.dev.yml up --build
+#
+# Приложение — http://localhost:3000, API — http://localhost:5000,
+# база — localhost:5432 (только loopback).
+#
+# Альтернатива, если удобнее запускать код на хосте:
+#   docker compose up -d postgres      # из основного файла
+#   npm run dev                        # Express + Nuxt на хосте
+#
+# Продовый запуск — основной docker-compose.yml (собранные образы, без монтирования кода).
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: clean_planner_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: clean_planner
+    ports:
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - clean_planner_network
+
+  backend:
+    image: node:24-slim
+    container_name: clean_planner_backend_dev
+    working_dir: /app
+    # Код монтируем, зависимости держим в томе контейнера: так установка
+    # не перезатирается хостом и работает hot-reload через tsx watch.
+    volumes:
+      - ./backend:/app
+      - backend_node_modules:/app/node_modules
+    environment:
+      NODE_ENV: development
+      PORT: 5000
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: clean_planner
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/clean_planner
+      APP_BASE_URL: http://localhost:3000
+      TRUST_PROXY: 'true'
+      # Секреты для локальной разработки; в проде они приходят из backend/.env
+      ACCESS_TOKEN_SECRET: dev_access_secret_dev_access_secret
+      REFRESH_TOKEN_SECRET: dev_refresh_secret_dev_refresh_secret
+    ports:
+      - '5000:5000'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: sh -c "npm install && npm run dev"
+    networks:
+      - clean_planner_network
+
+  web:
+    image: node:24-alpine
+    container_name: clean_planner_web_dev
+    working_dir: /app
+    volumes:
+      - ./web:/app
+      - web_node_modules:/app/node_modules
+    environment:
+      NODE_ENV: development
+      NUXT_API_BASE: http://backend:5000
+      NUXT_DEV_PROXY_TARGET: http://backend:5000
+      NUXT_PUBLIC_SITE_URL: http://localhost:3000
+    ports:
+      - '3000:3000'
+    depends_on:
+      - backend
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    networks:
+      - clean_planner_network
+
+volumes:
+  postgres_data:
+  backend_node_modules:
+  web_node_modules:
+
+networks:
+  clean_planner_network:
+    driver: bridge

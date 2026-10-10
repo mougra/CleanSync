@@ -157,12 +157,16 @@ export default defineNuxtConfig({
 
   css: ['primeicons/primeicons.css', '~/assets/css/tokens.css', '~/assets/css/prose.css'],
 
-  // Прокси на Express: относительные /api/... работают так же, как в текущем SPA.
-  // В продакшене тот же путь должен обслуживаться реверс-прокси или Nitro routeRules.
+  // Прокси на Express: относительные /api/... работают так же, как в прежнем SPA.
+  // В продакшене тот же путь обслуживает реверс-прокси (см. Caddyfile).
+  //
+  // Адрес API настраивается: при запуске на хосте это localhost:5000,
+  // а в режиме разработки через Docker — сервис `backend` внутри compose
+  // (docker-compose.dev.yml задаёт NUXT_DEV_PROXY_TARGET).
   nitro: {
     devProxy: {
       '/api': {
-        target: 'http://localhost:5000/api',
+        target: `${process.env.NUXT_DEV_PROXY_TARGET ?? 'http://localhost:5000'}/api`,
         changeOrigin: true,
       },
     },
