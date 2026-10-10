@@ -2,10 +2,18 @@
 /**
  * Компактный вход в дом на главной: видно, что общий план есть, сколько дел
  * закрыто сегодня и кто в доме активнее всех.
+ *
+ * Домов может быть несколько — на главной показываем свой дом, а если своего
+ * нет, первый в списке.
  */
 const { t } = useI18n();
 const localePath = useLocalePath();
-const { household, members, zones, isOwner } = await useHousehold();
+const { homeHousehold } = await useHousehold();
+
+const household = computed(() => homeHousehold.value?.household ?? null);
+const members = computed(() => homeHousehold.value?.members ?? []);
+const zones = computed(() => homeHousehold.value?.zones ?? []);
+const isOwner = computed(() => homeHousehold.value?.role === 'owner');
 
 const todayTotal = computed(() => members.value.reduce((sum, member) => sum + member.today_done, 0));
 const openTasks = computed(() => zones.value.reduce((sum, zone) => sum + (zone.total - zone.done), 0));
@@ -18,7 +26,11 @@ const displayName = (member: { username: string | null; email: string }) =>
 </script>
 
 <template>
-  <NuxtLink v-if="household" :to="localePath('/household')" class="house-card">
+  <NuxtLink
+    v-if="household"
+    :to="{ path: localePath('/household'), query: { home: household.id } }"
+    class="house-card"
+  >
     <div class="house-card__head">
       <div>
         <p class="house-card__label">{{ t('household.homeTitle') }}</p>

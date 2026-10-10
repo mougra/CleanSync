@@ -9,6 +9,7 @@ export interface HouseholdMember {
   id: number;
   email: string;
   username: string | null;
+  avatar_url: string | null;
   role: 'owner' | 'member';
   joined_at: string;
   week_done: number;
@@ -41,10 +42,29 @@ export interface HouseholdZone {
   done: number;
 }
 
-export interface HouseholdResponse {
-  household: HouseholdInfo | null;
-  role?: 'owner' | 'member';
-  members?: HouseholdMember[];
-  plan?: HouseholdPlanList[];
-  zones?: HouseholdZone[];
+/** Один дом целиком: карточка, моя роль в нём и содержимое. */
+export interface HouseholdEntry {
+  household: HouseholdInfo;
+  role: 'owner' | 'member';
+  members: HouseholdMember[];
+  plan: HouseholdPlanList[];
+  zones: HouseholdZone[];
 }
+
+/**
+ * Домов у пользователя может быть несколько, поэтому основной формат — список.
+ * `household` остаётся в ответах на изменяющие запросы: это тот дом, который
+ * изменился (удобно для инлайновых подсказок).
+ */
+export interface HouseholdListResponse {
+  households: HouseholdEntry[];
+}
+
+export interface HouseholdMutationResponse extends HouseholdListResponse {
+  household: HouseholdEntry | null;
+  left?: boolean;
+  householdId?: number;
+}
+
+/** Пустой список домов: состояние «домов ещё нет». */
+export const emptyHouseholds = (): HouseholdListResponse => ({ households: [] });

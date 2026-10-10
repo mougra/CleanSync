@@ -2,7 +2,7 @@ import express, { Request, Response } from 'express';
 import pool from '../db';
 import { authMiddleware } from '../auth';
 import { checkAndAwardAchievements } from '../services/achievementManager';
-import { canAccessSchedule, getMembership } from '../services/household';
+import { canAccessSchedule } from '../services/household';
 
 const router = express.Router();
 
@@ -209,9 +209,9 @@ router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
     const assigneeId = taskResult.rows[0].assignee_id;
 
     if (access.householdId !== null && assigneeId !== null && String(assigneeId) !== String(req.userId)) {
-      const membership = await getMembership(String(req.userId));
-
-      if (membership?.role !== 'owner') {
+      // Роль смотрим в том же доме, к которому относится задача: владельцем
+      // человек может быть в одном доме и участником в другом.
+      if (access.role !== 'owner') {
         return res.status(403).json({ error: 'This task is assigned to another member' });
       }
     }

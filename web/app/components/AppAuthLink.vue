@@ -6,7 +6,7 @@ const auth = useAuthStore();
 
 const logout = async () => {
   await auth.logout();
-  clearNuxtData(['today-plan', 'achievements-earned', 'active-challenge']);
+  clearNuxtData(['today-plan', 'achievements-earned', 'active-challenge', 'households']);
   await navigateTo(localePath('/'));
 };
 </script>
