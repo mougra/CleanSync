@@ -12,18 +12,6 @@ const showCalendar = computed(() => !hideCalendarRoutes.some((path) => route.pat
 
 <template>
   <div class="shell">
-    <!--
-      Свечение фона: два мягких пятна в цветах бренда.
-      Слой лежит внутри шелла, но абсолютным позиционированием (объявлено в
-      базовом правиле, а не в медиазапросе) и на z-index ниже контента, поэтому
-      он не занимает места в потоке и не перекрывает карточки и текст.
-      В <body> его уносить нельзя: шелл красит свой фон и пятна исчезают.
-    -->
-    <div class="shell__decor" aria-hidden="true">
-      <span class="shell__blob shell__blob--mint" />
-      <span class="shell__blob shell__blob--warm" />
-    </div>
-
     <AppSidebar />
 
     <div class="shell__main">
@@ -74,25 +62,14 @@ const showCalendar = computed(() => !hideCalendarRoutes.some((path) => route.pat
    * контенту. Ограничиваем не колонку целиком, а отдельные блоки внутри страниц
    * (--content-narrow / --content-reading), иначе на широком экране всё
    * растягивается в нечитаемые полосы.
+   *
+   * Фон намеренно прозрачный: цвет приложения и свечение живут на `body`
+   * (см. assets/css/decor.css). Непрозрачный фон здесь закрывал бы свечение —
+   * ровно поэтому декор больше не рисуется узлом внутри раскладки.
    */
   min-height: 100vh;
-  background: var(--c-bg);
-  /* Декор под контентом: без изоляции размытые пятна перекрывают карточки */
+  background: transparent;
   isolation: isolate;
-}
-
-/* ── Свечение фона ──────────────────────────────────────────────────────
- * Абсолютное позиционирование и z-index: 0 объявлены в базовом правиле:
- * слой гарантированно вне потока (не сдвигает контент) и под контентом
- * (не перекрывает карточки и текст, у которых z-index выше).
- */
-.shell__decor {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  display: none;
-  overflow: hidden;
-  pointer-events: none;
 }
 
 .shell__main {
@@ -193,53 +170,9 @@ const showCalendar = computed(() => !hideCalendarRoutes.some((path) => route.pat
   }
 }
 
-@media (min-width: 1024px) {
-  /* Видимость включаем только здесь: позиционирование уже задано выше */
-  .shell__decor {
-    display: block;
-  }
-
-  .shell__blob {
-    position: absolute;
-    border-radius: 50%;
-    filter: blur(70px);
-  }
-
-  .shell__blob--mint {
-    width: 520px;
-    height: 520px;
-    top: -140px;
-    right: -100px;
-    background: var(--c-surface-mint);
-    opacity: 0.7;
-    animation: drift 22s var(--ease-out) infinite alternate;
-  }
-
-  .shell__blob--warm {
-    width: 420px;
-    height: 420px;
-    bottom: -160px;
-    left: calc(var(--sidebar-w) - 80px);
-    background: var(--c-accent-soft);
-    opacity: 0.5;
-    animation: drift 28s var(--ease-out) infinite alternate-reverse;
-  }
-}
-
-@keyframes drift {
-  from {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-
-  to {
-    transform: translate3d(-28px, 36px, 0) scale(1.08);
-  }
-}
-
 /* Кто просил меньше движения — получает статичный интерфейс */
 @media (prefers-reduced-motion: reduce) {
-  .shell__content > *,
-  .shell__blob {
+  .shell__content > * {
     animation: none !important;
   }
 }
