@@ -234,9 +234,17 @@ useSeoMeta({
   margin: 0;
   padding: 0;
   list-style: none;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr;
   gap: var(--space-3);
+}
+
+@media (min-width: 768px) {
+  /* Десктоп: шаблоны чек-листов в сетке, а не одной длинной простынёй */
+  .list {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: var(--space-4);
+  }
 }
 
 .card {

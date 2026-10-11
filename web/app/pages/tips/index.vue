@@ -193,9 +193,9 @@ useStructuredData(() => ({
   margin: 0;
   padding: 0;
   list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
 }
 
 .card {
@@ -206,6 +206,10 @@ useStructuredData(() => ({
   background: var(--c-surface);
   color: var(--c-text);
   text-decoration: none;
+  box-shadow: var(--shadow-soft);
+  transition:
+    transform var(--dur-base) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out);
 }
 
 .card:hover .card__title {
@@ -214,9 +218,48 @@ useStructuredData(() => ({
 
 .card__image {
   width: 100%;
-  height: 156px;
+  height: 168px;
   object-fit: cover;
   background: var(--c-surface-sunken);
+  transition: transform var(--dur-slow) var(--ease-out);
+}
+
+/* На устройствах с курсором карточка приподнимается, а обложка чуть наезжает */
+@media (hover: hover) and (pointer: fine) {
+  .card:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-lift);
+  }
+
+  .card:hover .card__image {
+    transform: scale(1.04);
+  }
+}
+
+@media (min-width: 768px) {
+  /* Десктоп: список статей разворачивается в сетку — 2–3 колонки по ширине */
+  .page {
+    gap: var(--space-4);
+  }
+
+  .list {
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: var(--space-5);
+  }
+
+  .card__image {
+    height: 188px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .card__image,
+  .card:hover,
+  .card:hover .card__image {
+    transform: none;
+    transition: none;
+  }
 }
 
 .card__body {

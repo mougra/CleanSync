@@ -37,7 +37,7 @@ export default defineNuxtConfig({
     url: process.env.NUXT_PUBLIC_SITE_URL || 'http://localhost:3000',
     name: 'TidyPlan',
     description:
-      'Челленджи уборки по дням, полезные привычки и советы — чтобы навести порядок дома без выгорания.',
+      'TidyPlan — бесплатный план уборки дома: челленджи по дням, привычки и советы, чтобы наводить порядок без выгорания.',
     defaultLocale: 'ru',
   },
 
@@ -60,7 +60,7 @@ export default defineNuxtConfig({
       name: 'TidyPlan',
       short_name: 'TidyPlan',
       description:
-        'Челленджи уборки по дням, полезные привычки и советы — порядок дома без выгорания.',
+        'План уборки по дням, привычки и советы — порядок дома без выгорания.',
       lang: 'ru',
       start_url: '/',
       scope: '/',

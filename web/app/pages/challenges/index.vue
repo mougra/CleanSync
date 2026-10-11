@@ -65,12 +65,20 @@ useSeoMeta({
 }
 
 .list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-4);
 }
 
 .state {
   color: var(--c-text-muted);
+}
+
+@media (min-width: 768px) {
+  /* Десктоп: челленджи в две колонки, у каждого больше воздуха внутри */
+  .list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-5);
+  }
 }
 </style>
