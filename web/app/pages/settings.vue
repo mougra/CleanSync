@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { HOME_SETUP_STEP_COUNT, countAnsweredSteps } from '~/utils/homeSetupSteps';
+
 /**
  * Настройки: профиль и компактные списки строк.
  *
@@ -21,17 +23,33 @@ const api = useApi();
  * план, поэтому строка настроек говорит об этом прямо, а не только называет мастер.
  */
 const wizardOpen = ref(false);
-const { completed: homeProfileDone, refresh: refreshHomeProfile } = await useHomeProfile();
+const {
+  completed: homeProfileDone,
+  answeredFields: homeProfileAnswered,
+  refresh: refreshHomeProfile,
+} = await useHomeProfile();
 
 /**
  * Статус анкеты в строке настроек.
  *
- * Числа шагов здесь нет намеренно: `GET /api/home-profile` отдаёт профиль уже
- * с подставленными значениями по умолчанию (колонки в БД `NOT NULL DEFAULT`),
- * поэтому отличить «человек ответил» от «ответ не тронули» на клиенте нельзя,
- * и любой счётчик шагов был бы выдумкой. Знаем достоверно одно: пройдена или нет.
+ * Пока анкета не пройдена, показываем прогресс «N из 12» по явно отвеченным
+ * полям (`answeredFields`): в самом профиле лежат подставленные значения по
+ * умолчанию, поэтому по нему шаг «отвечен» от «пропущен» не отличить. Правило
+ * «шаг → поля» общее с мастером и карточкой (`utils/homeSetupSteps.ts`).
+ * Пройденная анкета — это статус, а не счётчик: дальше шагов нет. Если данных
+ * нет вовсе, честнее сказать «не пройдена», чем показать ноль.
  */
-const homeProfileValue = computed(() => (homeProfileDone.value ? t('homeSetup.done') : t('homeSetup.incomplete')));
+const homeProfileValue = computed(() => {
+  if (homeProfileDone.value) {
+    return t('homeSetup.passed');
+  }
+
+  const done = countAnsweredSteps(homeProfileAnswered.value);
+
+  return done > 0
+    ? t('homeSetup.progress', { done, total: HOME_SETUP_STEP_COUNT })
+    : t('homeSetup.incomplete');
+});
 
 /**
  * Из адреса убираем `?setup=1`: закрытый мастер не должен открываться при

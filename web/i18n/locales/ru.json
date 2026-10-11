@@ -197,6 +197,8 @@
     "title": "Настройка по дому",
     "done": "заполнено",
     "incomplete": "не заполнено",
+    "passed": "пройдена",
+    "progress": "Пройдено {done} из {total}",
     "sectionHome": "Ваш дом",
     "sectionRhythm": "Ваш ритм",
     "sectionPrefs": "Предпочтения",

@@ -7,6 +7,7 @@
  * возвращает его: интерфейс только показывает результат.
  */
 import type { HomePlan, HomeProfile } from '~/types/homeProfile';
+import { HOME_SETUP_STEP_FIELDS, type HomeSetupField } from '~/utils/homeSetupSteps';
 
 const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ close: []; planReady: [] }>();
@@ -24,24 +25,21 @@ interface StepOption {
   emoji?: string;
 }
 
-interface ExtraQuestion {
-  key: 'hasKidsRoom' | 'hasGarage' | 'worksFromHome';
-  labelKey: string;
-}
-
+/**
+ * Шаг мастера: только то, что видит человек. Какие поля анкеты шаг сохраняет,
+ * решает общий util `utils/homeSetupSteps.ts` — по нему же прогресс считают
+ * карточка на главной и строка настроек. Порядок шагов здесь и там совпадает.
+ */
 interface WizardStep {
-  field: keyof HomeProfile;
   section: 'home' | 'rhythm' | 'prefs';
   titleKey: string;
   hintKey: string;
   kind: StepKind;
   options?: StepOption[];
-  questions?: ExtraQuestion[];
 }
 
 const steps: WizardStep[] = [
   {
-    field: 'housingType',
     section: 'home',
     titleKey: 'q1Title',
     hintKey: 'q1Hint',
@@ -55,7 +53,6 @@ const steps: WizardStep[] = [
     ],
   },
   {
-    field: 'rooms',
     section: 'home',
     titleKey: 'q2Title',
     hintKey: 'q2Hint',
@@ -68,7 +65,6 @@ const steps: WizardStep[] = [
     ],
   },
   {
-    field: 'composition',
     section: 'home',
     titleKey: 'q3Title',
     hintKey: 'q3Hint',
@@ -81,7 +77,6 @@ const steps: WizardStep[] = [
     ],
   },
   {
-    field: 'pets',
     section: 'home',
     titleKey: 'q4Title',
     hintKey: 'q4Hint',
@@ -96,7 +91,6 @@ const steps: WizardStep[] = [
     ],
   },
   {
-    field: 'outdoor',
     section: 'home',
     titleKey: 'q5Title',
     hintKey: 'q5Hint',
@@ -108,19 +102,12 @@ const steps: WizardStep[] = [
     ],
   },
   {
-    field: 'hasKidsRoom',
     section: 'home',
     titleKey: 'q6Title',
     hintKey: 'q6Hint',
     kind: 'extra',
-    questions: [
-      { key: 'hasKidsRoom', labelKey: 'extraKidsRoom' },
-      { key: 'hasGarage', labelKey: 'extraGarage' },
-      { key: 'worksFromHome', labelKey: 'extraOffice' },
-    ],
   },
   {
-    field: 'drying',
     section: 'home',
     titleKey: 'q7Title',
     hintKey: 'q7Hint',
@@ -132,7 +119,6 @@ const steps: WizardStep[] = [
     ],
   },
   {
-    field: 'cleaningLevel',
     section: 'rhythm',
     titleKey: 'q8Title',
     hintKey: 'q8Hint',
@@ -144,7 +130,6 @@ const steps: WizardStep[] = [
     ],
   },
   {
-    field: 'dailyMinutes',
     section: 'rhythm',
     titleKey: 'q9Title',
     hintKey: 'q9Hint',
@@ -157,7 +142,6 @@ const steps: WizardStep[] = [
     ],
   },
   {
-    field: 'cleaningStyle',
     section: 'rhythm',
     titleKey: 'q10Title',
     hintKey: 'q10Hint',
@@ -170,14 +154,12 @@ const steps: WizardStep[] = [
     ],
   },
   {
-    field: 'cleaningDays',
     section: 'rhythm',
     titleKey: 'q11Title',
     hintKey: 'q11Hint',
     kind: 'days',
   },
   {
-    field: 'hardestZone',
     section: 'prefs',
     titleKey: 'q12Title',
     hintKey: 'q12Hint',
@@ -217,9 +199,24 @@ const total = steps.length;
 const progress = computed(() => (index.value + 1) / total);
 const sectionKey = computed(() => `section${current.value.section === 'home' ? 'Home' : current.value.section === 'rhythm' ? 'Rhythm' : 'Prefs'}`);
 
+/** Поля текущего шага: правило «шаг → поля» общее с карточкой и настройками. */
+const currentFields = computed<readonly HomeSetupField[]>(() => HOME_SETUP_STEP_FIELDS[index.value] ?? []);
+
+/** Основное поле шага: у шага 6 их три, и первым идёт «детская комната». */
+const currentField = computed<HomeSetupField>(() => currentFields.value[0] ?? 'housingType');
+
+/** Подписи подвопросов «да/нет»: ключи i18n к полям из общего util. */
+const EXTRA_LABEL_KEYS: Partial<Record<HomeSetupField, string>> = {
+  hasKidsRoom: 'extraKidsRoom',
+  hasGarage: 'extraGarage',
+  worksFromHome: 'extraOffice',
+};
+
+const extraLabelKey = (field: HomeSetupField) => EXTRA_LABEL_KEYS[field] ?? String(field);
+
 /** Ответ на текущем шаге: от него зависит, «Далее» или «Пропустить» на кнопке. */
 const answered = computed(() => {
-  const value = answers[current.value.field];
+  const value = answers[currentField.value];
 
   if (Array.isArray(value)) {
     return value.length > 0;
@@ -250,7 +247,7 @@ const dayValues = computed(() => answers.cleaningDays as number[] ?? []);
 
 const toggleDay = (day: number) => {
   const list = [...dayValues.value];
-  answers.cleaning_days = list.includes(day) ? list.filter((item) => item !== day) : [...list, day];
+  answers.cleaningDays = list.includes(day) ? list.filter((item) => item !== day) : [...list, day];
 };
 
 const pick = (field: string, value: string) => {
@@ -279,9 +276,11 @@ watch(
     plan.value = null;
     failure.value = false;
 
-    for (const step of steps) {
-      const stored = profile.value?.[step.field];
-      answers[step.field] = Array.isArray(stored) ? [...stored] : (stored ?? null);
+    for (const fields of HOME_SETUP_STEP_FIELDS) {
+      for (const field of fields) {
+        const stored = profile.value?.[field];
+        answers[field] = Array.isArray(stored) ? [...stored] : (stored ?? null);
+      }
     }
   },
   { immediate: true },
@@ -303,11 +302,12 @@ const finish = async () => {
 };
 
 const next = async () => {
-  // Шаг 6 — три поля сразу, поэтому собираем патч по вопросам шага
-  const patch =
-    current.value.kind === 'extra' && current.value.questions
-      ? Object.fromEntries(current.value.questions.map((question) => [question.key, answers[question.key]]))
-      : { [current.value.field]: answers[current.value.field] };
+  // Патч собираем по всем полям шага: у шага 6 их три (три вопроса «да/нет»),
+  // у остальных одно. Неотвеченные поля уходят как null, а save() их не
+  // отправляет — тогда шаг и остаётся непройденным.
+  const patch = Object.fromEntries(
+    currentFields.value.map((field) => [field, answers[field]]),
+  ) as Partial<HomeProfile>;
 
   const isLast = index.value === total - 1;
 
@@ -393,14 +393,14 @@ const close = () => emit('close');
             <button
               type="button"
               class="option"
-              :class="{ 'option--active': isSelected(String(current.field), option.value) }"
-              @click="pick(String(current.field), option.value)"
+              :class="{ 'option--active': isSelected(currentField, option.value) }"
+              @click="pick(currentField, option.value)"
             >
               <span class="option__text">
                 <span class="option__label">{{ t(`homeSetup.${option.labelKey}`) }}</span>
                 <span v-if="option.hintKey" class="option__hint">{{ t(`homeSetup.${option.hintKey}`) }}</span>
               </span>
-              <span class="badge" :class="{ 'badge--on': isSelected(String(current.field), option.value) }">
+              <span class="badge" :class="{ 'badge--on': isSelected(currentField, option.value) }">
                 <i class="pi pi-check" aria-hidden="true" />
               </span>
             </button>
@@ -414,17 +414,17 @@ const close = () => emit('close');
               <button
                 type="button"
                 class="option option--grid"
-                :class="{ 'option--active': multiValues(String(current.field)).includes(option.value) }"
-                @click="toggleMulti(String(current.field), option.value)"
+                :class="{ 'option--active': multiValues(currentField).includes(option.value) }"
+                @click="toggleMulti(currentField, option.value)"
               >
                 <span aria-hidden="true">{{ option.emoji }}</span>
                 <span class="option__label">{{ t(`homeSetup.${option.labelKey}`) }}</span>
                 <span
                   class="badge"
-                  :class="{ 'badge--on': multiValues(String(current.field)).includes(option.value) }"
+                  :class="{ 'badge--on': multiValues(currentField).includes(option.value) }"
                 >
                   <i
-                    :class="['pi', multiValues(String(current.field)).includes(option.value) ? 'pi-check' : 'pi-plus']"
+                    :class="['pi', multiValues(currentField).includes(option.value) ? 'pi-check' : 'pi-plus']"
                     aria-hidden="true"
                   />
                 </span>
@@ -435,8 +435,8 @@ const close = () => emit('close');
           <button
             type="button"
             class="pill"
-            :class="{ 'pill--active': multiValues(String(current.field)).includes('none') }"
-            @click="toggleMulti(String(current.field), 'none')"
+            :class="{ 'pill--active': multiValues(currentField).includes('none') }"
+            @click="toggleMulti(currentField, 'none')"
           >
             {{ t('homeSetup.optNoPets') }}
           </button>
@@ -444,22 +444,22 @@ const close = () => emit('close');
 
         <!-- Три подвопроса «да/нет» -->
         <ul v-else-if="current.kind === 'extra'" class="extras">
-          <li v-for="question in current.questions" :key="question.key" class="extra">
-            <p class="extra__label">{{ t(`homeSetup.${question.labelKey}`) }}</p>
+          <li v-for="field in currentFields" :key="field" class="extra">
+            <p class="extra__label">{{ t(`homeSetup.${extraLabelKey(field)}`) }}</p>
             <div class="extra__switch">
               <button
                 type="button"
                 class="toggle"
-                :class="{ 'toggle--on': answers[question.key] === true }"
-                @click="setExtra(question.key, true)"
+                :class="{ 'toggle--on': answers[field] === true }"
+                @click="setExtra(field, true)"
               >
                 {{ t('homeSetup.yes') }}
               </button>
               <button
                 type="button"
                 class="toggle"
-                :class="{ 'toggle--on': answers[question.key] !== true }"
-                @click="setExtra(question.key, false)"
+                :class="{ 'toggle--on': answers[field] !== true }"
+                @click="setExtra(field, false)"
               >
                 {{ t('homeSetup.no') }}
               </button>

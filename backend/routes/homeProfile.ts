@@ -40,6 +40,11 @@ import {
  *
  * Оба набора живут в обычных schedules/tasks, поэтому сразу работают в
  * «Сегодня», статистике и достижениях.
+ *
+ * Прогресс анкеты. Значения по умолчанию в таблице (миграция 0010) не дают
+ * отличить отвеченный шаг от пропущенного, поэтому имена явно присланных полей
+ * копятся в `home_profiles.answered_fields` и уходят наружу как `answeredFields`.
+ * Это только информация для интерфейса: на генерацию планов список не влияет.
  */
 const router = express.Router();
 
@@ -61,6 +66,8 @@ interface HomeProfileRow {
   cleaning_style: string;
   cleaning_days: number[] | null;
   hardest_zone: string;
+  /** Имена полей, которые человек заполнил явно (миграция 0015). */
+  answered_fields: string[] | null;
   completed_at: string | null;
   updated_at: string | null;
 }
@@ -88,7 +95,7 @@ const FIELD_RULES: Record<
 
 const SELECT_FIELDS = `housing_type, rooms, composition, pets, outdoor, has_kids_room, has_garage,
   works_from_home, drying, cleaning_level, daily_minutes, cleaning_style, cleaning_days,
-  hardest_zone, completed_at::text AS completed_at, updated_at::text AS updated_at`;
+  hardest_zone, answered_fields, completed_at::text AS completed_at, updated_at::text AS updated_at`;
 
 /** Профиль дома пользователя или null, если анкету ещё не начинали. */
 const loadProfile = async (userId: string): Promise<HomeProfileRow | null> => {
@@ -100,10 +107,30 @@ const loadProfile = async (userId: string): Promise<HomeProfileRow | null> => {
   return result.rows[0] ?? null;
 };
 
-/** Ответ интерфейсу: те же ключи, что ждёт мастер, плюс флаг завершённости. */
+/** Имена полей анкеты: по ним же проверяем список явных ответов. */
+const ANSWER_FIELD_NAMES: ReadonlySet<string> = new Set(Object.keys(FIELD_RULES));
+
+/**
+ * Явно заполненные поля профиля.
+ *
+ * Список читается из своей же колонки, но наружу отдаются только известные
+ * имена: в базе мог оказаться мусор от старого клиента, а интерфейс по этим
+ * именам считает шаги мастера, и лишняя строка сломала бы счёт.
+ */
+const toAnsweredFields = (row: HomeProfileRow | null): string[] =>
+  (row?.answered_fields ?? []).filter((field) => ANSWER_FIELD_NAMES.has(field));
+
+/**
+ * Ответ интерфейсу: те же ключи, что ждёт мастер, плюс флаг завершённости и
+ * список явно заполненных полей.
+ *
+ * `answeredFields` — это прогресс, а не часть анкеты: значения в `profile`
+ * по-прежнему приходят с подставленными умолчаниями (миграция 0010), и
+ * отличить «выбрал» от «не трогали» можно только по этому списку.
+ */
 const toProfileResponse = (row: HomeProfileRow | null) => {
   if (!row) {
-    return { profile: null, completed: false };
+    return { profile: null, completed: false, answeredFields: [] as string[] };
   }
 
   const profile = {
@@ -125,7 +152,7 @@ const toProfileResponse = (row: HomeProfileRow | null) => {
     updatedAt: row.updated_at,
   };
 
-  return { profile, completed: row.completed_at !== null };
+  return { profile, completed: row.completed_at !== null, answeredFields: toAnsweredFields(row) };
 };
 
 /**
@@ -204,7 +231,7 @@ const parseAnswers = (
   return { answers, provided, reachedEnd };
 };
 
-/** GET /api/home-profile — анкета пользователя или null. */
+/** GET /api/home-profile — анкета пользователя, прогресс и null вместо профиля. */
 router.get('/', authMiddleware, async (req: Request, res: Response) => {
   try {
     res.json(toProfileResponse(await loadProfile(String(req.userId))));
@@ -220,6 +247,10 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
  * Можно частично, шаг за шагом: присылайте только те поля, которые человек
  * успел выбрать. Первое сохранение заводит профиль, дальнейшие обновляют.
  * `completed_at` ставится, когда заполнены все шаги анкеты.
+ *
+ * Имена пришедших полей добавляются в `answered_fields` — по ним интерфейс
+ * считает пройденные шаги мастера. Список только растёт, поэтому повторный
+ * проход анкеты (и «Пропустить» на отдельных шагах) не обнуляет прогресс.
  */
 router.put('/', authMiddleware, async (req: Request, res: Response) => {
   try {
@@ -244,18 +275,44 @@ router.put('/', authMiddleware, async (req: Request, res: Response) => {
       const values = fields.map((field) => parsed.answers[field]);
       const setters = fields.map((field, index) => `${FIELD_RULES[field].column} = $${index + 1}`);
 
+      // Номера оставшихся параметров: список пришедших полей, флаг завершения,
+      // user_id. Список полей передаём массивом строк — Postgres сам приведёт
+      // его к text[].
+      const answeredIndex = values.length + 1;
+      const completeIndex = values.length + 2;
+      const userIndex = values.length + 3;
+
+      /**
+       * `answered_fields` только пополняется: объединение старого массива с
+       * пришедшими именами идёт одним UPDATE, поэтому повторный проход анкеты
+       * не теряет ранее отвеченные шаги, а два одновременных запроса не
+       * затирают друг друга (перечитывать список в JS не нужно).
+       */
       await pool.query(
         `UPDATE home_profiles
             SET ${setters.join(', ')},
-                completed_at = CASE WHEN $${values.length + 1} THEN COALESCE(completed_at, CURRENT_TIMESTAMP) ELSE completed_at END,
+                answered_fields = (
+                  SELECT COALESCE(array_agg(DISTINCT name ORDER BY name), '{}')
+                    FROM unnest(answered_fields || $${answeredIndex}::text[]) AS name
+                ),
+                completed_at = CASE WHEN $${completeIndex} THEN COALESCE(completed_at, CURRENT_TIMESTAMP) ELSE completed_at END,
                 updated_at = CURRENT_TIMESTAMP
-          WHERE user_id = $${values.length + 2}`,
-        [...values, parsed.reachedEnd && isComplete(merged), userId]
+          WHERE user_id = $${userIndex}`,
+        [...values, fields, parsed.reachedEnd && isComplete(merged), userId]
       );
     } else {
       const fields = Object.keys(parsed.answers) as (keyof PartialHomeAnswers)[];
-      const columns = ['user_id', ...fields.map((field) => FIELD_RULES[field].column), 'completed_at'];
-      const values: unknown[] = [userId, ...fields.map((field) => parsed.answers[field])];
+      const columns = [
+        'user_id',
+        ...fields.map((field) => FIELD_RULES[field].column),
+        'answered_fields',
+        'completed_at',
+      ];
+      const values: unknown[] = [
+        userId,
+        ...fields.map((field) => parsed.answers[field]),
+        [...fields].sort(),
+      ];
       values.push(parsed.reachedEnd && isComplete(merged) ? new Date() : null);
 
       const placeholders = values.map((_, index) => `$${index + 1}`);
@@ -694,6 +751,8 @@ router.delete('/', authMiddleware, async (req: Request, res: Response) => {
       // который он мог дополнить и поправить, — сброс анкеты его не касается.
       profile: null,
       completed: false,
+      // Список явных ответов живёт в той же строке, поэтому уходит вместе с ней.
+      answeredFields: [],
     });
   } catch (err) {
     await client.query('ROLLBACK');

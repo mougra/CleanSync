@@ -197,6 +197,8 @@
     "title": "Home setup",
     "done": "done",
     "incomplete": "not done",
+    "passed": "passed",
+    "progress": "{done} of {total} done",
     "sectionHome": "Your home",
     "sectionRhythm": "Your rhythm",
     "sectionPrefs": "Preferences",

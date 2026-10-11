@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { HOME_SETUP_STEP_COUNT, countAnsweredSteps } from '~/utils/homeSetupSteps';
+
 /**
  * Приглашение пройти анкету о доме на главной.
  *
@@ -6,11 +8,12 @@
  * сервер собирает недельный план («Мои задачи»), поэтому без анкеты план дня
  * остаётся пустым.
  *
- * Прогресса «N из 12» здесь нет намеренно. `GET /api/home-profile` отдаёт
- * профиль уже с подставленными значениями по умолчанию (в БД ответы лежат в
- * колонках `NOT NULL DEFAULT`), поэтому отличить отвеченный шаг от нетронутого
- * на клиенте невозможно, и любой счётчик оказался бы выдуманным. Достоверно
- * известно одно: анкета пройдена или нет — по этому карточка и живёт.
+ * Прогресс «N из 12» считаем по `answeredFields` — списку полей, которые
+ * человек заполнил явно (сервер копит их при каждом `PUT`). Сам профиль для
+ * этого не годится: в нём лежат подставленные значения по умолчанию, и
+ * отвеченный шаг не отличить от пропущенного. Правило «шаг → поля» одно на всё
+ * приложение и живёт в `utils/homeSetupSteps.ts`, поэтому карточка и мастер
+ * считают одинаково.
  */
 defineProps<{
   /** Куда ведёт кнопка — ссылка на мастер с `?setup=1`. */
@@ -18,6 +21,19 @@ defineProps<{
 }>();
 
 const { t } = useI18n();
+const { answeredFields } = await useHomeProfile();
+
+/**
+ * Прогресс текстом. Если данных нет или ни один шаг не пройден, показываем
+ * «не пройдена»: выдуманное «0 из 12» читалось бы как ответ на анкету.
+ */
+const progress = computed(() => {
+  const done = countAnsweredSteps(answeredFields.value);
+
+  return done > 0
+    ? t('homeSetup.progress', { done, total: HOME_SETUP_STEP_COUNT })
+    : t('homeSetup.incomplete');
+});
 </script>
 
 <template>
@@ -27,6 +43,7 @@ const { t } = useI18n();
     <div class="setup-card__body">
       <h2 class="setup-card__title">{{ t('setupCard.title') }}</h2>
       <p class="setup-card__text">{{ t('setupCard.text') }}</p>
+      <p class="setup-card__progress">{{ progress }}</p>
 
       <AppButton variant="accent" :to="to">{{ t('setupCard.cta') }}</AppButton>
     </div>
@@ -70,6 +87,12 @@ const { t } = useI18n();
 .setup-card__text {
   color: var(--c-text-muted);
   font-size: var(--fs-caption);
+}
+
+.setup-card__progress {
+  color: var(--c-brand);
+  font-size: var(--fs-caption);
+  font-weight: 600;
 }
 
 @media (min-width: 768px) {

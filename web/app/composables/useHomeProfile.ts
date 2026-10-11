@@ -1,6 +1,20 @@
 import type { HomePlan, HomeProfile } from '~/types/homeProfile';
 
 /**
+ * Ответ `GET/PUT /api/home-profile`.
+ *
+ * `answeredFields` — имена полей, которые человек заполнил явно: сервер копит
+ * их при каждом `PUT` (в таблице значения лежат с `NOT NULL DEFAULT`, поэтому
+ * по самому профилю отличить отвеченный шаг от пропущенного нельзя). Прогресс
+ * «N из 12» считается по этому списку и карте шагов в `utils/homeSetupSteps.ts`.
+ */
+interface HomeProfileResponse {
+  profile?: HomeProfile | null;
+  completed?: boolean;
+  answeredFields?: string[];
+}
+
+/**
  * Мастер «Настройка по дому»: анкета и генерация плана.
  *
  * Ответы сохраняем на каждом шаге (`PUT` с частью полей), поэтому закрытая
@@ -13,7 +27,7 @@ export const useHomeProfile = async () => {
 
   const state = useAsyncData('home-profile', () =>
     auth.isAuthenticated
-      ? api.request<{ profile?: HomeProfile | null } & HomeProfile>('/api/home-profile')
+      ? api.request<HomeProfileResponse>('/api/home-profile')
       : Promise.resolve(null),
   );
 
@@ -30,7 +44,15 @@ export const useHomeProfile = async () => {
     return (value.profile ?? value) as HomeProfile;
   });
 
-  const completed = computed(() => Boolean(profile.value?.completedAt));
+  /**
+   * Явно заполненные поля анкеты.
+   *
+   * Пустой список — это «данных нет» либо «ни шага не пройдено»: в обоих случаях
+   * интерфейс показывает «не пройдена», а не выдуманное число.
+   */
+  const answeredFields = computed<string[]>(() => state.data.value?.answeredFields ?? []);
+
+  const completed = computed(() => Boolean(state.data.value?.completed ?? profile.value?.completedAt));
 
   const saving = ref(false);
   const saveError = ref(false);
@@ -70,10 +92,10 @@ export const useHomeProfile = async () => {
     saveError.value = false;
 
     try {
-      const updated = await api.request<{ profile?: HomeProfile | null } & HomeProfile>(
-        '/api/home-profile',
-        { method: 'PUT', body },
-      );
+      const updated = await api.request<HomeProfileResponse>('/api/home-profile', {
+        method: 'PUT',
+        body,
+      });
 
       state.data.value = updated;
     } catch {
@@ -88,6 +110,7 @@ export const useHomeProfile = async () => {
 
   return {
     profile,
+    answeredFields,
     completed,
     saving,
     saveError,
