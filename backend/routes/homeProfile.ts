@@ -12,7 +12,6 @@ import {
   CLEANING_STYLES,
   COMPOSITIONS,
   DAILY_MINUTES_OPTIONS,
-  DEFAULT_HOME_ANSWERS,
   DRYING_OPTIONS,
   HARDEST_ZONES,
   HOUSING_TYPES,
@@ -246,7 +245,12 @@ router.get('/', authMiddleware, async (req: Request, res: Response) => {
  *
  * Можно частично, шаг за шагом: присылайте только те поля, которые человек
  * успел выбрать. Первое сохранение заводит профиль, дальнейшие обновляют.
- * `completed_at` ставится, когда заполнены все шаги анкеты.
+ * `completed_at` ставится ровно по флагу `complete: true` с последнего шага
+ * мастера — по самим ответам завершённость не выводится.
+ *
+ * Флаг можно прислать и без полей: последний шаг разрешено пропустить, и тогда
+ * тело — это ровно `{ complete: true }`. Отвергается только вовсе пустой запрос
+ * (ни поля, ни флага): иначе «завершить анкету» получилось бы одним `{}`.
  *
  * Имена пришедших полей добавляются в `answered_fields` — по ним интерфейс
  * считает пройденные шаги мастера. Список только растёт, поэтому повторный
@@ -261,14 +265,18 @@ router.put('/', authMiddleware, async (req: Request, res: Response) => {
       return;
     }
 
-    if (parsed.provided === 0) {
+    /**
+     * Пустой PUT по-прежнему ошибка: «завершить без всего» нельзя. Но последний
+     * шаг мастера можно пропустить — тогда приходит только `{ complete: true }`,
+     * без единого поля, и это законное завершение анкеты, а не мусор.
+     */
+    if (parsed.provided === 0 && !parsed.reachedEnd) {
       res.status(400).json({ error: 'Нужно передать хотя бы одно поле анкеты' });
       return;
     }
 
     const userId = String(req.userId);
     const current = await loadProfile(userId);
-    const merged = { ...DEFAULT_HOME_ANSWERS, ...(current ? toAnswers(current) : {}), ...parsed.answers };
 
     if (current) {
       const fields = Object.keys(parsed.answers) as (keyof PartialHomeAnswers)[];
@@ -287,6 +295,11 @@ router.put('/', authMiddleware, async (req: Request, res: Response) => {
        * пришедшими именами идёт одним UPDATE, поэтому повторный проход анкеты
        * не теряет ранее отвеченные шаги, а два одновременных запроса не
        * затирают друг друга (перечитывать список в JS не нужно).
+       *
+       * `completed_at` ставится только явным флагом с последнего шага и больше
+       * ни от чего не зависит: шаг разрешено пропустить, а значения по умолчанию
+       * описывают «типовой дом» (правило 28), поэтому по самим ответам отличить
+       * пройденный мастер от пропущенного нельзя.
        */
       await pool.query(
         `UPDATE home_profiles
@@ -298,7 +311,7 @@ router.put('/', authMiddleware, async (req: Request, res: Response) => {
                 completed_at = CASE WHEN $${completeIndex} THEN COALESCE(completed_at, CURRENT_TIMESTAMP) ELSE completed_at END,
                 updated_at = CURRENT_TIMESTAMP
           WHERE user_id = $${userIndex}`,
-        [...values, fields, parsed.reachedEnd && isComplete(merged), userId]
+        [...values, fields, parsed.reachedEnd, userId]
       );
     } else {
       const fields = Object.keys(parsed.answers) as (keyof PartialHomeAnswers)[];
@@ -313,7 +326,7 @@ router.put('/', authMiddleware, async (req: Request, res: Response) => {
         ...fields.map((field) => parsed.answers[field]),
         [...fields].sort(),
       ];
-      values.push(parsed.reachedEnd && isComplete(merged) ? new Date() : null);
+      values.push(parsed.reachedEnd ? new Date() : null);
 
       const placeholders = values.map((_, index) => `$${index + 1}`);
 
@@ -354,36 +367,13 @@ router.put('/', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
-/** Есть ли ответ на каждый из 12 шагов анкеты. */
-const isComplete = (answers: PartialHomeAnswers): boolean => {
-  const required: (keyof PartialHomeAnswers)[] = [
-    'housingType',
-    'rooms',
-    'composition',
-    'pets',
-    'outdoor',
-    'hasKidsRoom',
-    'hasGarage',
-    'worksFromHome',
-    'drying',
-    'cleaningLevel',
-    'dailyMinutes',
-    'cleaningStyle',
-    'cleaningDays',
-    'hardestZone',
-  ];
-
-  return required.every((field) => {
-    const value = answers[field];
-
-    if (Array.isArray(value)) return value.length > 0;
-    if (typeof value === 'boolean') return true;
-
-    return value !== undefined && value !== null;
-  });
-};
-
-/** Строка БД → ответы анкеты для генератора. */
+/**
+ * Строка БД → ответы анкеты для генератора.
+ *
+ * `completed_at` здесь ни при чём: завершённость читается из самой колонки
+ * (`toProfileResponse`), а не выводится из ответов — пропущенный шаг и ответ
+ * «по умолчанию» по значениям неразличимы.
+ */
 const toAnswers = (row: HomeProfileRow): PartialHomeAnswers =>
   withDefaultAnswers({
     housingType: row.housing_type as PartialHomeAnswers['housingType'],

@@ -270,3 +270,60 @@ describe.skipIf(!fixture)('PUT /api/home-profile: мусор не попадае
     await pool.query('DELETE FROM home_profiles WHERE user_id = $1', [data.userId]);
   });
 });
+
+/**
+ * Последний шаг мастера можно пропустить: клиент не отправляет пустые ответы
+ * (см. правило 28 в CLAUDE.md), поэтому тело приходит ровно как
+ * `{ complete: true }`. Такой запрос обязан завершать анкету — иначе статус
+ * навсегда остаётся «Пройдено N из 12». Вовсе пустое тело при этом остаётся
+ * ошибкой: «завершить без ничего» нельзя.
+ */
+describe.skipIf(!fixture)('PUT /api/home-profile: завершение без полей', () => {
+  itWithData('пустое тело по-прежнему отвечает 400', async (data) => {
+    const rejected = await putProfile(data.token, {});
+
+    expect(rejected.status).toBe(400);
+
+    const res = await getProfile(data.token);
+
+    expect(res.status).toBe(200);
+    expect(res.body.completed).toBe(false);
+    expect(res.body.profile).toBeNull();
+  });
+
+  itWithData('complete: true без полей завершает анкету и собирает «Мои задачи»', async (data) => {
+    const res = await putProfile(data.token, { complete: true });
+
+    expect(res.status).toBe(200);
+    expect(res.body.completed).toBe(true);
+    expect(res.body.profile.completedAt).toBeTruthy();
+    // Пропущенный шаг не становится отвеченным: прогресс по полям пуст.
+    expect(res.body.answeredFields).toEqual([]);
+    // Сборка постоянного набора «Мои задачи» прежняя — она идёт тем же запросом.
+    expect(res.body.myTasks?.scheduleId).toEqual(expect.any(Number));
+
+    // GET видит то же состояние: именно его читает строка настроек.
+    const stored = await getProfile(data.token);
+
+    expect(stored.status).toBe(200);
+    expect(stored.body.completed).toBe(true);
+    expect(stored.body.profile.completedAt).toBeTruthy();
+  });
+
+  itWithData('complete: true вместе с полем учитывает это поле', async (data) => {
+    const res = await putProfile(data.token, { complete: true, rooms: '1-2' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.completed).toBe(true);
+    expect(res.body.profile.rooms).toBe('1-2');
+    expect(res.body.answeredFields).toContain('rooms');
+  });
+
+  itWithData('сброс анкеты возвращает её в исходное состояние', async (data) => {
+    const res = await request(app).delete('/api/home-profile').set(auth(data.token));
+
+    expect(res.status).toBe(200);
+    expect(res.body.completed).toBe(false);
+    expect(res.body.answeredFields).toEqual([]);
+  });
+});
