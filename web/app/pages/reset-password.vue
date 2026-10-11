@@ -1,5 +1,7 @@
 <script setup lang="ts">
 /** Страница из письма: установка нового пароля по токену. */
+const MIN_PASSWORD = 8;
+
 const { t } = useI18n();
 const localePath = useLocalePath();
 const route = useRoute();
@@ -11,11 +13,27 @@ const repeat = ref('');
 const pending = ref(false);
 const done = ref(false);
 const error = ref('');
+const touchedRepeat = ref(false);
+
+/** Требования к паролю проверяем до отправки: сервер ответит тем же, но позже. */
+const tooShort = computed(() => password.value.length < MIN_PASSWORD);
+const mismatch = computed(() => password.value !== repeat.value);
+const canSubmit = computed(() => !tooShort.value && !mismatch.value && repeat.value.length > 0);
+
+const repeatError = computed(() => (touchedRepeat.value && repeat.value.length > 0 && mismatch.value
+  ? t('auth.passwordMismatch')
+  : ''));
 
 const submit = async () => {
   error.value = '';
+  touchedRepeat.value = true;
 
-  if (password.value !== repeat.value) {
+  if (tooShort.value) {
+    error.value = t('auth.passwordTooShort');
+    return;
+  }
+
+  if (mismatch.value) {
     error.value = t('auth.passwordMismatch');
     return;
   }
@@ -47,19 +65,28 @@ useSeoMeta({ title: () => t('auth.resetTitle'), robots: 'noindex' });
     </template>
 
     <form v-else class="form" @submit.prevent="submit">
-      <label class="field">
-        <span class="field__label">{{ t('auth.newPassword') }}</span>
-        <input v-model="password" class="field__input" type="password" minlength="8" autocomplete="new-password" required >
-      </label>
+      <PasswordField
+        v-model="password"
+        :label="t('auth.newPassword')"
+        autocomplete="new-password"
+        :minlength="MIN_PASSWORD"
+        :hint="t('auth.passwordMinHint')"
+        required
+      />
 
-      <label class="field">
-        <span class="field__label">{{ t('auth.passwordRepeat') }}</span>
-        <input v-model="repeat" class="field__input" type="password" minlength="8" autocomplete="new-password" required >
-      </label>
+      <PasswordField
+        v-model="repeat"
+        :label="t('auth.passwordRepeat')"
+        autocomplete="new-password"
+        :minlength="MIN_PASSWORD"
+        :error="repeatError"
+        required
+        @focus="touchedRepeat = true"
+      />
 
-      <p v-if="error" class="state state--error">{{ error }}</p>
+      <p v-if="error" class="state state--error" role="alert">{{ error }}</p>
 
-      <AppButton variant="accent" block type="submit" :disabled="pending">
+      <AppButton variant="accent" block type="submit" :disabled="pending || !canSubmit">
         {{ pending ? t('state.loading') : t('auth.resetSubmit') }}
       </AppButton>
     </form>
@@ -85,27 +112,6 @@ useSeoMeta({ title: () => t('auth.resetTitle'), robots: 'noindex' });
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.field__label {
-  color: var(--c-text-muted);
-  font-size: var(--fs-caption);
-}
-
-.field__input {
-  min-height: 52px;
-  padding: 0 var(--space-4);
-  border: 1px solid var(--c-border);
-  border-radius: var(--r-row);
-  background: var(--c-surface);
-  color: var(--c-text);
-  font: inherit;
 }
 
 .state {

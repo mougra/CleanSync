@@ -86,5 +86,13 @@ export const useHomeProfile = async () => {
   const generatePlan = async (): Promise<HomePlan> =>
     api.request<HomePlan>('/api/home-profile/plan', { method: 'POST' });
 
-  return { profile, completed, saving, saveError, save, generatePlan, refresh: state.refresh };
+  return {
+    profile,
+    completed,
+    saving,
+    saveError,
+    save,
+    generatePlan,
+    refresh: state.refresh,
+  };
 };

@@ -1,16 +1,64 @@
 <script setup lang="ts">
+/** Минимальная длина пароля: то же требование проверяет бэкенд при регистрации. */
+const MIN_PASSWORD = 8;
+
 const { t } = useI18n();
 const auth = useAuthStore();
 const localePath = useLocalePath();
 
 const email = ref('');
 const password = ref('');
+const passwordRepeat = ref('');
 const acceptedTerms = ref(false);
 const pending = ref(false);
 const error = ref(false);
 const successMessage = ref('');
 
+/**
+ * Поля считаем «тронутыми» после первого ввода: иначе ошибки горели бы красным
+ * на пустой форме, которую человек ещё не начал заполнять.
+ */
+const touchedPassword = ref(false);
+const touchedRepeat = ref(false);
+
+const passwordTooShort = computed(() => password.value.length < MIN_PASSWORD);
+const passwordsMatch = computed(() => password.value === passwordRepeat.value);
+
+/** Ошибка под первым полем: показываем, только когда человек начал вводить. */
+const passwordError = computed(() => (touchedPassword.value && passwordTooShort.value
+  ? t('auth.passwordTooShort')
+  : ''));
+
+/**
+ * Ошибка под подтверждением: пустое поле — это ещё «не заполнено», а не
+ * несовпадение, поэтому сообщение появляется после первого символа.
+ */
+const repeatError = computed(() => (touchedRepeat.value && passwordRepeat.value.length > 0 && !passwordsMatch.value
+  ? t('auth.passwordMismatch')
+  : ''));
+
+/**
+ * Кнопка ждёт длинный пароль, его подтверждение и согласие с политикой.
+ * Раньше можно было отправить короткий пароль и пустое подтверждение — форма
+ * отвечала ошибкой сервера, и было непонятно, что именно не так.
+ */
+const canSubmit = computed(
+  () =>
+    !passwordTooShort.value &&
+    password.value.length > 0 &&
+    passwordsMatch.value &&
+    passwordRepeat.value.length > 0 &&
+    acceptedTerms.value,
+);
+
 const submit = async () => {
+  touchedPassword.value = true;
+  touchedRepeat.value = true;
+
+  if (!canSubmit.value) {
+    return;
+  }
+
   pending.value = true;
   error.value = false;
   try {
@@ -46,17 +94,26 @@ useSeoMeta({ title: () => t('auth.registerTitle') });
         >
       </label>
 
-      <label class="field">
-        <span class="field__label">{{ t('auth.password') }}</span>
-        <input
-          v-model="password"
-          class="field__input"
-          type="password"
-          autocomplete="new-password"
-          minlength="8"
-          required
-        >
-      </label>
+      <PasswordField
+        v-model="password"
+        :label="t('auth.password')"
+        autocomplete="new-password"
+        :minlength="MIN_PASSWORD"
+        :hint="t('auth.passwordMinHint')"
+        :error="passwordError"
+        required
+        @focus="touchedPassword = true"
+      />
+
+      <PasswordField
+        v-model="passwordRepeat"
+        :label="t('auth.repeatPasswordLabel')"
+        autocomplete="new-password"
+        :minlength="MIN_PASSWORD"
+        :error="repeatError"
+        required
+        @focus="touchedRepeat = true"
+      />
 
       <label class="consent">
         <input v-model="acceptedTerms" type="checkbox" required >
@@ -68,7 +125,7 @@ useSeoMeta({ title: () => t('auth.registerTitle') });
 
       <p v-if="error" class="auth__error">{{ t('auth.registerFailed') }}</p>
 
-      <button type="submit" class="btn" :disabled="pending || !acceptedTerms">
+      <button type="submit" class="btn" :disabled="pending || !canSubmit">
         {{ pending ? t('state.loading') : t('auth.register') }}
       </button>
     </form>
@@ -113,6 +170,7 @@ useSeoMeta({ title: () => t('auth.registerTitle') });
   font-size: var(--fs-caption);
 }
 
+/* Только e-mail: поля пароля приходят из PasswordField со своими стилями */
 .field__input {
   min-height: 52px;
   padding: 0 var(--space-4);

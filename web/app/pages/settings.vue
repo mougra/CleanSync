@@ -7,14 +7,69 @@
  */
 const { t, locale } = useI18n();
 const localePath = useLocalePath();
+const route = useRoute();
+const router = useRouter();
 const auth = useAuthStore();
 // Не деструктурируем: preference — пара геттер/сеттер, деструктуризация ломает запись.
 const colorMode = useColorMode();
 const api = useApi();
 
-/** Мастер «Настройка по дому» и признак того, что анкета уже заполнена. */
+/**
+ * Мастер «Настройка по дому» и состояние анкеты.
+ *
+ * `completed` показывает, пройдена ли анкета: пройти её можно заново и пересобрать
+ * план, поэтому строка настроек говорит об этом прямо, а не только называет мастер.
+ */
 const wizardOpen = ref(false);
-const { completed: homeProfileDone } = await useHomeProfile();
+const { completed: homeProfileDone, refresh: refreshHomeProfile } = await useHomeProfile();
+
+/**
+ * Статус анкеты в строке настроек.
+ *
+ * Числа шагов здесь нет намеренно: `GET /api/home-profile` отдаёт профиль уже
+ * с подставленными значениями по умолчанию (колонки в БД `NOT NULL DEFAULT`),
+ * поэтому отличить «человек ответил» от «ответ не тронули» на клиенте нельзя,
+ * и любой счётчик шагов был бы выдумкой. Знаем достоверно одно: пройдена или нет.
+ */
+const homeProfileValue = computed(() => (homeProfileDone.value ? t('homeSetup.done') : t('homeSetup.incomplete')));
+
+/**
+ * Из адреса убираем `?setup=1`: закрытый мастер не должен открываться при
+ * возврате на страницу, а ссылка без query остаётся чистой.
+ */
+const clearSetupQuery = () => {
+  if (!isSetupRequested(route.query.setup)) {
+    return;
+  }
+
+  const query = { ...route.query };
+  delete query.setup;
+  void router.replace({ path: route.path, query });
+};
+
+/**
+ * Deep-link `?setup=1` открывает мастер сразу — ссылку можно прислать в письме
+ * или положить в карточку на главной. Следим за query, а не только за
+ * монтированием: переход из карточки на главной ведёт в тот же маршрут.
+ */
+watch(
+  () => route.query.setup,
+  (setup) => {
+    if (!isSetupRequested(setup)) {
+      return;
+    }
+
+    wizardOpen.value = true;
+    clearSetupQuery();
+  },
+  { immediate: true },
+);
+
+/** Мастер закрыли: убираем `?setup=1` из адреса, чтобы он не открылся снова. */
+const closeWizard = () => {
+  wizardOpen.value = false;
+  clearSetupQuery();
+};
 
 /** Почта для обратной связи: с неё же уходят письма сервиса. */
 const SUPPORT_EMAIL = 'tidyflowup@gmail.com';
@@ -142,8 +197,25 @@ const passwordMessage = ref('');
 const passwordError = ref(false);
 const needsEmailConfirmation = ref(false);
 
+/** Подтверждение трогали: до первого ввода несоответствие не подсвечиваем. */
+const passwordRepeatTouched = ref(false);
+
+const passwordsMatch = computed(() => newPassword.value === repeatPassword.value);
+
+/** Та же проверка, что была раньше, плюс совпадение паролей: иначе кнопка
+    отправляла форму, и человек узнавал о несовпадении только по ошибке. */
 const canSubmitPassword = computed(
-  () => currentPassword.value.length > 0 && newPassword.value.length >= 8,
+  () =>
+    currentPassword.value.length > 0 &&
+    newPassword.value.length >= 8 &&
+    repeatPassword.value.length > 0 &&
+    passwordsMatch.value,
+);
+
+const passwordRepeatError = computed(() =>
+  passwordRepeatTouched.value && repeatPassword.value.length > 0 && !passwordsMatch.value
+    ? t('auth.passwordMismatch')
+    : '',
 );
 
 const changePassword = async () => {
@@ -151,6 +223,7 @@ const changePassword = async () => {
   passwordError.value = false;
 
   if (newPassword.value !== repeatPassword.value) {
+    passwordRepeatTouched.value = true;
     passwordError.value = true;
     passwordMessage.value = t('auth.passwordMismatch');
     return;
@@ -305,7 +378,8 @@ useSeoMeta({ title: () => t('nav.settings') });
       <SettingsRow
         icon="pi-sliders-h"
         :title="t('homeSetup.title')"
-        :value="homeProfileDone ? t('homeSetup.done') : ''"
+        :subtitle="t('settings.homeSetupHint')"
+        :value="homeProfileValue"
         @click="wizardOpen = true"
       />
 
@@ -376,24 +450,33 @@ useSeoMeta({ title: () => t('nav.settings') });
         v-if="auth.isAuthenticated"
         icon="pi-lock"
         :title="t('settings.passwordChange')"
+        :subtitle="t('settings.passwordHint')"
         expandable
       >
         <template #body>
           <form class="form" @submit.prevent="changePassword">
-            <label class="field">
-              <span class="field__label">{{ t('settings.currentPassword') }}</span>
-              <input v-model="currentPassword" class="field__input" type="password" autocomplete="current-password" >
-            </label>
+            <PasswordField
+              v-model="currentPassword"
+              :label="t('settings.currentPassword')"
+              autocomplete="current-password"
+            />
 
-            <label class="field">
-              <span class="field__label">{{ t('settings.newPassword') }}</span>
-              <input v-model="newPassword" class="field__input" type="password" autocomplete="new-password" minlength="8" >
-            </label>
+            <PasswordField
+              v-model="newPassword"
+              :label="t('settings.newPassword')"
+              autocomplete="new-password"
+              :minlength="8"
+              :hint="t('auth.passwordMinHint')"
+            />
 
-            <label class="field">
-              <span class="field__label">{{ t('settings.repeatPassword') }}</span>
-              <input v-model="repeatPassword" class="field__input" type="password" autocomplete="new-password" minlength="8" >
-            </label>
+            <PasswordField
+              v-model="repeatPassword"
+              :label="t('settings.repeatPassword')"
+              autocomplete="new-password"
+              :minlength="8"
+              :error="passwordRepeatError"
+              @focus="passwordRepeatTouched = true"
+            />
 
             <AppButton type="submit" variant="filled" block :disabled="passwordBusy || !canSubmitPassword">
               {{ t('settings.passwordChange') }}
@@ -433,10 +516,13 @@ useSeoMeta({ title: () => t('nav.settings') });
         <template #body>
           <p class="row-hint">{{ t('settings.resetHint') }}</p>
 
-          <label class="field">
-            <span class="field__label">{{ t('settings.resetConfirmLabel') }}</span>
-            <input v-model="resetPassword" class="field__input" type="password" autocomplete="current-password" >
-          </label>
+          <div class="field">
+            <PasswordField
+              v-model="resetPassword"
+              :label="t('settings.resetConfirmLabel')"
+              autocomplete="current-password"
+            />
+          </div>
 
           <AppButton
             variant="outline"
@@ -459,7 +545,7 @@ useSeoMeta({ title: () => t('nav.settings') });
     </AppButton>
 
     <!-- Мастер «Настройка по дому»: 12 шагов и генерация плана по ответам -->
-    <HomeSetupWizard :open="wizardOpen" @close="wizardOpen = false" />
+    <HomeSetupWizard :open="wizardOpen" @close="closeWizard" @plan-ready="refreshHomeProfile" />
   </div>
 </template>
 
@@ -554,16 +640,13 @@ useSeoMeta({ title: () => t('nav.settings') });
   flex: 1;
 }
 
+/* Обёртка вокруг поля пароля: отступ снизу даёт тот же ритм, что у остальных
+   полей формы, а сам PasswordField приносит свои подпись и рамку. */
 .field {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
   margin-bottom: var(--space-3);
-}
-
-.field__label {
-  color: var(--c-text-muted);
-  font-size: var(--fs-caption);
 }
 
 .field__input {

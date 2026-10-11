@@ -10,13 +10,19 @@ const props = withDefaults(
   defineProps<{
     icon: string;
     title: string;
+    /**
+     * Пояснение под названием: короткая подпись, которая нужна не всем строкам
+     * (например «анкету можно пройти заново»). Длинный текст сюда не пишем —
+     * строка настроек должна оставаться компактной.
+     */
+    subtitle?: string;
     value?: string;
     to?: string;
     tone?: 'default' | 'danger';
     /** Раскрывается по нажатию: содержимое передаётся в слот body. */
     expandable?: boolean;
   }>(),
-  { value: '', to: '', tone: 'default', expandable: false },
+  { subtitle: '', value: '', to: '', tone: 'default', expandable: false },
 );
 
 const slots = useSlots();
@@ -40,7 +46,11 @@ const isToggle = computed(() => props.expandable || hasBody.value);
     @click="isToggle && (open = !open)"
   >
     <span class="row__icon" aria-hidden="true"><i :class="['pi', icon]" /></span>
-    <span class="row__title">{{ title }}</span>
+
+    <span class="row__text">
+      <span class="row__title">{{ title }}</span>
+      <span v-if="subtitle" class="row__subtitle">{{ subtitle }}</span>
+    </span>
 
     <span v-if="$slots.control" class="row__control" @click.stop>
       <slot name="control" />
@@ -57,7 +67,11 @@ const isToggle = computed(() => props.expandable || hasBody.value);
     @click="isToggle && (open = !open)"
   >
     <span class="row__icon" aria-hidden="true"><i :class="['pi', icon]" /></span>
-    <span class="row__title">{{ title }}</span>
+
+    <span class="row__text">
+      <span class="row__title">{{ title }}</span>
+      <span v-if="subtitle" class="row__subtitle">{{ subtitle }}</span>
+    </span>
 
     <span v-if="$slots.control" class="row__control" @click.stop>
       <slot name="control" />
@@ -121,9 +135,24 @@ const isToggle = computed(() => props.expandable || hasBody.value);
   color: var(--c-danger);
 }
 
-.row__title {
+/* Название и пояснение одной колонкой: пояснение переносится на вторую строку
+   и не растягивает строку настроек в высоту без нужды. */
+.row__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   flex: 1;
   min-width: 0;
+}
+
+.row__title {
+  min-width: 0;
+}
+
+.row__subtitle {
+  color: var(--c-text-muted);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-tight);
 }
 
 .row__value {

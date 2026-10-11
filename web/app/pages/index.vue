@@ -408,6 +408,16 @@ useStructuredData(() => ({
     <!-- Челлендж сезона закрыт: на главной остаётся только нейтральная строка -->
     <p v-else-if="challengeCompleted" class="home__note">{{ t('home.challengeCompleted') }}</p>
 
+    <!--
+      Приглашение пройти анкету о доме: только вошедшему и только пока анкета
+      не пройдена. По ответам сервер собирает план, поэтому до анкеты план дня
+      остаётся пустым — карточка объясняет, почему, и ведёт прямо в мастер.
+    -->
+    <HomeSetupCard
+      v-if="auth.isAuthenticated && !homeProfileDone"
+      :to="localePath('/settings?setup=1')"
+    />
+
     <div class="section-head">
       <h2 class="section-head__title">{{ t('home.readyToStart') }}</h2>
       <NuxtLink :to="localePath('/challenges')" class="section-head__link">
@@ -461,7 +471,7 @@ useStructuredData(() => ({
               {{ t('plan.addTask') }}
             </button>
 
-            <NuxtLink v-if="!homeProfileDone" :to="localePath('/settings')" class="plan__setup">
+            <NuxtLink v-if="!homeProfileDone" :to="localePath('/settings?setup=1')" class="plan__setup">
               {{ t('plan.setupLink') }}
               <i class="pi pi-chevron-right" aria-hidden="true" />
             </NuxtLink>

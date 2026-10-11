@@ -42,16 +42,12 @@ useSeoMeta({ title: () => t('auth.loginTitle') });
         >
       </label>
 
-      <label class="field">
-        <span class="field__label">{{ t('auth.password') }}</span>
-        <input
-          v-model="password"
-          class="field__input"
-          type="password"
-          autocomplete="current-password"
-          required
-        >
-      </label>
+      <PasswordField
+        v-model="password"
+        :label="t('auth.password')"
+        autocomplete="current-password"
+        required
+      />
 
       <p v-if="error" class="auth__error">{{ t('auth.loginFailed') }}</p>
 
