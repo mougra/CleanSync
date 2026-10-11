@@ -6,6 +6,7 @@ import {
   type TaskLevel,
   type TaskTag,
 } from './taskCatalog';
+import { DAY_BUDGET_MINUTES, dayBudget, MAX_DAILY_MINUTES } from './dailyBudget';
 
 /**
  * Генератор недельного плана уборки по анкете «Настройка по дому».
@@ -31,8 +32,12 @@ import {
  *  6. Способ сушки меняет формулировки про стирку: при сушке на воздухе это
  *     развешивание и съём белья с сушилки, при машине — фильтр и загрузка.
  *  7. Сумма минут дня не превышает дневной бюджет и никогда не больше 40 минут
- *     (under30 → 20, 30to60 → 35, 1to2h → 40, depends → 30): задачи каталога
- *     раздроблены до шагов на 10-20 минут, поэтому день собирается из 2-4 дел.
+ *     (under30 → 25, 30to60 → 40, 1to2h → 40, depends → 30). Числа бюджета
+ *     берутся из общего модуля services/dailyBudget.ts — второй копии таблицы
+ *     быть не должно. Бюджет плана — это бюджет **всех** сгенерированных дел
+ *     дня: из него вычитается занятость набора «Мои задачи»
+ *     (services/defaultTasks.ts), поэтому два генератора не складываются поверх
+ *     общего лимита.
  *  8. Одна и та же задача не ставится два дня подряд: неделя остаётся
  *     разнообразной, а не превращается в «помыть пол» каждый день.
  */
@@ -157,15 +162,24 @@ export interface HomePlan {
 /**
  * Дневной бюджет времени: сколько минут в день человек готов тратить.
  *
- * Потолок — 40 минут: задачи раздроблены до 10-20 минут, и «убрать всю
- * квартиру за раз» больше не помещается в один день (см. правило раскладки 7).
+ * Сами числа живут в services/dailyBudget.ts — общий источник правды для обоих
+ * генераторов (иначе таблицы снова разъедутся, а сумма дня выйдет за лимит).
+ * Здесь только совместимый реэкспорт: модуль исторически был точкой входа для
+ * этих чисел. Потолок — 40 минут: задачи раздроблены до 3-25 минут, и «убрать
+ * всю квартиру за раз» больше не помещается в один день (правило раскладки 7).
  */
-export const DAILY_BUDGET: Record<DailyMinutesOption, number> = {
-  under30: 20,
-  '30to60': 35,
-  '1to2h': 40,
-  depends: 30,
-};
+export { DAY_BUDGET_MINUTES as DAILY_BUDGET, MAX_DAILY_MINUTES };
+
+/**
+ * Пометка источника у задач недельного плана.
+ *
+ * План целиком генерируется сервером (schedule «План по дому»), поэтому все его
+ * задачи помечаются `source = 'home_plan'` — иначе сгенерированное неотличимо от
+ * созданного руками, и ни пересборку, ни статистику по источникам построить
+ * нельзя. У постоянного набора «Мои задачи» пометка своя
+ * (`home_profile_defaults`, services/defaultTasks.ts).
+ */
+export const HOME_PLAN_SOURCE = 'home_plan';
 
 /**
  * Максимальная длительность одной задачи по уровню уборки.
@@ -405,22 +419,42 @@ interface DayShape {
 /**
  * Форма недели: у каждого дня свой дневной лимит минут и предел на задачу.
  *
- * Дневной бюджет — обещание пользователю, поэтому лимит дня никогда его не
- * превышает. Стиль меняет не потолок, а распределение недели:
+ * Дневной бюджет — обещание пользователю, поэтому сумма **всех** сгенерированных
+ * дел дня никогда его не превышает. На вход приходит `leftover` — остаток
+ * бюджета каждого выбранного дня после задач набора «Мои задачи»
+ * (services/defaultTasks.ts): второй генератор не должен складывать свои минуты
+ * поверх общего лимита. Стиль меняет не потолок, а распределение недели:
  *  - often_small — ровные дни по 2-3 коротких дела, без «блоков»;
  *  - all_at_once — человек убирается редко, но помногу: 1-2 дня забирают
  *    большую часть недельного времени, остальные получают минимум;
  *  - when_energy и varies — середина: первый день чуть тяжелее остальных.
+ *
+ * День, у которого не осталось свободного времени, попадает в раскладку с нулём:
+ * план в него ничего не добавляет, и это нормальное состояние, а не ошибка
+ * (бюджет ограничивает генерацию, а не доступные человеку дела).
  */
-const shapeWeek = (answers: HomeAnswers, days: number[]): DayShape[] => {
+const shapeWeek = (
+  answers: HomeAnswers,
+  days: number[],
+  leftover: ReadonlyMap<number, number>
+): DayShape[] => {
   const budgetForTasks = taskBudgetFor(answers);
   const level = answers.cleaningLevel;
   const style = answers.cleaningStyle;
+  /**
+   * Остаток дня для плана: бюджет дня минус занятость набора «Мои задачи».
+   *
+   * Ноль остаётся нулём — план в этот день ничего не добавляет, и это нормально:
+   * задачи на день у человека уже есть, а бюджет ограничивает генерацию, а не
+   * доступные дела. Досыпать «хоть что-нибудь» сверх остатка нельзя: именно так
+   * и получалось 53 минуты в день при ответе «до 30 минут».
+   */
+  const free = (day: number): number => Math.max(0, leftover.get(day) ?? 0);
 
   if (style === 'often_small') {
     return days.map((day) => ({
       day,
-      minutes: DAILY_BUDGET[answers.dailyMinutes],
+      minutes: free(day),
       maxTaskMinutes: MAX_TASK_MINUTES[level],
       maxTasks: Math.max(budgetForTasks.min, 3),
     }));
@@ -428,31 +462,27 @@ const shapeWeek = (answers: HomeAnswers, days: number[]): DayShape[] => {
 
   if (style === 'all_at_once') {
     const blockDays = Math.min(days.length >= 4 ? 2 : 1, days.length);
-    const lightDays = days.length - blockDays;
-    const budgetForDay = DAILY_BUDGET[answers.dailyMinutes];
-    // Сначала резервируем обычным дням минимум: иначе «блок» съедает весь
-    // недельный запас и остальные дни остаются пустыми — это уже не план.
-    const minLight = Math.round(budgetForDay * 0.4);
-    const reservedForLight = Math.min(budgetForDay * days.length, minLight * lightDays);
-    const blockBudget = Math.min(
-      budgetForDay * blockDays,
-      Math.max(0, budgetForDay * days.length - reservedForLight)
-    );
+    // «Блок» получает больше времени за счёт остальных дней недели, но не сверх
+    // бюджета: распределяем ровно то, что доступно в выбранные дни.
+    const weekBudget = days.reduce((sum, day) => sum + free(day), 0);
+    const blockBudget = days
+      .slice(0, blockDays)
+      .reduce((sum, day) => sum + free(day), 0);
     const perBlock = blockDays > 0 ? Math.floor(blockBudget / blockDays) : 0;
+    // Остаток недели делим только между днями, у которых есть свободное время:
+    // иначе полный день получил бы лимит впустую, а другому не хватило.
+    const lightWithRoom = days.slice(blockDays).filter((day) => free(day) > 0);
     const perLight =
-      lightDays > 0
-        ? Math.min(
-            budgetForDay,
-            Math.floor(Math.max(0, budgetForDay * days.length - perBlock * blockDays) / lightDays)
-          )
+      lightWithRoom.length > 0
+        ? Math.floor(Math.max(0, weekBudget - perBlock * blockDays) / lightWithRoom.length)
         : 0;
 
     return days.map((day, index) => {
-      const isBlock = index < blockDays;
+      const isBlock = index < blockDays && perBlock > 0;
 
       return {
         day,
-        minutes: isBlock ? perBlock : perLight,
+        minutes: isBlock ? perBlock : free(day) > 0 ? Math.min(free(day), perLight) : 0,
         maxTaskMinutes: isBlock ? MAX_TASK_MINUTES[level] : Math.min(20, MAX_TASK_MINUTES[level]),
         maxTasks: isBlock ? Math.max(budgetForTasks.max, 5) : Math.max(budgetForTasks.min - 1, 2),
       };
@@ -461,8 +491,8 @@ const shapeWeek = (answers: HomeAnswers, days: number[]): DayShape[] => {
 
   return days.map((day, index) => ({
     day,
-    // Первому дню недели — право на чуть больше дел, но не больше бюджета.
-    minutes: DAILY_BUDGET[answers.dailyMinutes],
+    // Первому дню недели — право на чуть больше дел, но не больше бюджета дня.
+    minutes: free(day),
     maxTaskMinutes: level === 'light' ? 15 : MAX_TASK_MINUTES[level],
     maxTasks: budgetForTasks.max + (index === 0 ? 1 : 0),
   }));
@@ -480,17 +510,19 @@ interface DayPick {
  *
  * Порядок кандидатов задаёт вызывающий: он же отвечает за то, чтобы задачи
  * «трудной» зоны шли в начало недели. Здесь только раскладка по бюджету.
+ *
+ * `shape.minutes` — это уже остаток бюджета дня после задач «Мои задачи»,
+ * поэтому день никогда не выходит за общий дневной лимит.
  */
 const selectTasks = (
   shape: DayShape,
   orderedCandidates: CatalogTask[],
   usedTitles: Set<string>,
-  previousDayTitles: Set<string>,
-  budget: number
+  previousDayTitles: Set<string>
 ): DayPick => {
-  // Дневной лимит не превышает бюджет пользователя: «блок» стиля «всё за один
-  // подход» получает больше времени за счёт других дней недели, а не сверх.
-  const target = Math.min(budget, shape.minutes);
+  // Лимит дня — это остаток общего бюджета: «блок» стиля «всё за один подход»
+  // получает больше времени за счёт других дней недели, а не сверх бюджета.
+  const target = shape.minutes;
   // Одна задача не должна съедать больше половины дня: иначе «план на день» —
   // это одно длинное дело и ничего больше.
   const singleTaskCap = Math.max(15, Math.round(target * 0.55));
@@ -543,7 +575,7 @@ const selectTasks = (
   };
 
   const first = orderedCandidates.find(fits);
-  if (first) take(first);
+  if (first && target > 0) take(first);
 
   let ranDry = false;
 
@@ -639,14 +671,33 @@ const interestRepresentatives = (
   return representatives;
 };
 
-/** Основная точка входа: собирает план по ответам анкеты. */
-export const buildHomePlan = (input: PartialHomeAnswers): HomePlan => {
+/**
+ * Основная точка входа: собирает план по ответам анкеты.
+ *
+ * `occupied` — сколько минут сгенерированных задач уже занимает каждый день
+ * недели (0 — воскресенье). Обычно это карта из `occupiedMinutesByWeekday` по
+ * набору «Мои задачи» (services/defaultTasks.ts). Из бюджета дня вычитается
+ * занятость, и в план уходит только остаток: два генератора больше не
+ * складываются поверх общего дневного лимита. Если остатка нет, день получает
+ * ноль — план в него ничего не добавляет, и это нормальное состояние
+ * (обещание бюджета важнее «плотности» плана).
+ *
+ * Без аргумента поведение прежнее: весь бюджет дня отдан плану.
+ */
+export const buildHomePlan = (
+  input: PartialHomeAnswers,
+  occupied?: ReadonlyMap<number, number>
+): HomePlan => {
   const answers = withDefaultAnswers(input);
 
-  const budget = DAILY_BUDGET[answers.dailyMinutes];
+  const budget = dayBudget(answers);
   const pool = preparePool(answers);
   const days = orderWeekDays(answers.cleaningDays);
-  const shapes = shapeWeek(answers, days);
+  // Остаток бюджета своего дня для каждого выбранного дня недели.
+  const leftover = new Map<number, number>(
+    days.map((day) => [day, Math.max(0, budget - (occupied?.get(day) ?? 0))])
+  );
+  const shapes = shapeWeek(answers, days, leftover);
   const focusZone = HARDEST_ZONE_LABELS[answers.hardestZone];
 
   /**
@@ -705,7 +756,7 @@ export const buildHomePlan = (input: PartialHomeAnswers): HomePlan => {
       ...(focusChunks[index] ?? []),
       ...rotated,
     ];
-    const pick = selectTasks(shape, dayCandidates, usedTitles, previousDayTitles, budget);
+    const pick = selectTasks(shape, dayCandidates, usedTitles, previousDayTitles);
 
     picks.push(pick);
     previousDayTitles = new Set(pick.tasks.map((task) => task.task));

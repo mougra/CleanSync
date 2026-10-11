@@ -12,6 +12,7 @@
     "db:setup": "npm run migrate:up && npm run seed",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
+    "check:budget": "tsx scripts/check-default-tasks.ts",
     "test": "vitest run"
   },
   "dependencies": {

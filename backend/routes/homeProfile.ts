@@ -6,6 +6,7 @@ import {
   DEFAULT_TASK_SOURCE,
   type DefaultTaskSet,
 } from '../services/defaultTasks';
+import { occupiedMinutesByWeekday } from '../services/dailyBudget';
 import {
   buildHomePlan,
   CLEANING_LEVELS,
@@ -14,6 +15,7 @@ import {
   DAILY_MINUTES_OPTIONS,
   DRYING_OPTIONS,
   HARDEST_ZONES,
+  HOME_PLAN_SOURCE,
   HOUSING_TYPES,
   OUTDOOR_OPTIONS,
   PET_OPTIONS,
@@ -39,6 +41,12 @@ import {
  *
  * Оба набора живут в обычных schedules/tasks, поэтому сразу работают в
  * «Сегодня», статистике и достижениях.
+ *
+ * Общий дневной бюджет. Числа бюджета по ответу анкеты лежат в одном месте
+ * (services/dailyBudget.ts), а согласование генераторов делает `buildPlanFor`:
+ * недельный план получает бюджет дня за вычетом минут, которые уже занял
+ * постоянный набор. Поэтому сумма сгенерированных дел дня не превышает бюджет,
+ * а свои задачи пользователя в расчёт не входят вовсе — они добавляются сверх.
  *
  * Прогресс анкеты. Значения по умолчанию в таблице (миграция 0010) не дают
  * отличить отвеченный шаг от пропущенного, поэтому имена явно присланных полей
@@ -393,11 +401,35 @@ const toAnswers = (row: HomeProfileRow): PartialHomeAnswers =>
   });
 
 /**
+ * План и постоянный набор по одним и тем же ответам, согласованные по бюджету.
+ *
+ * Возвращаются вместе намеренно: недельный план получает от набора карту
+ * «день недели → занятые минуты» (`occupiedMinutesByWeekday`), иначе два
+ * генератора снова сложили бы свои минуты поверх общего дневного бюджета —
+ * ровно та ошибка, из-за которой у человека с ответом «до 30 минут в день»
+ * выходило 53 минуты в понедельник (12 «Мои задачи» + 22 + 19 «План по дому»).
+ *
+ * Оба генератора берут числа из одного модуля (services/dailyBudget.ts), так что
+ * бюджет в них не может разойтись.
+ */
+const buildPlanFor = (row: HomeProfileRow): { plan: HomePlan; defaultSet: DefaultTaskSet } => {
+  const answers = toAnswers(row);
+  const defaultSet = buildDefaultTasks(answers);
+  const plan = buildHomePlan(answers, occupiedMinutesByWeekday(defaultSet));
+
+  return { plan, defaultSet };
+};
+
+/**
  * Записывает план в обычные schedules/tasks.
  *
  * Идемпотентность: прошлый «План по дому» вместе с задачами удаляется, новое
  * расписание создаётся заново. Так повторный вызов не плодит дубли, а отметки
  * о выполнении старого плана всё равно теряют смысл вместе с самим планом.
+ *
+ * Все задачи помечаются `source = 'home_plan'`: расписание целиком генерируется
+ * сервером, и без пометки сгенерированное неотличимо от созданного руками
+ * (у «Моих задач» пометка своя — `home_profile_defaults`).
  */
 const savePlan = async (userId: string, plan: HomePlan) => {
   const client = await pool.connect();
@@ -439,10 +471,10 @@ const savePlan = async (userId: string, plan: HomePlan) => {
     for (const day of plan.days) {
       for (const task of day.tasks) {
         const inserted = await client.query<{ id: number }>(
-          `INSERT INTO tasks (schedule_id, title, room, estimated_minutes, frequency, day_of_week)
-           VALUES ($1, $2, $3, $4, 'weekly', $5)
+          `INSERT INTO tasks (schedule_id, title, room, estimated_minutes, frequency, day_of_week, source)
+           VALUES ($1, $2, $3, $4, 'weekly', $5, $6)
            RETURNING id`,
-          [scheduleId, task.title, task.room, task.estimatedMinutes, day.dayOfWeek]
+          [scheduleId, task.title, task.room, task.estimatedMinutes, day.dayOfWeek, HOME_PLAN_SOURCE]
         );
 
         savedTasks.push({
@@ -626,12 +658,13 @@ router.post('/plan', authMiddleware, async (req: Request, res: Response) => {
       return;
     }
 
-    const plan = buildHomePlan(toAnswers(row));
+    // План и постоянный набор считаются вместе: недельный план получает бюджет
+    // дня за вычетом того, что занимает набор «Мои задачи».
+    const { plan, defaultSet } = buildPlanFor(row);
     const saved = await savePlan(userId, plan);
 
-    // Постоянный набор «Мои задачи» собирается из тех же ответов, но пишется
-    // идемпотентно: повторный вызов не создаёт второй раз те же дела.
-    const defaultSet = buildDefaultTasks(toAnswers(row));
+    // Постоянный набор «Мои задачи» пишется идемпотентно: повторный вызов не
+    // создаёт второй раз те же дела.
     const myTasks = await syncDefaultTasks(userId, defaultSet, { removeStale: true });
 
     // Задачам присваиваем настоящие id: интерфейс сразу может их отмечать
@@ -689,13 +722,12 @@ router.get('/plan', authMiddleware, async (req: Request, res: Response) => {
       return;
     }
 
-    const plan = buildHomePlan(toAnswers(row));
+    const { plan, defaultSet } = buildPlanFor(row);
     const stored = await pool.query<{ id: number; created_at: string }>(
       `SELECT id, created_at::text AS created_at FROM schedules WHERE user_id = $1 AND title = $2 ORDER BY id LIMIT 1`,
       [userId, PLAN_TITLE]
     );
 
-    const defaultSet = buildDefaultTasks(toAnswers(row));
     const myTasks = await syncDefaultTasks(userId, defaultSet, { removeStale: false });
 
     res.json({

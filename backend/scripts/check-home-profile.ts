@@ -7,6 +7,7 @@
  */
 import dotenv from 'dotenv';
 import pool from '../db';
+import { dayBudget } from '../services/dailyBudget';
 import { getTaskCatalog } from '../services/taskCatalog';
 
 dotenv.config();
@@ -71,6 +72,9 @@ const createUser = async (label: string): Promise<{ id: number; token: string }>
 
 const problems: string[] = [];
 
+/** Заголовок постоянного набора: по нему задачи ищутся во всех сценариях. */
+const MY_TASKS = 'Мои задачи';
+
 const check = (condition: boolean, message: string) => {
   if (!condition) problems.push(message);
 };
@@ -122,11 +126,28 @@ const printPlan = (title: string, result: ApiResult) => {
   return result.body;
 };
 
-const verifyPlan = (title: string, plan: any, options: { budget: number; level: string }) => {
+/**
+ * Проверки плана. `expectedBudget` — дневной бюджет по ответу анкеты: он должен
+ * совпасть с тем, что посчитал сервер, иначе числа бюджета разъехались между
+ * генератором и общей таблицей (services/dailyBudget.ts).
+ *
+ * День плана сравнивается с бюджетом **всего** дня, а не только с планом, но
+ * сам план уже получает остаток: сколько минут дня занимает набор «Мои задачи»,
+ * столько вычитается из бюджета перед сборкой (см. buildPlanFor в
+ * routes/homeProfile.ts). Поэтому здесь бюджет — это потолок для плана.
+ */
+const verifyPlan = (
+  title: string,
+  plan: any,
+  options: { expectedBudget: number; level: string }
+) => {
   const budget = plan.summary.dailyBudget;
   const active = plan.days.filter((day: any) => day.selected);
 
-  check(active.length > 0, `${title}: нет ни одного дня с задачами`);
+  check(
+    budget === options.expectedBudget,
+    `${title}: бюджет ${budget}, а по ответу анкеты — ${options.expectedBudget}`
+  );
 
   for (const day of active) {
     // Дневной бюджет — жёсткое обещание: ни один день не должен его превышать.
@@ -245,7 +266,7 @@ const main = async () => {
     'Сценарий A: студия, кошки, глубокая, <30 мин, понемногу но часто, 3 дня, труднее всего кухня',
     scenarioA
   );
-  if (planA) verifyPlan('A', planA, { budget: 25, level: 'deep' });
+  if (planA) verifyPlan('A', planA, { expectedBudget: dayBudget({ dailyMinutes: 'under30' }), level: 'deep' });
 
   // Идемпотентность: повторный вызов не должен плодить расписания
   const schedulesBefore = await pool.query(
@@ -285,6 +306,23 @@ const main = async () => {
   );
   console.log('Задачи в БД по дням:', JSON.stringify(weeklyRows.rows));
 
+  // Пометка источника: задачи недельного плана пишет сервер, поэтому у всех
+  // должен стоять `home_plan` — иначе сгенерированное неотличимо от созданного
+  // руками (см. savePlan в routes/homeProfile.ts и миграцию 0016).
+  const planSources = await pool.query<{ source: string | null; total: number }>(
+    `SELECT t.source, COUNT(*)::int AS total
+       FROM tasks t JOIN schedules s ON s.id = t.schedule_id
+      WHERE s.user_id = $1 AND s.title = 'План по дому'
+      GROUP BY t.source`,
+    [first.id]
+  );
+
+  check(
+    planSources.rows.length > 0 && planSources.rows.every((row) => row.source === 'home_plan'),
+    `«План по дому»: источники задач ${JSON.stringify(planSources.rows)}`
+  );
+  console.log(`Источник задач плана: ${JSON.stringify(planSources.rows)}`);
+
   // ── 4. Второй сценарий: дом с двором, гаражом, детской и офисом ──────────
   const second = await createUser('house');
   await call('PUT', '/home-profile', second.token, {
@@ -307,7 +345,7 @@ const main = async () => {
     'Сценарий B: дом 8+ комнат, семья с детьми, собака и рыбки, двор, гараж, детская, офис, сушильная машина, глубокая, 1-2 часа, всё за один подход, 5 дней',
     await call('POST', '/home-profile/plan', second.token)
   );
-  if (planB) verifyPlan('B', planB, { budget: 110, level: 'deep' });
+  if (planB) verifyPlan('B', planB, { expectedBudget: dayBudget({ dailyMinutes: '1to2h' }), level: 'deep' });
 
   // ── 5. Третий сценарий: лёгкая уборка, сушка на воздухе ─────────────────
   const third = await createUser('light');
@@ -331,71 +369,14 @@ const main = async () => {
     'Сценарий C: квартира, пара, балкон, офис, сушка на воздухе, лёгкая, 30-60 мин, 2 дня, труднее всего порядок',
     await call('POST', '/home-profile/plan', third.token)
   );
-  if (planC) verifyPlan('C', planC, { budget: 55, level: 'light' });
+  if (planC) verifyPlan('C', planC, { expectedBudget: dayBudget({ dailyMinutes: '30to60' }), level: 'light' });
 
-  // Проверки содержимого: теги под ответы
-  const allB = planB.days.flatMap((day: any) => day.tasks);
-  const allC = planC.days.flatMap((day: any) => day.tasks);
-
-  check(
-    allB.some((task: any) => task.tags.includes('kids')),
-    'B: нет задач по детской'
-  );
-  check(
-    allB.some((task: any) => task.tags.includes('garage')),
-    'B: нет задач по гаражу'
-  );
-  check(
-    allB.some((task: any) => task.tags.includes('yard')),
-    'B: нет задач по двору'
-  );
-  check(
-    allB.some((task: any) => task.tags.includes('office')),
-    'B: нет задач по домашнему офису'
-  );
-  check(
-    allB.some((task: any) => task.tags.includes('pets')),
-    'B: нет задач про питомцев'
-  );
-  check(
-    allB.some((task: any) => task.tags.includes('dry_machine')),
-    'B: при сушильной машине нет задачи про фильтр/загрузку'
-  );
-  check(
-    !allB.some((task: any) => task.tags.includes('dry_air')),
-    'B: при сушильной машине попались задачи про сушку на воздухе'
-  );
-  check(
-    allC.every((task: any) => !task.tags.includes('pets')),
-    'C: «нет питомцев», но в плане есть задачи про питомцев'
-  );
-  check(
-    allC.some((task: any) => task.tags.includes('balcony')),
-    'C: нет задач про балкон'
-  );
-  check(
-    allC.some((task: any) => task.tags.includes('dry_air')),
-    'C: при сушке на воздухе нет задачи про развешивание'
-  );
-  check(
-    allC.every((task: any) => task.level === 'light'),
-    'C: лёгкий уровень, но есть более тяжёлые задачи'
-  );
-
-  // Кухня в сценарии A: фокусная зона должна быть в начале недели
-  const kitchenDays = planA.days
-    .filter((day: any) => day.selected && day.tasks.some((task: any) => task.room === 'Кухня'))
-    .map((day: any) => day.dayOfWeek);
-  const activeA = planA.days.filter((day: any) => day.selected).map((day: any) => day.dayOfWeek);
-  console.log(`\nСценарий A: дни с кухней ${JSON.stringify(kitchenDays)} из активных ${JSON.stringify(activeA)}`);
-  check(
-    kitchenDays.length > 0 && kitchenDays[0] === activeA[0],
-    `A: кухня (трудная зона) не попала в первый день недели (${JSON.stringify(kitchenDays)} vs ${JSON.stringify(activeA)})`
-  );
-
-  // ── 6. Постоянный набор «Мои задачи» ────────────────────────────────────
-  const MY_TASKS = 'Мои задачи';
-
+  /**
+   * ── 5. Проверки содержимого планов и задачи из базы ──────────────────────
+   *
+   * Дальше нужны задачи постоянного набора «Мои задачи» и их теги: бюджет дня
+   * общий, поэтому контекст анкеты проверяется по сумме двух наборов.
+   */
   interface MyTaskRow {
     id: number;
     title: string;
@@ -430,6 +411,22 @@ const main = async () => {
   const petTitles = catalogTitles('pets');
   const kidsTitles = catalogTitles('kids');
 
+  /** Теги задач по названию: нужно проверить контекст по задачам из базы. */
+  const catalogTagsByTitle = new Map(
+    getTaskCatalog().map((task) => [task.task, task.tags as string[]])
+  );
+
+  /** Какие темы анкеты закрыты задачами в сумме двух наборов. */
+  const coveredTags = (titles: string[]): Set<string> => {
+    const tags = new Set<string>();
+
+    for (const title of titles) {
+      for (const tag of catalogTagsByTitle.get(title) ?? []) tags.add(tag);
+    }
+
+    return tags;
+  };
+
   const scheduleCount = async (userId: number, title: string): Promise<number> => {
     const result = await pool.query<{ total: number }>(
       'SELECT COUNT(*)::int AS total FROM schedules WHERE user_id = $1 AND title = $2',
@@ -438,6 +435,112 @@ const main = async () => {
 
     return result.rows[0].total;
   };
+
+  // Проверки содержимого: теги под ответы
+  const allB = planB.days.flatMap((day: any) => day.tasks);
+  const allC = planC.days.flatMap((day: any) => day.tasks);
+
+  /**
+   * Контекст анкеты проверяем по **сумме** двух наборов: «Мои задачи» плюс план.
+   *
+   * Бюджет дня общий, поэтому план получает только остаток от набора «Мои
+   * задачи»: у второго пользователя набор занимает 33-35 минут из 40, и плану
+   * достаются считанные минуты. Требовать, чтобы тема (гараж, двор, сушка) была
+   * именно в плане, после этого нельзя — важно, что она есть в днях человека.
+   * Что каждая тема представлена внутри самого плана при свободном бюджете,
+   * проверяет отдельный сценарий D ниже.
+   */
+  const myTasksB = (await loadMyTasks(second.id)).map((task) => task.title);
+  const myTasksC = (await loadMyTasks(third.id)).map((task) => task.title);
+  const combinedTagsB = coveredTags([...myTasksB, ...allB.map((task: any) => task.title)]);
+  const combinedTagsC = coveredTags([...myTasksC, ...allC.map((task: any) => task.title)]);
+
+  console.log(`\nТемы сценария B: ${[...combinedTagsB].sort().join(', ') || '—'}`);
+  console.log(`Темы сценария C: ${[...combinedTagsC].sort().join(', ') || '—'}`);
+
+  for (const tag of ['kids', 'garage', 'yard', 'office', 'pets']) {
+    check(combinedTagsB.has(tag), `B: ни одна задача не закрывает тему ${tag}`);
+  }
+
+  check(
+    combinedTagsB.has('dry_machine'),
+    'B: при сушильной машине нет задачи про фильтр/загрузку'
+  );
+  check(
+    !combinedTagsB.has('dry_air'),
+    'B: при сушильной машине попались задачи про сушку на воздухе'
+  );
+  check(
+    !combinedTagsC.has('pets'),
+    'C: «нет питомцев», но в задачах есть про питомцев'
+  );
+  check(combinedTagsC.has('balcony'), 'C: ни одна задача не закрывает тему балкона');
+  check(
+    combinedTagsC.has('dry_air'),
+    'C: при сушке на воздухе нет задачи про развешивание'
+  );
+  check(
+    allC.every((task: any) => !task.tags.includes('pets')),
+    'C: «нет питомцев», но в плане есть задачи про питомцев'
+  );
+  check(
+    allC.every((task: any) => task.level === 'light'),
+    'C: лёгкий уровень, но есть более тяжёлые задачи'
+  );
+  // Сушка на воздухе и в машине — взаимоисключающие пометки: в одном наборе их
+  // быть не должно ни при каких ответах.
+  check(
+    !(combinedTagsB.has('dry_air') && combinedTagsB.has('dry_machine')),
+    'B: в задачах смешаны сушка на воздухе и сушильная машина'
+  );
+
+  // ── 5б. Сценарий D: свободный бюджет — фокусная зона идёт первой ─────────
+  //
+  // Отдельный пользователь с «минимумом» и двумя днями уборки: набор «Мои
+  // задачи» занимает только 12-17 минут из 25, поэтому у плана есть 10+ минут
+  // на день, и «трудная» зона обязана встать в начало недели. На сценарии A
+  // такой проверки больше нет: при остром бюджете первым днём может стать
+  // единственный свободный, и это правильное поведение — бюджет важнее фокуса.
+  const focus = await createUser('focus');
+  await call('PUT', '/home-profile', focus.token, {
+    housingType: 'apartment',
+    rooms: '3-4',
+    composition: 'partner',
+    pets: ['none'],
+    outdoor: 'none',
+    hasKidsRoom: false,
+    hasGarage: false,
+    worksFromHome: false,
+    drying: 'air',
+    cleaningLevel: 'normal',
+    dailyMinutes: 'under30',
+    cleaningStyle: 'varies',
+    cleaningDays: [1, 4],
+    hardestZone: 'kitchen',
+  });
+
+  const planD = printPlan(
+    'Сценарий D: квартира, пара, «минимум, до 30 минут», 2 дня, труднее всего кухня',
+    await call('POST', '/home-profile/plan', focus.token)
+  );
+  if (planD) verifyPlan('D', planD, { expectedBudget: dayBudget({ dailyMinutes: 'under30' }), level: 'normal' });
+
+  if (planD) {
+    const kitchenDays = planD.days
+      .filter((day: any) => day.selected && day.tasks.some((task: any) => task.room === 'Кухня'))
+      .map((day: any) => day.dayOfWeek);
+    const activeD = planD.days.filter((day: any) => day.selected).map((day: any) => day.dayOfWeek);
+
+    console.log(`Сценарий D: дни с кухней ${JSON.stringify(kitchenDays)} из активных ${JSON.stringify(activeD)}`);
+    check(
+      kitchenDays.length > 0 && kitchenDays[0] === activeD[0],
+      `D: кухня (трудная зона) не попала в первый день недели (${JSON.stringify(kitchenDays)} vs ${JSON.stringify(activeD)})`
+    );
+  }
+
+  // ── 6. Постоянный набор «Мои задачи» ────────────────────────────────────
+  // Хелперы чтения (loadMyTasks, catalogTitles, coveredTags, scheduleCount)
+  // объявлены выше: по ним уже проверялись темы второго и третьего сценариев.
 
   const tasksFirst = await loadMyTasks(first.id);
   const mySchedules = await scheduleCount(first.id, MY_TASKS);
@@ -453,13 +556,17 @@ const main = async () => {
     '«Мои задачи»: не у всех задач проставлен source'
   );
 
-  // Периодичность: у набора есть ежедневные, недельные, месячные и редкие дела
+  // Периодичность: у набора есть ежедневные, недельные, месячные и редкие дела.
+  // Про «раз в 3 месяца» и «раз в полгода» по отдельности не требуем: бюджет дня
+  // ограничивает число свободных чисел месяца, и в набор попадает не всё. Важно,
+  // что редкий цикл (интервал больше месяца) в наборе вообще есть — иначе
+  // «генеральная раз в полгода» из анкеты не появится никогда.
   for (const [label, predicate] of [
     ['ежедневные', (task: MyTaskRow) => task.frequency === 'daily'],
     ['недельные', (task: MyTaskRow) => task.frequency === 'weekly'],
     ['месячные', (task: MyTaskRow) => task.frequency === 'monthly'],
-    ['раз в 3 месяца', (task: MyTaskRow) => task.interval_count === 3],
-    ['раз в полгода', (task: MyTaskRow) => task.interval_count === 6],
+    ['с интервалом больше 1', (task: MyTaskRow) => task.interval_count > 1],
+    ['редкие (3 месяца и реже)', (task: MyTaskRow) => task.interval_count >= 3],
   ] as Array<[string, (task: MyTaskRow) => boolean]>) {
     check(tasksFirst.some(predicate), `«Мои задачи»: нет дел «${label}»`);
   }
@@ -486,14 +593,25 @@ const main = async () => {
     .filter((task) => task.frequency === 'daily')
     .reduce((sum, task) => sum + task.estimated_minutes, 0);
 
+  /**
+   * Дневной бюджет «Моих задач» для первого пользователя (ответ under30 → 25).
+   * Число берётся из общей таблицы, а не пишется в проверке второй раз.
+   */
+  const myTasksBudget = dayBudget({ dailyMinutes: 'under30' });
+
+  check(
+    dailyMinutes <= myTasksBudget,
+    `«Мои задачи»: ежедневный минимум ${dailyMinutes} мин при бюджете ${myTasksBudget}`
+  );
+
   for (let day = 0; day <= 6; day += 1) {
     const weeklyMinutes = tasksFirst
       .filter((task) => task.frequency === 'weekly' && task.day_of_week === day)
       .reduce((sum, task) => sum + task.estimated_minutes, 0);
 
     check(
-      dailyMinutes + weeklyMinutes <= 40,
-      `«Мои задачи»: день ${DAY_LABELS[day]} — ${dailyMinutes + weeklyMinutes} мин при лимите 40`
+      dailyMinutes + weeklyMinutes <= myTasksBudget,
+      `«Мои задачи»: день ${DAY_LABELS[day]} — ${dailyMinutes + weeklyMinutes} мин при бюджете ${myTasksBudget}`
     );
   }
 

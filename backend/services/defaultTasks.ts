@@ -5,6 +5,7 @@ import {
   type TaskLevel,
   type TaskTag,
 } from './taskCatalog';
+import { dayBudget, MAX_DAILY_MINUTES } from './dailyBudget';
 import {
   activeHomeTags,
   allowedLevels,
@@ -34,11 +35,14 @@ import {
  *  2. Число комнат масштабирует объём: теги `floors` и `dust` ограничены
  *     квотами (1-2 комнаты — 2 задачи про полы, 8+ — до 5), поэтому в маленькой
  *     квартире нет полов «лишних» зон.
- *  3. Дневной предел — MAX_DAILY_MINUTES (40) минут. Ежедневный минимум
- *     занимает 12-18 минут, недельные дела ложатся на выбранные дни
- *     (cleaningDays), а месячные и более редкие — на остальные числа месяца.
- *     Больше MAX_WEEKLY_DAYS дней в неделю недельные дела не занимают: иначе в
- *     сорока минутах дня не осталось бы места делам «раз в месяц» и реже.
+ *  3. Дневной бюджет берётся из ответа анкеты (services/dailyBudget.ts: under30
+ *     → 25, 30to60 → 40, 1to2h → 40, depends → 30, сверху жёсткий потолок
+ *     MAX_DAILY_MINUTES = 40) и применяется к **сумме** всех сгенерированных
+ *     дел дня — этот набор делит его с недельным планом (services/homePlan.ts).
+ *     Ежедневный минимум занимает 12-18 минут, недельные дела ложатся на
+ *     выбранные дни (cleaningDays), а месячные и более редкие — на остальные
+ *     числа месяца. Больше MAX_WEEKLY_DAYS дней в неделю недельные дела не
+ *     занимают: иначе в остатке дня не было бы места делам «раз в месяц» и реже.
  *  4. Нагрузка месячных дел считается по числам месяца и «классам месяцев»
  *     (0-11): задача с интервалом N и опорой в месяце offset занимает только
  *     сравнимые с ним месяцы. Поэтому «раз в 3 месяца» не сталкивается с другой
@@ -61,8 +65,14 @@ export const DEFAULT_TASKS_SCHEDULE_TITLE = 'Мои задачи';
 /** Пометка источника: по ней видно, что задача собрана по анкете, а не создана руками. */
 export const DEFAULT_TASK_SOURCE = 'home_profile_defaults';
 
-/** Жёсткий дневной предел набора: больше 40 минут в день он не назначает. */
-export const MAX_DAILY_MINUTES = 40;
+/**
+ * Абсолютный потолок дневной нагрузки набора: больше 40 минут в день он не назначает.
+ *
+ * Сами числа бюджета живут в services/dailyBudget.ts — общий источник правды для
+ * обоих генераторов. Здесь только совместимый реэкспорт: модуль исторически был
+ * точкой входа для этого потолка (им пользуется scripts/check-default-tasks.ts).
+ */
+export { MAX_DAILY_MINUTES };
 
 /** Сколько минут в день занимает ежедневный минимум — зависит от ответа анкеты. */
 const DAILY_MINUTES_CAP: Record<DailyMinutesOption, number> = {
@@ -107,15 +117,24 @@ const CADENCE_RULES: Record<
 const WEEKLY_CADENCES: readonly TaskCadence[] = ['weekly', 'biweekly'];
 const MONTHLY_CADENCES: readonly TaskCadence[] = ['monthly', 'quarterly', 'semiannual', 'yearly'];
 
-/** Месячные идут первыми, годовые — последними: так числа месяца заполняются по частоте. */
+/**
+ * Порядок разбора месячного круга: сначала самые редкие дела.
+ *
+ * Числа месяца ограничены бюджетом дня, поэтому в набор попадает лишь часть
+ * каталога. Если разбирать по частоте (месячные первыми), весь лимит съедают
+ * дела «раз в месяц», и «раз в 3 месяца», «раз в полгода» и «раз в год» в наборе
+ * не остаётся вовсе — на живом пользователе так и было (0 редких дел). Редкие
+ * дела идут первыми, а месячные добирают оставшиеся числа: так в наборе всегда
+ * есть все циклы, ради которых каталог и разделён по периодичности.
+ */
 const CADENCE_RANK: Record<TaskCadence, number> = {
   daily: 0,
   weekly: 1,
   biweekly: 1,
-  monthly: 2,
-  quarterly: 3,
-  semiannual: 4,
-  yearly: 5,
+  monthly: 5,
+  quarterly: 4,
+  semiannual: 3,
+  yearly: 2,
 };
 
 /** Одна задача постоянного набора: готовая строка для INSERT в tasks. */
@@ -265,6 +284,16 @@ export const buildDefaultTasks = (
   const notes: string[] = [];
   const tasks: DefaultTask[] = [];
 
+  /**
+   * Дневной бюджет **всех** сгенерированных дел дня по ответу анкеты.
+   *
+   * Это общий лимит с недельным планом (services/homePlan.ts): план при сборке
+   * получает бюджет дня за вычетом того, что занял этот набор
+   * (`occupiedMinutesByWeekday`). Числа берутся из services/dailyBudget.ts,
+   * чтобы две таблицы снова не разъехались.
+   */
+  const budget = dayBudget(answers);
+
   // ── 1. Ежедневный минимум: 3-8 минут на пункт, суммарно до DAILY_MINUTES_CAP ─
   const dailyLimit = DAILY_MINUTES_CAP[answers.dailyMinutes];
   const dailyTasks: CatalogTask[] = [];
@@ -296,8 +325,18 @@ export const buildDefaultTasks = (
   // недели остаются под месячные дела, которым нужно 15-20 минут подряд.
   const weeklyDays = new Set(selectedDays.slice(0, MAX_WEEKLY_DAYS));
 
+  /**
+   * Сколько минут дня остаётся неприкосновенным для дел «раз в месяц» и реже.
+   *
+   * Недельные дела жадные: без этого запаса они заполняют день ровно до бюджета,
+   * и месячному кругу не остаётся ни минуты — «раз в 3 месяца» и «раз в год»
+   * просто исчезли бы из набора. Запас не больше самого короткого дела каталога
+   * (3 минуты), поэтому бюджет дня он не пробивает.
+   */
+  const RARE_CYCLE_RESERVE = 3;
+
   const fits = (slot: DaySlot, task: CatalogTask): boolean =>
-    slot.minutes + task.minutes <= MAX_DAILY_MINUTES;
+    slot.minutes + task.minutes + RARE_CYCLE_RESERVE <= budget;
 
   /**
    * Ставит задачу в самый свободный из выбранных дней недели.
@@ -326,6 +365,21 @@ export const buildDefaultTasks = (
    * жадный отбор всегда предпочтёт кухню и ванную.
    */
   const representatives = new Set<CatalogTask>();
+
+  /**
+   * Представитель способа сушки: у пользователя должна быть хоть одна задача
+   * ровно под его ответ (`drying`), а не только общие дела про стирку.
+   *
+   * Без этого недельные дела в 10-15 минут проигрывают коротким «протереть
+   * полотенца» и не попадают в набор: бюджет дня ограничен, и способ сушки из
+   * анкеты в делах не отражался вовсе.
+   */
+  const dryingTag: TaskTag = answers.drying === 'air' ? 'dry_air' : 'dry_machine';
+  const dryingRepresentative =
+    weeklyPool.find((task) => task.tags.includes(dryingTag)) ??
+    pool.find((task) => task.cadence === 'daily' && task.tags.includes(dryingTag));
+
+  if (dryingRepresentative) representatives.add(dryingRepresentative);
 
   for (const tag of CONTEXT_TAGS) {
     if (!declared.includes(tag)) continue;
@@ -444,7 +498,7 @@ export const buildDefaultTasks = (
 
     freeByDate.set(
       day,
-      Math.max(0, Math.min(MONTHLY_DAY_CAP, MAX_DAILY_MINUTES - dailyMinutes - weekly))
+      Math.max(0, Math.min(MONTHLY_DAY_CAP, budget - dailyMinutes - weekly))
     );
     monthSlots.set(day, new Array<number>(12).fill(0));
   }
@@ -486,7 +540,15 @@ export const buildDefaultTasks = (
     const offset = (cycleOffset.get(cadence) ?? 0) % rule.intervalCount;
     const months = activeMonths(rule.intervalCount, offset);
 
-    /** Сколько минут ещё влезает на это число в худшем из его месяцев. */
+    /**
+     * Сколько минут ещё влезает на это число в худшем из его месяцев.
+     *
+     * Свободное время числа считается от бюджета по ответу за вычетом
+     * ежедневного минимума и недельных дел этого дня недели (freeByDate выше),
+     * поэтому месячное дело не пробивает дневной лимит ни на одном конкретном
+     * числе. Раньше здесь был жёсткий лимит 40 минут — из-за него дни
+     * «под завязку» складывались с недельным планом и выходили за бюджет.
+     */
     const slack = (day: number): number => {
       const loads = monthSlots.get(day) ?? [];
       const limit = freeByDate.get(day) ?? 0;
@@ -594,7 +656,7 @@ export const buildDefaultTasks = (
 
   if (dropped.length > 0) {
     notes.push(
-      `В набор вошли ${allTasks.length} дел — столько помещается в лимит ${MAX_DAILY_MINUTES} минут в день`
+      `В набор вошли ${allTasks.length} дел — столько помещается в бюджет ${budget} минут в день (ответ «${answers.dailyMinutes}»)`
     );
   }
 
@@ -618,7 +680,7 @@ export const buildDefaultTasks = (
       monthlyMinutes,
       droppedTasks: dropped.length,
       maxDailyMinutes,
-      dailyLimit: MAX_DAILY_MINUTES,
+      dailyLimit: budget,
       rooms: [...new Set(allTasks.map((task) => task.room))],
       tags: [...new Set(allTasks.flatMap((task) => task.tags))],
       days,
