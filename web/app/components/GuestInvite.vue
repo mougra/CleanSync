@@ -1,44 +1,27 @@
 <script setup lang="ts">
 /**
- * Приглашение для гостя: показывается один раз за всё время, закрытие
- * запоминается в localStorage.
+ * Приглашение для гостя: один раз за всё время, закрытие запоминается.
  *
- * Смысл: все возможности открыты только зарегистрированным, поэтому вместо
- * молчаливого пустого экрана предлагаем аккаунт и опрос о доме. Проверку
- * хранилища делаем на клиенте: на сервере localStorage нет, а рендерить баннер
- * в SSR нельзя — разметка разойдётся при гидрации.
+ * Все возможности открыты только зарегистрированным, поэтому вместо молчаливого
+ * пустого экрана предлагаем аккаунт и опрос о доме.
+ *
+ * Два варианта одного и того же приглашения:
+ * - `sidebar` — карточка в боковом меню (десктоп), между навигацией и аккаунтом:
+ *   место постоянное и заметное, поток страницы не занимается;
+ * - `banner` — плашка в потоке страницы (телефон), где боковое меню скрыто.
+ *
+ * Логика видимости и закрытия — в `useGuestInvite`, чтобы два экземпляра
+ * не расходились.
  */
+withDefaults(defineProps<{ variant?: 'banner' | 'sidebar' }>(), { variant: 'banner' });
+
 const { t } = useI18n();
 const localePath = useLocalePath();
-const route = useRoute();
-const auth = useAuthStore();
-
-const STORAGE_KEY = 'tidyplan-guest-invite-dismissed';
-
-/** Куда не показываем: на самих страницах входа и регистрации это шум. */
-const hiddenRoutes = ['/login', '/register', '/confirm-email', '/reset-password', '/forgot-password'];
-
-const visible = ref(false);
-
-onMounted(() => {
-  const onAuthPage = hiddenRoutes.some((path) => route.path.startsWith(path));
-
-  visible.value = !onAuthPage && !localStorage.getItem(STORAGE_KEY);
-});
-
-const dismiss = () => {
-  visible.value = false;
-
-  try {
-    localStorage.setItem(STORAGE_KEY, '1');
-  } catch {
-    // Приватный режим: баннер просто вернётся в следующий раз — это не беда
-  }
-};
+const { shown, dismiss } = useGuestInvite();
 </script>
 
 <template>
-  <aside v-if="visible && !auth.isAuthenticated" class="invite">
+  <aside v-if="shown" class="invite" :class="`invite--${variant}`">
     <button
       type="button"
       class="invite__close"
@@ -156,6 +139,46 @@ const dismiss = () => {
   background: var(--c-surface);
 }
 
+/*
+ * Вариант в боковом меню: колонка узкая (248px), поэтому текст компактнее,
+ * кнопки идут в столбик, а внутренние отступы меньше.
+ */
+.invite--sidebar {
+  gap: var(--space-1);
+  padding: var(--space-4) var(--space-3);
+  border-radius: var(--r-row);
+}
+
+.invite--sidebar .invite__badge {
+  padding: 2px 8px;
+  font-size: 0.6875rem;
+}
+
+.invite--sidebar .invite__title {
+  font-size: var(--fs-caption);
+  line-height: 1.3;
+}
+
+.invite--sidebar .invite__text {
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.invite--sidebar .invite__actions {
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}
+
+.invite--sidebar .invite__close {
+  top: var(--space-1);
+  right: var(--space-1);
+  width: 28px;
+  height: 28px;
+}
+
 @keyframes invite-in {
   from {
     opacity: 0;
@@ -169,8 +192,8 @@ const dismiss = () => {
 }
 
 @media (min-width: 1024px) {
-  /* На широком экране баннеру хватает читаемой ширины */
-  .invite {
+  /* На широком экране баннеру в потоке хватает читаемой ширины */
+  .invite--banner {
     max-width: var(--content-reading);
   }
 }

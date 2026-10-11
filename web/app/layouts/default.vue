@@ -30,8 +30,14 @@ const showCalendar = computed(() => !hideCalendarRoutes.some((path) => route.pat
 
       <WeekStrip v-if="showCalendar" />
 
-      <!-- Приглашение для гостя: один раз за всё время, закрытие запоминается -->
-      <GuestInvite />
+      <!--
+        Приглашение для гостя: на телефоне — плашкой в потоке, потому что боковое
+        меню там скрыто. На десктопе та же карточка живёт в самом меню, между
+        навигацией и аккаунтом (см. AppSidebar).
+      -->
+      <div class="shell__invite">
+        <GuestInvite variant="banner" />
+      </div>
 
       <main class="shell__content">
         <slot />
@@ -167,6 +173,11 @@ const showCalendar = computed(() => !hideCalendarRoutes.some((path) => route.pat
   .shell__content {
     gap: var(--space-6);
     padding-top: var(--space-4);
+  }
+
+  /* На десктопе приглашение живёт в боковом меню — в потоке его не дублируем */
+  .shell__invite {
+    display: none;
   }
 }
 
