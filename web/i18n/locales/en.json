@@ -62,7 +62,10 @@
     "unitWeekMany": "weeks",
     "unitMonthOne": "month",
     "unitMonthFew": "months",
-    "unitMonthMany": "months"
+    "unitMonthMany": "months",
+    "guestTitle": "The plan is built for your home",
+    "guestText": "Rooms, pets and how much time you are ready to spend cleaning — all of it is taken into account.",
+    "guestRegister": "Create an account"
   },
   "challengesPage": {
     "metaDescription": "Day-by-day cleaning challenges: pick a programme and tick the steps off — your home gets cleaner without one exhausting deep clean.",
@@ -195,6 +198,7 @@
   },
   "homeSetup": {
     "title": "Home setup",
+    "restart": "Run again",
     "done": "done",
     "incomplete": "not done",
     "passed": "passed",
@@ -700,12 +704,5 @@
       "garage": "Garage",
       "wholeHouse": "Whole house"
     }
-  },
-  "guest": {
-    "badge": "For new guests",
-    "title": "Everything opens up after signing up",
-    "text": "Create an account and answer a few short questions about your home — TidyPlan will build a ready cleaning plan for your rooms, pets and free time.",
-    "register": "Create an account",
-    "howItWorks": "How it works"
   }
 }

@@ -30,13 +30,6 @@ const isActive = (to: string) =>
       </NuxtLink>
     </nav>
 
-    <!--
-      Приглашение для гостя — между навигацией и аккаунтом: место постоянное,
-      заметное и не занимает поток страницы. Показывается один раз, закрытие
-      запоминается (см. useGuestInvite).
-    -->
-    <GuestInvite variant="sidebar" />
-
     <div class="sidebar__footer">
       <AppSidebarProfile />
       <div class="sidebar__controls">

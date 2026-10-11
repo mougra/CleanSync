@@ -3,8 +3,14 @@
  * Строка настроек: иконка, название, значение и управление справа.
  *
  * Один компонент на все случаи — переход (`to`), переключатель или раскрытие
- * (`body`), чтобы страница настроек оставалась компактным списком, а не
- * набором растянутых карточек.
+ * (`body`) и явное действие (`action`), чтобы страница настроек оставалась
+ * компактным списком, а не набором растянутых карточек.
+ *
+ * Про `action`: строка без `to` и без `body` раньше оставалась простым `<div>`,
+ * и повесить на неё обработчик снаружи не получалось — у компонента несколько
+ * корневых узлов, поэтому `@click` не наследовался и молча терялся. Теперь
+ * действие объявлено: текст виден справа, клик по нему (и по строке)
+ * испускает событие `action`.
  */
 const props = withDefaults(
   defineProps<{
@@ -21,15 +27,32 @@ const props = withDefaults(
     tone?: 'default' | 'danger';
     /** Раскрывается по нажатию: содержимое передаётся в слот body. */
     expandable?: boolean;
+    /** Текст-действие справа: явная кнопка вместо угадывания «строка кликабельна». */
+    action?: string;
   }>(),
-  { subtitle: '', value: '', to: '', tone: 'default', expandable: false },
+  { subtitle: '', value: '', to: '', tone: 'default', expandable: false, action: '' },
 );
+
+const emit = defineEmits<{ action: [] }>();
 
 const slots = useSlots();
 const open = ref(false);
 
 const hasBody = computed(() => Boolean(slots.body));
 const isToggle = computed(() => props.expandable || hasBody.value);
+const hasAction = computed(() => Boolean(props.action));
+
+/** Нажатие на строку: раскрываем аккордеон либо выполняем явное действие. */
+const onRowClick = () => {
+  if (isToggle.value) {
+    open.value = !open.value;
+    return;
+  }
+
+  if (hasAction.value) {
+    emit('action');
+  }
+};
 </script>
 
 <template>
@@ -63,8 +86,8 @@ const isToggle = computed(() => props.expandable || hasBody.value);
   <div
     v-else
     class="row"
-    :class="[`row--${tone}`, { 'row--button': isToggle }]"
-    @click="isToggle && (open = !open)"
+    :class="[`row--${tone}`, { 'row--button': isToggle || hasAction }]"
+    @click="onRowClick"
   >
     <span class="row__icon" aria-hidden="true"><i :class="['pi', icon]" /></span>
 
@@ -76,7 +99,16 @@ const isToggle = computed(() => props.expandable || hasBody.value);
     <span v-if="$slots.control" class="row__control" @click.stop>
       <slot name="control" />
     </span>
-    <span v-else-if="value" class="row__value">{{ value }}</span>
+
+    <template v-else>
+      <span v-if="value" class="row__value">{{ value }}</span>
+
+      <!-- Явное действие: видно, что строка что-то делает, и понятно что именно -->
+      <button v-if="action" type="button" class="row__action" @click.stop="emit('action')">
+        {{ action }}
+        <i class="pi pi-chevron-right" aria-hidden="true" />
+      </button>
+    </template>
 
     <i
       v-if="isToggle"
@@ -158,6 +190,26 @@ const isToggle = computed(() => props.expandable || hasBody.value);
 .row__value {
   color: var(--c-text-muted);
   font-size: var(--fs-caption);
+}
+
+/* Действие строки: текстовая кнопка в цвете бренда, справа от статуса */
+.row__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--c-brand);
+  font: inherit;
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.row__action:hover {
+  text-decoration: underline;
 }
 
 .row__control {

@@ -482,9 +482,34 @@ useStructuredData(() => ({
         <p v-if="planError" class="plan__error" role="alert">{{ planError }}</p>
       </template>
 
+      <!--
+        Гость: приглашение живёт внутри карточки плана, а не отдельной карточкой
+        в меню или плашкой в потоке. Закрывать его нечего — это содержимое блока,
+        поэтому вместо баннера здесь короткое объяснение и два выхода.
+      -->
       <template v-else>
-        <p class="plan__guest">{{ t('auth.guestHint') }}</p>
-        <AppButton variant="accent" :to="localePath('/login')">{{ t('auth.login') }}</AppButton>
+        <div class="plan__guest">
+          <div class="plan__guest-body">
+            <!-- Кольцо остаётся приглушённым (0 из 0): показывает, что появится здесь -->
+            <div class="plan__guest-ring" aria-hidden="true">
+              <PlanRing :done="0" :total="0" />
+            </div>
+
+            <div class="plan__guest-text">
+              <p class="plan__guest-title">{{ t('plan.guestTitle') }}</p>
+              <p class="plan__guest-hint">{{ t('plan.guestText') }}</p>
+            </div>
+          </div>
+
+          <div class="plan__guest-actions">
+            <AppButton variant="accent" :to="localePath('/register')">
+              {{ t('plan.guestRegister') }}
+            </AppButton>
+            <AppButton variant="outline" :to="localePath('/login')">
+              {{ t('auth.login') }}
+            </AppButton>
+          </div>
+        </div>
       </template>
     </section>
 
@@ -805,10 +830,98 @@ useStructuredData(() => ({
   font-size: var(--fs-caption);
 }
 
+/*
+ * Гость: приглашение внутри карточки плана.
+ *
+ * Оформление то же, что у других блоков приложения: мягкая поверхность,
+ * скругление ряда и два размытых пятна по углам (тот же приём, что в пустых
+ * состояниях). Кольцо приглушено: оно показывает, что здесь появится план,
+ * но не выглядит как настоящий прогресс.
+ */
 .plan__guest {
-  margin: 0;
-  max-width: 24ch;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border-radius: var(--r-row);
+  background: var(--c-surface);
+}
+
+.plan__guest::before,
+.plan__guest::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.plan__guest::before {
+  top: -80px;
+  right: -50px;
+  width: 200px;
+  height: 200px;
+  background: radial-gradient(circle, var(--c-surface-mint) 0%, transparent 70%);
+}
+
+.plan__guest::after {
+  bottom: -90px;
+  left: -50px;
+  width: 180px;
+  height: 180px;
+  background: radial-gradient(circle, var(--c-accent-soft) 0%, transparent 70%);
+}
+
+/* Пятна декоративные: содержимое всегда выше них */
+.plan__guest-body,
+.plan__guest-actions {
+  position: relative;
+}
+
+.plan__guest-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  text-align: center;
+}
+
+.plan__guest-ring {
+  opacity: 0.55;
+}
+
+/* Кольцо-заглушка чуть меньше настоящего: оно здесь не главное */
+.plan__guest-ring :deep(.ring) {
+  width: 128px;
+  height: 128px;
+}
+
+.plan__guest-ring :deep(.ring__done) {
+  font-size: 1.75rem;
+}
+
+.plan__guest-text {
+  display: grid;
+  gap: var(--space-1);
+  max-width: 42ch;
+}
+
+.plan__guest-title {
+  font-size: var(--fs-title);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+}
+
+.plan__guest-hint {
   color: var(--c-text-muted);
+}
+
+.plan__guest-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
 }
 
 /* Пункты плана — интерактивные строки в столбик: по ним же и отмечаем */

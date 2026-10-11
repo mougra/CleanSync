@@ -89,6 +89,17 @@ const closeWizard = () => {
   clearSetupQuery();
 };
 
+/**
+ * Открыть мастер заново.
+ *
+ * Ответы мастер берёт из общего состояния `home-profile` (тот же ключ, что и
+ * страница), поэтому открывается заполненным; после прохождения приходит
+ * `@plan-ready`, и статус «N из 12» вместе с планом обновляются.
+ */
+const openWizard = () => {
+  wizardOpen.value = true;
+};
+
 /** Почта для обратной связи: с неё же уходят письма сервиса. */
 const SUPPORT_EMAIL = 'tidyflowup@gmail.com';
 
@@ -393,12 +404,18 @@ useSeoMeta({ title: () => t('nav.settings') });
     <section class="card card--flush">
       <SettingsRow icon="pi-home" :title="t('settings.household')" :to="localePath('/household')" />
 
+      <!--
+        Повторное прохождение — явное действие: справа видно «Пройти заново»,
+        статус рядом говорит, что уже есть. Клик открывает мастер с текущими
+        ответами (см. HomeSetupWizard: он копирует сохранённый профиль).
+      -->
       <SettingsRow
         icon="pi-sliders-h"
         :title="t('homeSetup.title')"
         :subtitle="t('settings.homeSetupHint')"
         :value="homeProfileValue"
-        @click="wizardOpen = true"
+        :action="t('homeSetup.restart')"
+        @action="openWizard"
       />
 
       <SettingsRow icon="pi-bell" :title="t('settings.notifications')" expandable>
