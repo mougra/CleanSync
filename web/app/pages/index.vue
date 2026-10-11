@@ -677,21 +677,6 @@ useStructuredData(() => ({
   .card {
     padding: var(--space-5);
   }
-
-  .plan {
-    padding: var(--space-6);
-  }
-
-  .plan__body {
-    flex-direction: row;
-    align-items: center;
-    gap: var(--space-7);
-    text-align: left;
-  }
-
-  .plan__aside {
-    justify-items: start;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1008,6 +993,31 @@ useStructuredData(() => ({
 @media (prefers-reduced-motion: reduce) {
   .plan__add {
     transition: none;
+  }
+}
+
+/*
+ * Десктопный план: кольцо слева, текст справа, у карточки больше воздуха.
+ *
+ * Эти правила обязаны идти ПОСЛЕ базовых `.plan`, `.plan__body` и `.plan__aside`:
+ * у медиазапроса нет своей специфичности, поэтому «столбик» и `justify-items:
+ * center`, объявленные ниже по файлу, перебивали десктопную раскладку, и план
+ * всегда оставался в столбик (проверено замером `flex-direction` в браузере).
+ */
+@media (min-width: 768px) {
+  .plan {
+    padding: var(--space-6);
+  }
+
+  .plan__body {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-7);
+    text-align: left;
+  }
+
+  .plan__aside {
+    justify-items: start;
   }
 }
 
