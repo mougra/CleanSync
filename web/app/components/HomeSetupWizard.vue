@@ -328,175 +328,177 @@ const close = () => emit('close');
 <template>
   <Teleport to="body">
     <div v-if="props.open" class="wizard" role="dialog" aria-modal="true">
-      <header class="wizard__head">
-        <button type="button" class="wizard__back" :aria-label="t('settings.back')" @click="close">
-          <i class="pi pi-chevron-left" aria-hidden="true" />
-        </button>
-        <span class="wizard__section">{{ t(`homeSetup.${sectionKey}`) }}</span>
-        <span class="wizard__count">{{ t('homeSetup.stepOf', { current: index + 1, total }) }}</span>
-      </header>
+      <div class="wizard__panel">
+        <header class="wizard__head">
+          <button type="button" class="wizard__back" :aria-label="t('settings.back')" @click="close">
+            <i class="pi pi-chevron-left" aria-hidden="true" />
+          </button>
+          <span class="wizard__section">{{ t(`homeSetup.${sectionKey}`) }}</span>
+          <span class="wizard__count">{{ t('homeSetup.stepOf', { current: index + 1, total }) }}</span>
+        </header>
 
-      <div class="progress" aria-hidden="true">
-        <span
-          v-for="segment in 4"
-          :key="segment"
-          class="progress__track"
-        >
+        <div class="progress" aria-hidden="true">
           <span
-            class="progress__fill"
-            :style="{ width: `${Math.min(1, Math.max(0, progress * 4 - (segment - 1))) * 100}%` }"
-          />
-        </span>
-      </div>
+            v-for="segment in 4"
+            :key="segment"
+            class="progress__track"
+          >
+            <span
+              class="progress__fill"
+              :style="{ width: `${Math.min(1, Math.max(0, progress * 4 - (segment - 1))) * 100}%` }"
+            />
+          </span>
+        </div>
 
-      <!-- Результат: план собран -->
-      <section v-if="plan" class="wizard__body">
-        <h2 class="wizard__title">{{ t('homeSetup.planReady') }}</h2>
-        <p class="wizard__hint">{{ t('homeSetup.planHint') }}</p>
+        <!-- Результат: план собран -->
+        <section v-if="plan" class="wizard__body">
+          <h2 class="wizard__title">{{ t('homeSetup.planReady') }}</h2>
+          <p class="wizard__hint">{{ t('homeSetup.planHint') }}</p>
 
-        <ul class="summary">
-          <li><span>{{ t('homeSetup.planTasks') }}</span><strong>{{ plan.summary.totalTasks }}</strong></li>
-          <li><span>{{ t('homeSetup.planMinutes') }}</span><strong>{{ formatMinutes(plan.summary.totalMinutes, locale) }}</strong></li>
-          <li><span>{{ t('homeSetup.planPerDay') }}</span><strong>{{ formatMinutes(plan.summary.minutesPerDay, locale) }}</strong></li>
-        </ul>
+          <ul class="summary">
+            <li><span>{{ t('homeSetup.planTasks') }}</span><strong>{{ plan.summary.totalTasks }}</strong></li>
+            <li><span>{{ t('homeSetup.planMinutes') }}</span><strong>{{ formatMinutes(plan.summary.totalMinutes, locale) }}</strong></li>
+            <li><span>{{ t('homeSetup.planPerDay') }}</span><strong>{{ formatMinutes(plan.summary.minutesPerDay, locale) }}</strong></li>
+          </ul>
 
-        <p v-if="plan.focusZone" class="wizard__hint">
-          {{ t('homeSetup.planFocus', { zone: plan.focusZone }) }}
-        </p>
+          <p v-if="plan.focusZone" class="wizard__hint">
+            {{ t('homeSetup.planFocus', { zone: plan.focusZone }) }}
+          </p>
 
-        <ol class="days">
-          <li v-for="day in planDays" :key="day.dayOfWeek" class="days__row">
-            <span class="days__name">{{ t(dayLabelKey(day.dayOfWeek)) }}</span>
-            <span class="days__value">
-              {{ day.tasks.length }} · {{ formatMinutes(day.totalMinutes, locale) }}
-            </span>
-          </li>
-        </ol>
-
-        <ul v-if="plan.summary.notes.length" class="notes">
-          <li v-for="note in plan.summary.notes" :key="note">{{ note }}</li>
-        </ul>
-
-        <AppButton variant="filled" block :to="localePath('/')" @click="close">
-          {{ t('homeSetup.openPlan') }}
-        </AppButton>
-      </section>
-
-      <!-- Шаги мастера -->
-      <section v-else class="wizard__body">
-        <h2 class="wizard__title">{{ t(`homeSetup.${current.titleKey}`) }}</h2>
-        <p class="wizard__hint">{{ t(`homeSetup.${current.hintKey}`) }}</p>
-
-        <!-- Один вариант из списка -->
-        <ul v-if="current.kind === 'single'" class="options">
-          <li v-for="option in current.options" :key="option.value">
-            <button
-              type="button"
-              class="option"
-              :class="{ 'option--active': isSelected(currentField, option.value) }"
-              @click="pick(currentField, option.value)"
-            >
-              <span class="option__text">
-                <span class="option__label">{{ t(`homeSetup.${option.labelKey}`) }}</span>
-                <span v-if="option.hintKey" class="option__hint">{{ t(`homeSetup.${option.hintKey}`) }}</span>
+          <ol class="days">
+            <li v-for="day in planDays" :key="day.dayOfWeek" class="days__row">
+              <span class="days__name">{{ t(dayLabelKey(day.dayOfWeek)) }}</span>
+              <span class="days__value">
+                {{ day.tasks.length }} · {{ formatMinutes(day.totalMinutes, locale) }}
               </span>
-              <span class="badge" :class="{ 'badge--on': isSelected(currentField, option.value) }">
-                <i class="pi pi-check" aria-hidden="true" />
-              </span>
-            </button>
-          </li>
-        </ul>
+            </li>
+          </ol>
 
-        <!-- Мультивыбор: питомцы -->
-        <template v-else-if="current.kind === 'multi'">
-          <ul class="grid">
+          <ul v-if="plan.summary.notes.length" class="notes">
+            <li v-for="note in plan.summary.notes" :key="note">{{ note }}</li>
+          </ul>
+
+          <AppButton variant="filled" block :to="localePath('/')" @click="close">
+            {{ t('homeSetup.openPlan') }}
+          </AppButton>
+        </section>
+
+        <!-- Шаги мастера -->
+        <section v-else class="wizard__body">
+          <h2 class="wizard__title">{{ t(`homeSetup.${current.titleKey}`) }}</h2>
+          <p class="wizard__hint">{{ t(`homeSetup.${current.hintKey}`) }}</p>
+
+          <!-- Один вариант из списка -->
+          <ul v-if="current.kind === 'single'" class="options">
             <li v-for="option in current.options" :key="option.value">
               <button
                 type="button"
-                class="option option--grid"
-                :class="{ 'option--active': multiValues(currentField).includes(option.value) }"
-                @click="toggleMulti(currentField, option.value)"
+                class="option"
+                :class="{ 'option--active': isSelected(currentField, option.value) }"
+                @click="pick(currentField, option.value)"
               >
-                <span aria-hidden="true">{{ option.emoji }}</span>
-                <span class="option__label">{{ t(`homeSetup.${option.labelKey}`) }}</span>
-                <span
-                  class="badge"
-                  :class="{ 'badge--on': multiValues(currentField).includes(option.value) }"
-                >
-                  <i
-                    :class="['pi', multiValues(currentField).includes(option.value) ? 'pi-check' : 'pi-plus']"
-                    aria-hidden="true"
-                  />
+                <span class="option__text">
+                  <span class="option__label">{{ t(`homeSetup.${option.labelKey}`) }}</span>
+                  <span v-if="option.hintKey" class="option__hint">{{ t(`homeSetup.${option.hintKey}`) }}</span>
+                </span>
+                <span class="badge" :class="{ 'badge--on': isSelected(currentField, option.value) }">
+                  <i class="pi pi-check" aria-hidden="true" />
                 </span>
               </button>
             </li>
           </ul>
 
-          <button
-            type="button"
-            class="pill"
-            :class="{ 'pill--active': multiValues(currentField).includes('none') }"
-            @click="toggleMulti(currentField, 'none')"
-          >
-            {{ t('homeSetup.optNoPets') }}
-          </button>
-        </template>
+          <!-- Мультивыбор: питомцы -->
+          <template v-else-if="current.kind === 'multi'">
+            <ul class="grid">
+              <li v-for="option in current.options" :key="option.value">
+                <button
+                  type="button"
+                  class="option option--grid"
+                  :class="{ 'option--active': multiValues(currentField).includes(option.value) }"
+                  @click="toggleMulti(currentField, option.value)"
+                >
+                  <span aria-hidden="true">{{ option.emoji }}</span>
+                  <span class="option__label">{{ t(`homeSetup.${option.labelKey}`) }}</span>
+                  <span
+                    class="badge"
+                    :class="{ 'badge--on': multiValues(currentField).includes(option.value) }"
+                  >
+                    <i
+                      :class="['pi', multiValues(currentField).includes(option.value) ? 'pi-check' : 'pi-plus']"
+                      aria-hidden="true"
+                    />
+                  </span>
+                </button>
+              </li>
+            </ul>
 
-        <!-- Три подвопроса «да/нет» -->
-        <ul v-else-if="current.kind === 'extra'" class="extras">
-          <li v-for="field in currentFields" :key="field" class="extra">
-            <p class="extra__label">{{ t(`homeSetup.${extraLabelKey(field)}`) }}</p>
-            <div class="extra__switch">
-              <button
-                type="button"
-                class="toggle"
-                :class="{ 'toggle--on': answers[field] === true }"
-                @click="setExtra(field, true)"
-              >
-                {{ t('homeSetup.yes') }}
-              </button>
-              <button
-                type="button"
-                class="toggle"
-                :class="{ 'toggle--on': answers[field] !== true }"
-                @click="setExtra(field, false)"
-              >
-                {{ t('homeSetup.no') }}
-              </button>
-            </div>
-          </li>
-        </ul>
-
-        <!-- Дни недели -->
-        <ul v-else class="grid">
-          <li v-for="(key, dayIndex) in weekdayKeys" :key="key">
             <button
               type="button"
-              class="option option--grid"
-              :class="{ 'option--active': dayValues.includes(weekdayValues[dayIndex] ?? 1) }"
-              @click="toggleDay(weekdayValues[dayIndex] ?? 1)"
+              class="pill"
+              :class="{ 'pill--active': multiValues(currentField).includes('none') }"
+              @click="toggleMulti(currentField, 'none')"
             >
-              <span class="option__label">{{ t(`homeSetup.day${dayIndex + 1}`) }}</span>
-              <span class="badge" :class="{ 'badge--on': dayValues.includes(weekdayValues[dayIndex] ?? 1) }">
-                <i class="pi pi-check" aria-hidden="true" />
-              </span>
+              {{ t('homeSetup.optNoPets') }}
             </button>
-          </li>
-        </ul>
+          </template>
 
-        <p v-if="failure" class="wizard__error">{{ t('state.error') }}</p>
-      </section>
+          <!-- Три подвопроса «да/нет» -->
+          <ul v-else-if="current.kind === 'extra'" class="extras">
+            <li v-for="field in currentFields" :key="field" class="extra">
+              <p class="extra__label">{{ t(`homeSetup.${extraLabelKey(field)}`) }}</p>
+              <div class="extra__switch">
+                <button
+                  type="button"
+                  class="toggle"
+                  :class="{ 'toggle--on': answers[field] === true }"
+                  @click="setExtra(field, true)"
+                >
+                  {{ t('homeSetup.yes') }}
+                </button>
+                <button
+                  type="button"
+                  class="toggle"
+                  :class="{ 'toggle--on': answers[field] !== true }"
+                  @click="setExtra(field, false)"
+                >
+                  {{ t('homeSetup.no') }}
+                </button>
+              </div>
+            </li>
+          </ul>
 
-      <footer v-if="!plan" class="wizard__foot">
-        <AppButton
-          :variant="answered ? 'filled' : 'outline'"
-          block
-          :disabled="planning"
-          @click="next"
-        >
-          {{ planning ? t('state.loading') : answered ? t('homeSetup.next') : t('homeSetup.skip') }}
-        </AppButton>
-      </footer>
+          <!-- Дни недели -->
+          <ul v-else class="grid">
+            <li v-for="(key, dayIndex) in weekdayKeys" :key="key">
+              <button
+                type="button"
+                class="option option--grid"
+                :class="{ 'option--active': dayValues.includes(weekdayValues[dayIndex] ?? 1) }"
+                @click="toggleDay(weekdayValues[dayIndex] ?? 1)"
+              >
+                <span class="option__label">{{ t(`homeSetup.day${dayIndex + 1}`) }}</span>
+                <span class="badge" :class="{ 'badge--on': dayValues.includes(weekdayValues[dayIndex] ?? 1) }">
+                  <i class="pi pi-check" aria-hidden="true" />
+                </span>
+              </button>
+            </li>
+          </ul>
+
+          <p v-if="failure" class="wizard__error">{{ t('state.error') }}</p>
+        </section>
+
+        <footer v-if="!plan" class="wizard__foot">
+          <AppButton
+            :variant="answered ? 'filled' : 'outline'"
+            block
+            :disabled="planning"
+            @click="next"
+          >
+            {{ planning ? t('state.loading') : answered ? t('homeSetup.next') : t('homeSetup.skip') }}
+          </AppButton>
+        </footer>
+      </div>
     </div>
   </Teleport>
 </template>
@@ -509,14 +511,29 @@ const close = () => emit('close');
   display: flex;
   flex-direction: column;
   background: var(--c-bg);
-  overflow-y: auto;
+}
+
+/*
+ * Панель — единственная «поверхность» мастера: на телефоне она занимает окно
+ * целиком, на десктопе (медиазапрос ниже) становится карточкой по центру.
+ * Прокрутка убрана с `.wizard` в тело шага, поэтому шапка, прогресс и кнопка
+ * «Далее» всегда на виду.
+ */
+.wizard__panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
+  background: var(--c-bg);
 }
 
 .wizard__head {
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-4) var(--space-4) var(--space-2);
+  padding: var(--space-3) var(--space-3) var(--space-2);
 }
 
 .wizard__back {
@@ -547,7 +564,7 @@ const close = () => emit('close');
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: var(--space-2);
-  padding: 0 var(--space-4);
+  padding: 0 var(--space-3);
 }
 
 .progress__track {
@@ -568,9 +585,13 @@ const close = () => emit('close');
 .wizard__body {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-2);
   flex: 1;
-  padding: var(--space-4);
+  min-height: 0;
+  overflow-y: auto;
+  /* Прокрутка шага не «утекает» на страницу под диалогом */
+  overscroll-behavior: contain;
+  padding: var(--space-3);
 }
 
 .wizard__title {
@@ -604,8 +625,8 @@ const close = () => emit('close');
   align-items: center;
   gap: var(--space-3);
   width: 100%;
-  min-height: 56px;
-  padding: var(--space-3);
+  min-height: 48px;
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--c-border);
   border-radius: var(--r-row);
   background: var(--c-surface);
@@ -770,39 +791,32 @@ const close = () => emit('close');
   font-size: var(--fs-caption);
 }
 
+/*
+ * Подвал с кнопкой. `position: sticky` больше не нужен: панель не
+ * прокручивается, прокручивается только тело шага, поэтому кнопка и так
+ * остаётся внизу окна на телефоне и внизу карточки на десктопе.
+ */
 .wizard__foot {
-  position: sticky;
-  bottom: 0;
-  padding: var(--space-3) var(--space-4) calc(var(--space-4) + env(safe-area-inset-bottom));
+  flex: 0 0 auto;
+  padding: var(--space-2) var(--space-3) calc(var(--space-3) + env(safe-area-inset-bottom));
   background: var(--c-bg);
 }
 
 @media (min-width: 768px) {
+  /* Десктоп: затемнённый фон на всё окно, внутри — карточка по центру */
   .wizard {
     align-items: center;
     justify-content: center;
     padding: var(--space-5);
+    background: rgb(12 18 16 / 45%);
   }
 
-  .wizard__head,
-  .progress,
-  .wizard__body,
-  .wizard__foot {
-    width: 100%;
-    max-width: 520px;
-  }
-
-  .wizard {
-    background: rgb(0 0 0 / 45%);
-  }
-
-  .wizard__head,
-  .progress {
-    background: var(--c-bg);
-  }
-
-  .wizard__body {
-    background: var(--c-bg);
+  .wizard__panel {
+    flex: 0 1 auto;
+    width: min(560px, 100%);
+    max-height: min(88vh, 760px);
+    border-radius: var(--r-card);
+    box-shadow: var(--shadow-lift);
   }
 }
 </style>

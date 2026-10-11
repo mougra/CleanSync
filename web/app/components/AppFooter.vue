@@ -57,11 +57,18 @@ const project = [
 </template>
 
 <style scoped>
+/*
+ * Нижний отступ минимальный: подвал и так отделён от контента верхним
+ * отступом и `margin-top`, а снизу его подпирает `padding-bottom` контентной
+ * колонки шелла (`calc(88px + env(safe-area-inset-bottom))`), который держит
+ * нижнюю навигацию на телефоне. Запас там больше высоты навигации (~60px),
+ * поэтому подвал её не перекрывает.
+ */
 .footer {
   display: grid;
   gap: var(--space-4);
   margin-top: var(--space-6);
-  padding: var(--space-5) 0 var(--space-4);
+  padding: var(--space-5) 0 var(--space-1);
   border-top: 1px solid var(--c-border);
 }
 
