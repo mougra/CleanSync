@@ -1,6 +1,6 @@
 import dotenv from 'dotenv';
 import pool from './db';
-import { seedChallenges } from './seed-challenges';
+import { seedChallenges, validateChallengeSeeds } from './seed-challenges';
 import { seedHabitTemplates } from './seed-habits';
 import { taskCatalogSize, taskCountByLevel, validateTaskCatalog } from './services/taskCatalog';
 
@@ -159,6 +159,16 @@ const seed = async (): Promise<void> => {
     `Каталог задач: ${taskCatalogSize()} (лёгких ${byLevel.light}, обычных ${byLevel.normal}, глубоких ${byLevel.deep})`
   );
 
+  /**
+   * Сезонные челленджи проверяем до записи: главная выбирает челлендж по сезону,
+   * и пропущенный сезон выглядит как «челленджа нет», а не как ошибка наполнения.
+   */
+  const challengeProblems = validateChallengeSeeds();
+
+  if (challengeProblems.length > 0) {
+    throw new Error(`Наполнение челленджей некорректно:\n  - ${challengeProblems.join('\n  - ')}`);
+  }
+
   const client = await pool.connect();
 
   try {
@@ -206,7 +216,7 @@ const seed = async (): Promise<void> => {
     }
 
     const challenges = await seedChallenges(client);
-    console.log(`Челленджи: создано ${challenges.created}, уже существовало ${challenges.skipped}`);
+    console.log(`Челленджи: создано ${challenges.created}, обновлено ${challenges.updated}`);
 
     const habitTemplates = await seedHabitTemplates(client);
     console.log(

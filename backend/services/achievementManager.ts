@@ -56,8 +56,14 @@ export const collectMetrics = async (userId: string): Promise<Metrics> => {
        (SELECT COUNT(*) FROM user_task_progress p
           JOIN user_challenges uc ON uc.id = p.user_challenge_id
          WHERE uc.user_id = $1 AND p.is_done = TRUE) AS challenge_tasks,
-       (SELECT COUNT(*) FROM user_challenges WHERE user_id = $1) AS challenges_started,
-       (SELECT COUNT(*) FROM user_challenges WHERE user_id = $1 AND status = 'finished') AS challenges_finished,
+       -- «Начал» — это незакрытый челлендж: completed означает уже пройденный,
+       -- и в метрику старта он не входит (иначе «Три испытания» выдавалось бы
+       -- дважды за один и тот же челлендж).
+       (SELECT COUNT(*) FROM user_challenges WHERE user_id = $1 AND status = 'active') AS challenges_started,
+       -- 'finished' — прежнее название завершения: оставлен для совместимости,
+       -- чтобы достижения не пропали у тех, кто закрыл челлендж до миграции 0013.
+       (SELECT COUNT(*) FROM user_challenges
+         WHERE user_id = $1 AND status IN ('completed', 'finished')) AS challenges_finished,
        (SELECT COUNT(*) FROM user_habits WHERE user_id = $1 AND archived_at IS NULL) AS habits_added,
        (SELECT COUNT(*) FROM user_habits
          WHERE user_id = $1 AND template_id IS NULL AND archived_at IS NULL) AS custom_habits,

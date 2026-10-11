@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import pool from '../db';
 import { authMiddleware } from '../auth';
 import { checkAndAwardAchievements } from '../services/achievementManager';
+import { Season, seasonForDate, seasonTitle } from '../services/seasons';
 
 const router = express.Router();
 
@@ -29,6 +30,14 @@ interface ProgressRow {
   estimated_minutes: number | null;
   frequency: string | null;
   is_done: boolean | null;
+}
+
+interface UserChallengeRow {
+  id: number;
+  status: string;
+  started_at: string | null;
+  finished_at: string | null;
+  completed_at: string | null;
 }
 
 /** Дни с задачами и отметками пользователя — собираем из плоской выборки. */
@@ -124,11 +133,44 @@ const summarize = (
   };
 };
 
+/**
+ * Карточка челленджа в ответах API. Держим её в одном месте: раньше объект
+ * собирался по месту в трёх эндпоинтах и поля успели разойтись.
+ */
+const challengeCard = (row: ChallengeRow) => ({
+  id: row.id,
+  slug: row.slug,
+  title: row.title,
+  description: row.description,
+  season: row.season,
+  days_count: row.days_count,
+  tasks_count: row.tasks_count,
+  cover_url: row.cover_url,
+});
+
+const CHALLENGE_COLUMNS = `id, slug, title, description, season, days_count, tasks_count, cover_url`;
+
+/** Опубликованный челлендж текущего сезона. */
+const findSeasonChallenge = async (
+  season: Season
+): Promise<ChallengeRow | null> => {
+  const result = await pool.query<ChallengeRow>(
+    `SELECT ${CHALLENGE_COLUMNS}
+       FROM challenges
+      WHERE season = $1 AND is_published = TRUE
+      ORDER BY position, id
+      LIMIT 1`,
+    [season]
+  );
+
+  return result.rows[0] ?? null;
+};
+
 /** Список опубликованных челленджей. */
 router.get('/', async (req: Request, res: Response) => {
   try {
     const result = await pool.query<ChallengeRow>(
-      `SELECT id, slug, title, description, season, days_count, tasks_count, cover_url
+      `SELECT ${CHALLENGE_COLUMNS}
          FROM challenges
         WHERE is_published = TRUE
         ORDER BY position, id`
@@ -143,13 +185,27 @@ router.get('/', async (req: Request, res: Response) => {
 
 /**
  * Активный челлендж пользователя с прогрессом.
+ *
  * Объявлен до `/:slug`, иначе 'active' попадёт в параметр.
+ * Завершённые сюда не попадают: их место — `GET /api/challenges/current`.
  */
 router.get('/active', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const userChallenge = await pool.query(
-      `SELECT uc.id, uc.status, uc.started_at, uc.finished_at,
-              c.id AS challenge_id, c.slug, c.title, c.description, c.days_count, c.tasks_count, c.cover_url
+    const userChallenge = await pool.query<
+      UserChallengeRow & {
+        challenge_id: number;
+        slug: string;
+        title: string;
+        description: string | null;
+        season: string | null;
+        days_count: number;
+        tasks_count: number;
+        cover_url: string | null;
+      }
+    >(
+      `SELECT uc.id, uc.status, uc.started_at, uc.finished_at, uc.completed_at,
+              c.id AS challenge_id, c.slug, c.title, c.description, c.season,
+              c.days_count, c.tasks_count, c.cover_url
          FROM user_challenges uc
          JOIN challenges c ON c.id = uc.challenge_id
         WHERE uc.user_id = $1 AND uc.status = 'active'
@@ -170,12 +226,14 @@ router.get('/active', authMiddleware, async (req: Request, res: Response) => {
     res.json({
       active: {
         userChallengeId: row.id,
+        status: row.status,
         startedAt: row.started_at,
         challenge: {
           id: row.challenge_id,
           slug: row.slug,
           title: row.title,
           description: row.description,
+          season: row.season,
           days_count: row.days_count,
           tasks_count: row.tasks_count,
           cover_url: row.cover_url,
@@ -190,11 +248,86 @@ router.get('/active', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Челлендж текущего сезона для главной.
+ *
+ * Одна из трёх форм ответа:
+ *   { status: 'available', challenge, days, progress } — сезонный челлендж есть,
+ *     но пользователь ещё ничего не отметил: фронт показывает карточку, отметки
+ *     доступны сразу (отдельной кнопки «начать» больше нет);
+ *   { status: 'active', challenge, days, progress } — отметки уже есть;
+ *   { status: 'completed', finishedAt } — пользователь закрыл челлендж, до
+ *     следующего сезона на главной его быть не должно;
+ *   { status: 'none' } — для текущего сезона челленджа нет.
+ *
+ * Дни и прогресс отдаются в той же форме, что `GET /api/challenges/:slug`
+ * и `GET /api/challenges/active`, чтобы фронтенд переиспользовал типы.
+ */
+router.get('/current', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const season = seasonForDate();
+    const challenge = await findSeasonChallenge(season);
+
+    if (!challenge) {
+      res.json({ status: 'none', season });
+      return;
+    }
+
+    const userChallenge = await pool.query<UserChallengeRow>(
+      `SELECT id, status, started_at, finished_at, completed_at
+         FROM user_challenges
+        WHERE user_id = $1 AND challenge_id = $2
+        LIMIT 1`,
+      [req.userId, challenge.id]
+    );
+
+    const row = userChallenge.rows[0];
+
+    if (!row) {
+      const days = await loadDays(challenge.id, null);
+
+      res.json({
+        status: 'available',
+        season,
+        challenge: challengeCard(challenge),
+        progress: summarize(days),
+        days,
+      });
+      return;
+    }
+
+    if (row.status === 'completed' || row.status === 'finished') {
+      res.json({
+        status: 'completed',
+        season,
+        challengeSlug: challenge.slug,
+        finishedAt: row.completed_at ?? row.finished_at ?? null,
+      });
+      return;
+    }
+
+    const days = await loadDays(challenge.id, row.id);
+
+    res.json({
+      status: 'active',
+      season,
+      userChallengeId: row.id,
+      startedAt: row.started_at,
+      challenge: challengeCard(challenge),
+      progress: summarize(days),
+      days,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch current challenge' });
+  }
+});
+
 /** Детали челленджа: дни и задачи. Прогресс подмешивается, если пользователь вошёл. */
 router.get('/:slug', async (req: Request, res: Response) => {
   try {
     const challenge = await pool.query<ChallengeRow>(
-      `SELECT id, slug, title, description, season, days_count, tasks_count, cover_url
+      `SELECT ${CHALLENGE_COLUMNS}
          FROM challenges
         WHERE slug = $1 AND is_published = TRUE`,
       [req.params.slug]
@@ -215,7 +348,11 @@ router.get('/:slug', async (req: Request, res: Response) => {
   }
 });
 
-/** Старт челленджа. Повторный старт того же челленджа идемпотентен. */
+/**
+ * Старт челленджа. Оставлен для совместимости: теперь отметка задачи работает
+ * и без него (см. PATCH /tasks/:taskId), а на главной кнопки «начать» нет.
+ * Повторный старт того же челленджа идемпотентен.
+ */
 router.post('/:slug/start', authMiddleware, async (req: Request, res: Response) => {
   try {
     const challenge = await pool.query<{ id: number }>(
@@ -230,28 +367,12 @@ router.post('/:slug/start', authMiddleware, async (req: Request, res: Response) 
 
     const challengeId = challenge.rows[0].id;
 
-    const active = await pool.query<{ id: number; challenge_id: number }>(
-      `SELECT id, challenge_id FROM user_challenges
-        WHERE user_id = $1 AND status = 'active'
-        ORDER BY started_at DESC LIMIT 1`,
-      [req.userId]
-    );
-
-    if (active.rows.length > 0 && active.rows[0].challenge_id !== challengeId) {
-      res.status(409).json({ error: 'Another challenge is already active' });
-      return;
-    }
-
-    if (active.rows.length > 0) {
-      res.json({ userChallengeId: active.rows[0].id, started: false });
-      return;
-    }
-
     const created = await pool.query<{ id: number }>(
-      `INSERT INTO user_challenges (user_id, challenge_id)
-       VALUES ($1, $2)
+      `INSERT INTO user_challenges (user_id, challenge_id, status, started_at, finished_at, completed_at)
+       VALUES ($1, $2, 'active', CURRENT_TIMESTAMP, NULL, NULL)
        ON CONFLICT (user_id, challenge_id)
-       DO UPDATE SET status = 'active', started_at = CURRENT_TIMESTAMP, finished_at = NULL
+       DO UPDATE SET status = 'active', started_at = CURRENT_TIMESTAMP,
+                     finished_at = NULL, completed_at = NULL
        RETURNING id`,
       [req.userId, challengeId]
     );
@@ -263,8 +384,24 @@ router.post('/:slug/start', authMiddleware, async (req: Request, res: Response) 
   }
 });
 
-/** Отметка задачи в активном челлендже. */
+/**
+ * Отметка задачи челленджа — работает сразу, без отдельного «старта».
+ *
+ * Раньше здесь требовался `uc.status = 'active'`, то есть запись user_challenges
+ * должна была существовать заранее: без кнопки «начать» отметка отвечала 404.
+ * Теперь запись создаётся (или возвращается в active) прямо при первой отметке.
+ *
+ * Правила:
+ *   • отметку принимает челлендж, по которому у пользователя есть незакрытая
+ *     запись — независимо от сезона (начатое можно доделать);
+ *   • если записи нет, отметка разрешена только для челленджа текущего сезона:
+ *     челлендж будущего сезона открывать вручную нельзя, это ответ 409;
+ *   • если пользователь закрыл челлендж (completed), новая отметка снова делает
+ *     его активным — идемпотентно, без ошибки: история прогресса сохраняется.
+ */
 router.patch('/tasks/:taskId', authMiddleware, async (req: Request, res: Response) => {
+  const client = await pool.connect();
+
   try {
     const taskId = Number(req.params.taskId);
     const isDone = Boolean((req.body as { isDone?: unknown })?.isDone);
@@ -274,25 +411,85 @@ router.patch('/tasks/:taskId', authMiddleware, async (req: Request, res: Respons
       return;
     }
 
-    // Проверяем, что задача принадлежит активному челленджу этого пользователя.
-    const owned = await pool.query<{ id: number; challenge_id: number }>(
-      `SELECT uc.id, uc.challenge_id
-         FROM user_challenges uc
-         JOIN challenge_days d ON d.challenge_id = uc.challenge_id
-         JOIN challenge_tasks t ON t.challenge_day_id = d.id
-        WHERE uc.user_id = $1 AND uc.status = 'active' AND t.id = $2
-        LIMIT 1`,
-      [req.userId, taskId]
+    const task = await client.query<{
+      challenge_id: number;
+      season: string | null;
+      is_published: boolean;
+    }>(
+      `SELECT c.id AS challenge_id, c.season, c.is_published
+         FROM challenge_tasks t
+         JOIN challenge_days d ON d.id = t.challenge_day_id
+         JOIN challenges c ON c.id = d.challenge_id
+        WHERE t.id = $1`,
+      [taskId]
     );
 
-    if (owned.rows.length === 0) {
-      res.status(404).json({ error: 'Task is not in the active challenge' });
+    if (task.rows.length === 0) {
+      res.status(404).json({ error: 'Challenge task not found' });
       return;
     }
 
-    const { id: userChallengeId, challenge_id: challengeId } = owned.rows[0];
+    const { challenge_id: challengeId, season } = task.rows[0];
 
-    await pool.query(
+    const existing = await client.query<UserChallengeRow>(
+      `SELECT id, status, started_at, finished_at, completed_at
+         FROM user_challenges
+        WHERE user_id = $1 AND challenge_id = $2
+        LIMIT 1`,
+      [req.userId, challengeId]
+    );
+
+    let userChallengeId: number;
+    let userChallengeStatus: string;
+
+    if (existing.rows.length > 0) {
+      const row = existing.rows[0];
+
+      if (row.status === 'active') {
+        userChallengeId = row.id;
+        userChallengeStatus = row.status;
+      } else {
+        // Завершённый или подвисший челлендж пользователь продолжает отмечать:
+        // возвращаем запись в active, историю отметок не трогаем.
+        const reactivated = await client.query<{ id: number }>(
+          `UPDATE user_challenges
+              SET status = 'active', finished_at = NULL, completed_at = NULL
+            WHERE id = $1
+            RETURNING id`,
+          [row.id]
+        );
+
+        userChallengeId = reactivated.rows[0].id;
+        userChallengeStatus = 'active';
+      }
+    } else {
+      const currentSeason = seasonForDate();
+
+      if (season !== currentSeason) {
+        res.status(409).json({
+          error: 'Challenge is not available this season',
+          season: currentSeason,
+          challengeSeason: season,
+          message: `Этот челлендж относится к сезону «${season ? seasonTitle(season as Season) : 'без сезона'}», сейчас сезон «${seasonTitle(currentSeason)}»`,
+        });
+        return;
+      }
+
+      const created = await client.query<{ id: number }>(
+        `INSERT INTO user_challenges (user_id, challenge_id, status, started_at)
+         VALUES ($1, $2, 'active', CURRENT_TIMESTAMP)
+         ON CONFLICT (user_id, challenge_id)
+         DO UPDATE SET status = 'active', started_at = CURRENT_TIMESTAMP,
+                       finished_at = NULL, completed_at = NULL
+         RETURNING id`,
+        [req.userId, challengeId]
+      );
+
+      userChallengeId = created.rows[0].id;
+      userChallengeStatus = 'active';
+    }
+
+    await client.query(
       `INSERT INTO user_task_progress (user_challenge_id, challenge_task_id, is_done, done_at)
        VALUES ($1, $2, $3, CASE WHEN $3 THEN CURRENT_TIMESTAMP ELSE NULL END)
        ON CONFLICT (user_challenge_id, challenge_task_id)
@@ -306,34 +503,116 @@ router.patch('/tasks/:taskId', authMiddleware, async (req: Request, res: Respons
     // Отметка задачи в челлендже тоже двигает достижения.
     const awarded = await checkAndAwardAchievements(String(req.userId));
 
-    res.json({ progress, days, awarded });
+    res.json({
+      userChallengeId,
+      status: userChallengeStatus,
+      progress,
+      days,
+      awarded,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to update task' });
+  } finally {
+    client.release();
   }
 });
 
-/** Завершение челленджа. */
-router.post('/active/finish', authMiddleware, async (req: Request, res: Response) => {
+/**
+ * Завершение челленджа: «пройден» для пользователя.
+ *
+ * Идемпотентно: повторный вызов не падает, а сообщает, что челлендж уже закрыт
+ * (`finished: false`, `alreadyFinished: true`) и когда это произошло. Так фронт
+ * может спокойно повторить запрос после сетевой ошибки.
+ *
+ * `:slug` можно не указывать; если указан — закрываем именно его, иначе
+ * закрывается активный челлендж пользователя.
+ */
+const finishChallenge = async (req: Request, res: Response) => {
+  const client = await pool.connect();
+
   try {
-    const result = await pool.query(
+    const slug = typeof req.params.slug === 'string' ? req.params.slug : null;
+    const finishedAt = new Date().toISOString();
+
+    await client.query('BEGIN');
+
+    let challengeId: number | null = null;
+
+    if (slug) {
+      const challenge = await client.query<{ id: number }>(
+        'SELECT id FROM challenges WHERE slug = $1 AND is_published = TRUE',
+        [slug]
+      );
+
+      if (challenge.rows.length === 0) {
+        await client.query('ROLLBACK');
+        res.status(404).json({ error: 'Challenge not found' });
+        return;
+      }
+
+      challengeId = challenge.rows[0].id;
+    }
+
+    const updated = await client.query<{ id: number; completed_at: string | null }>(
       `UPDATE user_challenges
-          SET status = 'finished', finished_at = CURRENT_TIMESTAMP
-        WHERE user_id = $1 AND status = 'active'
-        RETURNING id`,
-      [req.userId]
+          SET status = 'completed',
+              finished_at = COALESCE(finished_at, CURRENT_TIMESTAMP),
+              completed_at = COALESCE(completed_at, CURRENT_TIMESTAMP)
+        WHERE user_id = $1
+          AND status = 'active'
+          AND ($2::int IS NULL OR challenge_id = $2)
+        RETURNING id, completed_at`,
+      [req.userId, challengeId]
     );
 
-    if (result.rows.length === 0) {
-      res.status(404).json({ error: 'No active challenge' });
+    if (updated.rows.length > 0) {
+      await client.query('COMMIT');
+
+      res.json({
+        finished: true,
+        alreadyFinished: false,
+        userChallengeId: updated.rows[0].id,
+        finishedAt: updated.rows[0].completed_at ?? finishedAt,
+      });
       return;
     }
 
-    res.json({ finished: true, userChallengeId: result.rows[0].id });
+    // Активного нет — возможно, челлендж уже закрыт: отвечаем тем же по смыслу.
+    const completed = await client.query<{ id: number; completed_at: string | null }>(
+      `SELECT id, completed_at
+         FROM user_challenges
+        WHERE user_id = $1
+          AND status IN ('completed', 'finished')
+          AND ($2::int IS NULL OR challenge_id = $2)
+        ORDER BY COALESCE(completed_at, finished_at) DESC NULLS LAST, id DESC
+        LIMIT 1`,
+      [req.userId, challengeId]
+    );
+
+    await client.query('COMMIT');
+
+    if (completed.rows.length > 0) {
+      res.json({
+        finished: false,
+        alreadyFinished: true,
+        userChallengeId: completed.rows[0].id,
+        finishedAt: completed.rows[0].completed_at ?? null,
+      });
+      return;
+    }
+
+    res.status(404).json({ error: 'No active challenge', finished: false });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => undefined);
     console.error(err);
     res.status(500).json({ error: 'Failed to finish challenge' });
+  } finally {
+    client.release();
   }
-});
+};
+
+router.post('/active/finish', authMiddleware, finishChallenge);
+router.post('/:slug/finish', authMiddleware, finishChallenge);
 
 export default router;
