@@ -23,6 +23,13 @@ export const useApi = () => {
   const base = isServer ? String(config.apiBase) : '';
   // Заголовки входящего запроса забираем синхронно: дальше контекст может потеряться.
   const forwardedCookie = isServer ? useRequestHeaders(['cookie']).cookie : undefined;
+  /**
+   * Свежий access-токен, если серверный плагин `restore-session` успел обновить
+   * сессию до рендера: тогда вместо просроченного токена в cookie едет новый.
+   */
+  const restoredAccessToken = isServer
+    ? (useRequestEvent()?.context as { freshAccessToken?: string } | undefined)?.freshAccessToken
+    : undefined;
 
   const request = async <T>(path: string, options: ApiRequestOptions = {}): Promise<T> => {
     const method = String(options.method ?? 'GET').toUpperCase();
@@ -35,7 +42,10 @@ export const useApi = () => {
     }
 
     if (forwardedCookie) {
-      headers.cookie = forwardedCookie;
+      headers.cookie =
+        restoredAccessToken && forwardedCookie.includes('cp_access=')
+          ? mergeAccessCookie(forwardedCookie, restoredAccessToken)
+          : forwardedCookie;
     }
 
     return await $fetch<T>(`${base}${path}`, {

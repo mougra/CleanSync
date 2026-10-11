@@ -23,11 +23,22 @@ import type {
  * outside of setup». Дожидаемся результатов уже после всех вызовов.
  * Ключи общие, поэтому данные переиспользуются между страницами.
  */
+/**
+ * Подменяет `cp_access` в строке cookie — вынесено в `utils/authCookie.ts`,
+ * потому что тем же помощником пользуется `useApi` при восстановлении сессии.
+ */
 export const useChallenges = async () => {
   const auth = useAuthStore();
   const api = useApi();
   // Гостевой путь: отметки незарегистрированного человека живут в localStorage.
   const guest = useGuestChallenge();
+
+  const config = useRuntimeConfig();
+  /**
+   * Cookie входящего запроса забираем синхронно, до первого await: после него
+   * контекст Nuxt теряется — по той же причине так делает `useApi`.
+   */
+  const ssrCookie = import.meta.server ? useRequestHeaders(['cookie']).cookie : undefined;
 
   const listState = useAsyncData('challenges', () => api.request<ChallengeSummary[]>('/api/challenges'), {
     default: () => [] as ChallengeSummary[],
@@ -381,20 +392,37 @@ export const useChallenges = async () => {
   /**
    * Обновление истёкшей сессии и один повторный запрос состояния.
    *
-   * `POST /api/auth/refresh` живёт на пути `/api/auth`, поэтому может идти
-   * обычным `$fetch`: CSRF для него не нужен, а браузер уже несёт refresh-cookie.
-   * Возвращаем новое состояние только если сервер после обновления действительно
-   * узнал пользователя — иначе показываем прежний ответ как есть.
+   * Обновляемся через `useApi`, а не сырым `$fetch`: раньше здесь стоял
+   * `$fetch('/api/auth/refresh')` с относительным путём, и в SSR он уходил в сам
+   * Nitro вместо API — то есть сессия обновлялась только в браузере, а первый
+   * серверный рендер показывал гостевой нулевой прогресс. `useApi` подставляет
+   * внутренний адрес API и пробрасывает cookie, а CSRF стор берёт из cookie
+   * (запрос без него сервер отвергает с 403).
    */
   async function retryAfterRefresh(): Promise<CurrentChallenge | null> {
+    let freshToken: string | null;
+
     try {
-      await $fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' });
+      const refreshed = await api.request<{ accessToken?: string }>('/api/auth/refresh', {
+        method: 'POST',
+      });
+      freshToken = refreshed?.accessToken ?? null;
     } catch {
       return null;
     }
 
     try {
-      const retried = await api.request<CurrentChallenge>('/api/challenges/current');
+      const retried = !ssrCookie
+        ? // В браузере новая cookie уже стоит — обычный путь.
+          await api.request<CurrentChallenge>('/api/challenges/current')
+        : /**
+           * В SSR мы несём cookie входящего запроса, где access-токен ещё старый,
+           * а API отдаёт приоритет cookie перед заголовком Authorization. Поэтому
+           * подменяем в ней `cp_access` свежим токеном из ответа refresh.
+           */
+          await $fetch<CurrentChallenge>(`${String(config.apiBase)}/api/challenges/current`, {
+            headers: { cookie: freshToken ? mergeAccessCookie(ssrCookie, freshToken) : ssrCookie },
+          });
 
       if (retried?.status === 'available' && (retried.progress?.done ?? 0) === 0) {
         return null;

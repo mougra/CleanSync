@@ -485,7 +485,6 @@
     "finishFailed": "Could not complete the challenge. Please try again.",
     "otherSeason": "This challenge belongs to its own season: you will be able to tick tasks once it starts.",
     "back": "Back",
-    "signInToTrack": "Sign in to tick tasks and track your progress",
     "guestHint": "Tick tasks without signing up: your progress is kept in this browser and moves to your account after you sign in.",
     "storageNotice": "This challenge's progress is stored in this browser. Sign in or create an account and it moves to your account.",
     "registerCta": "Create an account",
