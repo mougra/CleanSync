@@ -100,6 +100,13 @@ const dayMinutesLeft = computed(() => {
   return day.tasks.filter((task) => !task.is_done).reduce((sum, task) => sum + task.estimated_minutes, 0);
 });
 
+/** Кольцо плана: закрытые задачи дня и их общее число. */
+const planTotal = computed(() => today.value?.summary.total_tasks ?? dayTaskCount.value);
+const planDone = computed(() => today.value?.summary.completed_tasks ?? 0);
+
+/** В карточке плана хватает трёх ближайших пунктов — остальное внутри челленджа. */
+const upcomingTasks = computed(() => (currentDay.value?.tasks ?? []).filter((task) => !task.is_done).slice(0, 3));
+
 const tasksWidgetValue = computed(
   () => today.value?.summary.total_tasks ?? checklistTasksTotal.value,
 );
@@ -174,7 +181,7 @@ useStructuredData(() => ({
     {
       '@type': 'SoftwareApplication',
       '@id': `${site.url}/#app`,
-      name: 'Clean Planner',
+      name: 'TidyPlan',
       applicationCategory: 'LifestyleApplication',
       operatingSystem: 'Web',
       description: t('home.metaDescription'),
@@ -222,23 +229,28 @@ useStructuredData(() => ({
       </NuxtLink>
     </div>
 
-    <!-- План дня -->
-    <section class="plan">
-      <AppBadge variant="accent">{{ t('home.planChip') }}</AppBadge>
+    <!-- План дня: доля закрытых задач в кольце, без «круга во весь экран» -->
+    <section class="plan card">
+      <div class="plan__head">
+        <AppBadge variant="accent">{{ t('home.planChip') }}</AppBadge>
+        <p v-if="dayMinutesLeft" class="plan__minutes">{{ dayMinutesLeft }} {{ t('home.minutes') }}</p>
+      </div>
 
       <template v-if="auth.isAuthenticated">
-        <p class="plan__count">
-          <strong>{{ dayTaskCount }}</strong>
-          <span>{{ t('home.tasks') }}</span>
-        </p>
-        <p v-if="dayMinutesLeft" class="plan__minutes">{{ dayMinutesLeft }} {{ t('home.minutes') }}</p>
-        <AppButton
-          v-if="active"
-          variant="accent"
-          :to="localePath(`/challenges/${active.challenge.slug}`)"
-        >
-          {{ t('home.openPlan') }}
-        </AppButton>
+        <div class="plan__body">
+          <PlanRing :done="planDone" :total="planTotal" />
+
+          <div class="plan__aside">
+            <p class="plan__hint">{{ t('home.planHint') }}</p>
+            <AppButton
+              v-if="active"
+              variant="accent"
+              :to="localePath(`/challenges/${active.challenge.slug}`)"
+            >
+              {{ t('home.openPlan') }}
+            </AppButton>
+          </div>
+        </div>
       </template>
 
       <template v-else>
@@ -246,8 +258,8 @@ useStructuredData(() => ({
         <AppButton variant="accent" :to="localePath('/login')">{{ t('auth.login') }}</AppButton>
       </template>
 
-      <ul v-if="currentDay" class="plan__list">
-        <li v-for="task in currentDay.tasks.filter((item) => !item.is_done)" :key="task.id">
+      <ul v-if="upcomingTasks.length" class="plan__list">
+        <li v-for="task in upcomingTasks" :key="task.id">
           {{ task.title }}
         </li>
       </ul>
@@ -391,6 +403,51 @@ useStructuredData(() => ({
   gap: var(--space-2);
   padding: var(--space-4);
   border-radius: var(--r-card);
+  transition:
+    transform var(--dur-base) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out);
+}
+
+/* Лёгкий подъём карточки под курсором: только там, где есть настоящий указатель */
+@media (hover: hover) and (pointer: fine) {
+  .card:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-lift);
+  }
+}
+
+@media (min-width: 768px) {
+  /* Десктоп: больше воздуха и две колонки там, где раньше всё шло в столбик */
+  .home {
+    gap: var(--space-6);
+  }
+
+  .card {
+    padding: var(--space-5);
+  }
+
+  .plan {
+    padding: var(--space-6);
+  }
+
+  .plan__body {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-7);
+    text-align: left;
+  }
+
+  .plan__aside {
+    justify-items: start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .card:hover {
+    transform: none;
+    transition: none;
+  }
 }
 
 .card--mint {
@@ -463,53 +520,75 @@ useStructuredData(() => ({
 }
 
 /* ── План дня ───────────────────────────────────────────────────────── */
+/* ── План дня ───────────────────────────────────────────────────────────
+ * Раньше это был круг во всю ширину экрана: много места и мало смысла.
+ * Теперь карточка с компактным кольцом, а на десктопе — две колонки.
+ */
 .plan {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: var(--space-3);
-  justify-content: center;
-  padding: var(--space-6) var(--space-4);
-  border-radius: 50%;
-  aspect-ratio: 1 / 1;
-  text-align: center;
-  background: radial-gradient(circle at 50% 45%, var(--c-surface-warm) 0%, var(--c-bg) 72%);
+  gap: var(--space-4);
+  padding: var(--space-5);
+  border-radius: var(--r-card);
+  background: var(--grad-warm);
 }
 
-.plan__count {
+.plan__head {
   display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
 }
 
-.plan__count strong {
-  font-size: 2.75rem;
-  line-height: 1;
+.plan__body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  text-align: center;
 }
 
-.plan__count span {
-  font-size: var(--fs-title);
+.plan__aside {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: center;
 }
 
-.plan__minutes {
+.plan__hint {
+  margin: 0;
+  max-width: 34ch;
   color: var(--c-text-muted);
 }
 
+.plan__minutes {
+  margin: 0;
+  color: var(--c-text-muted);
+  font-size: var(--fs-caption);
+}
+
 .plan__guest {
+  margin: 0;
   max-width: 24ch;
   color: var(--c-text-muted);
 }
 
+/* Ближайшие пункты — чипами: видно, что делать дальше, и не занимает пол-экрана */
 .plan__list {
   margin: 0;
   padding: 0;
   list-style: none;
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
   gap: var(--space-2);
   color: var(--c-text-muted);
   font-size: var(--fs-caption);
+}
+
+.plan__list li {
+  padding: 6px 12px;
+  border-radius: var(--r-pill);
+  background: var(--c-surface);
+  box-shadow: var(--shadow-soft);
 }
 
 /* ── Виджеты ────────────────────────────────────────────────────────── */
@@ -710,5 +789,20 @@ useStructuredData(() => ({
 
 .state--error {
   color: var(--c-danger);
+}
+
+/* ── Десктопные детали ──────────────────────────────────────────────────
+ * На широком экране столбик из виджетов выглядел сиротливо: собираем в две
+ * колонки и даём картинке совета больше места.
+ */
+@media (min-width: 768px) {
+  .widgets {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-5);
+  }
+
+  .tip__image {
+    height: 220px;
+  }
 }
 </style>

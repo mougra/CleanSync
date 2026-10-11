@@ -68,6 +68,22 @@
   --space-4: 16px;
   --space-5: 24px;
   --space-6: 32px;
+  --space-7: 40px; /* десктопные отступы: больше воздуха между блоками */
+  --space-8: 56px;
+
+  /* ── Декор и движение ────────────────────────────────────────────────
+   * Одна кривая и три длительности на весь интерфейс: анимации выглядят
+   * как одна система, а не как набор случайных эффектов.
+   */
+  --grad-brand: linear-gradient(135deg, #3f8a73 0%, #2a584d 100%);
+  --grad-mint: linear-gradient(160deg, #eff7f4 0%, #fef9f6 70%);
+  --grad-warm: linear-gradient(160deg, #fdf6ec 0%, #fef9f6 70%);
+  --shadow-soft: 0 4px 16px rgb(34 48 44 / 5%);
+  --shadow-lift: 0 14px 34px rgb(34 48 44 / 12%);
+  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --dur-fast: 160ms;
+  --dur-base: 320ms;
+  --dur-slow: 900ms;
 }
 
 /* ── Тёмная тема ─────────────────────────────────────────────────────
@@ -96,6 +112,13 @@
   --c-text: #e9efec;
   --c-text-muted: #9aa5a0;
   --c-text-on-accent: #1b1512;
+
+  /* Градиенты и тени на тёмной теме свои: светлые блики на чёрном выглядят грязно */
+  --grad-brand: linear-gradient(135deg, #4b9a80 0%, #2f6b58 100%);
+  --grad-mint: linear-gradient(160deg, #1c2724 0%, #121715 70%);
+  --grad-warm: linear-gradient(160deg, #241e19 0%, #121715 70%);
+  --shadow-soft: 0 4px 16px rgb(0 0 0 / 30%);
+  --shadow-lift: 0 14px 34px rgb(0 0 0 / 45%);
 
   --c-track: #26302c;
   --c-border: rgb(233 239 236 / 10%);
