@@ -692,4 +692,11 @@ useSeoMeta({ title: () => t('nav.settings') });
   background: transparent;
   color: var(--c-text);
 }
+
+@media (min-width: 1024px) {
+  /* Широкий экран: списку настроек хватает 550px, дальше — воздух */
+  .settings {
+    max-width: var(--content-narrow);
+  }
+}
 </style>

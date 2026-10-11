@@ -67,11 +67,11 @@ const showCalendar = computed(() => !hideCalendarRoutes.some((path) => route.pat
   position: relative;
   display: flex;
   /*
-   * Центрируем пару «меню + контент» целиком, а не контент внутри остатка
-   * после меню: с `margin: 0 auto` у колонки контента на широком экране
-   * появлялся большой пустой столбец справа от меню и всё уезжало вправо.
+   * Шелл занимает всю ширину окна: меню слева, остальное пространство отдано
+   * контенту. Ограничиваем не колонку целиком, а отдельные блоки внутри страниц
+   * (--content-narrow / --content-reading), иначе на широком экране всё
+   * растягивается в нечитаемые полосы.
    */
-  justify-content: center;
   min-height: 100vh;
   background: var(--c-bg);
   /* Декор под контентом: без изоляции размытые пятна перекрывают карточки */
@@ -100,7 +100,6 @@ const showCalendar = computed(() => !hideCalendarRoutes.some((path) => route.pat
   display: flex;
   flex-direction: column;
   padding: var(--space-3) var(--space-4) calc(88px + env(safe-area-inset-bottom));
-  max-width: var(--content-max);
   width: 100%;
 }
 
@@ -175,10 +174,9 @@ const showCalendar = computed(() => !hideCalendarRoutes.some((path) => route.pat
 }
 
 @media (min-width: 768px) {
-  /* Десктоп: шире колонка, заметно больше воздуха сверху и между блоками */
+  /* Десктоп: больше воздуха по краям, ширину задают сами блоки */
   .shell__main {
     padding: var(--space-6) var(--space-7) var(--space-8);
-    max-width: var(--content-wide);
   }
 
   /* На десктопе бренд и переключатели живут в боковом меню. */

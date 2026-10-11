@@ -81,4 +81,12 @@ useSeoMeta({
     gap: var(--space-5);
   }
 }
+
+@media (min-width: 1024px) {
+  /* Широкий экран: блоку хватает 550px, остальное оставляем воздуху */
+  .list {
+    grid-template-columns: 1fr;
+    max-width: var(--content-narrow);
+  }
+}
 </style>
