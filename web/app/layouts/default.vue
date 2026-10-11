@@ -42,6 +42,9 @@ const showCalendar = computed(() => !hideCalendarRoutes.some((path) => route.pat
 
       <WeekStrip v-if="showCalendar" />
 
+      <!-- Приглашение для гостя: один раз за всё время, закрытие запоминается -->
+      <GuestInvite />
+
       <main class="shell__content">
         <slot />
       </main>
