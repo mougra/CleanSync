@@ -1,9 +1,21 @@
 /**
- * Живая проверка мастера «Настройка по дому»: API + генератор плана.
+ * Живая проверка мастера «Настройка по дому»: API + сборка набора задач.
  *
  * Запускается вручную (`npx tsx scripts/check-home-profile.ts`), заводит
  * временных пользователей через API, прогоняет несколько наборов ответов,
- * проверяет инварианты плана и удаляет тестовые данные за собой.
+ * проверяет инварианты собранного набора и удаляет тестовые данные за собой.
+ *
+ * Проверка переписана под единый источник задач. Раньше `POST /home-profile/plan`
+ * собирал недельный «План по дому», и скрипт проверял его раскладку (фокусная зона
+ * в начале недели, «ни одна задача не стоит два дня подряд», источник задач
+ * `home_plan`). Теперь недельного плана нет: `plan` в ответе описывает набор «Мои
+ * задачи» — дни с ежедневным минимумом и недельными делами, сводку по бюджету,
+ * уровень уборки и выбранную «трудную» зону. Поэтому здесь проверяется:
+ *  - расписание «План по дому» не создаётся ни одним вызовом;
+ *  - `plan` не пустой и укладывается в дневной бюджет;
+ *  - в дне нет повторов задач, а недельное дело стоит ровно в своём дне;
+ *  - уровень уборки из анкеты уважается каталогом (light — только лёгкие дела);
+ *  - сброс анкеты чистит и память об отказах.
  */
 import dotenv from 'dotenv';
 import pool from '../db';
@@ -75,6 +87,24 @@ const problems: string[] = [];
 /** Заголовок постоянного набора: по нему задачи ищутся во всех сценариях. */
 const MY_TASKS = 'Мои задачи';
 
+/**
+ * Заголовок прежнего недельного плана.
+ *
+ * Проверка держит его именно для того, чтобы убедиться: такого расписания не
+ * создаётся ни одним вызовом (единый источник задач — «Мои задачи»).
+ */
+const PLAN_SCHEDULE = 'План по дому';
+
+/** Сколько расписаний с таким заголовком у пользователя. */
+const scheduleCount = async (userId: number, title: string): Promise<number> => {
+  const result = await pool.query<{ total: number }>(
+    'SELECT COUNT(*)::int AS total FROM schedules WHERE user_id = $1 AND title = $2',
+    [userId, title]
+  );
+
+  return result.rows[0].total;
+};
+
 const check = (condition: boolean, message: string) => {
   if (!condition) problems.push(message);
 };
@@ -100,7 +130,7 @@ const printPlan = (title: string, result: ApiResult) => {
 
   console.log(`\n=== ${title} ===`);
   console.log(
-    `schedule #${schedule.id} «${schedule.title}», уровень ${level}, фокус: ${focusZone ?? 'нет'}, дней ${summary.activeDays}`
+    `расписание #${schedule?.id} «${schedule?.title}», уровень ${level}, фокус: ${focusZone ?? 'нет'}, дней ${summary.activeDays}`
   );
   console.log(
     `итого: задач ${summary.totalTasks}, минут ${summary.totalMinutes}, среднее в день ${summary.minutesPerDay}, бюджет ${summary.dailyBudget}`
@@ -110,8 +140,8 @@ const printPlan = (title: string, result: ApiResult) => {
   if (summary.notes?.length) console.log(`примечания: ${summary.notes.join(' | ')}`);
 
   for (const day of days) {
-    if (!day.selected) {
-      console.log(`${DAY_LABELS[day.dayOfWeek]} — выходной`);
+    if (day.totalTasks === 0) {
+      console.log(`${DAY_LABELS[day.dayOfWeek]} — пусто`);
       continue;
     }
 
@@ -127,14 +157,16 @@ const printPlan = (title: string, result: ApiResult) => {
 };
 
 /**
- * Проверки плана. `expectedBudget` — дневной бюджет по ответу анкеты: он должен
- * совпасть с тем, что посчитал сервер, иначе числа бюджета разъехались между
- * генератором и общей таблицей (services/dailyBudget.ts).
+ * Проверки «плана» — теперь это набор «Мои задачи» в конверте плана.
  *
- * День плана сравнивается с бюджетом **всего** дня, а не только с планом, но
- * сам план уже получает остаток: сколько минут дня занимает набор «Мои задачи»,
- * столько вычитается из бюджета перед сборкой (см. buildPlanFor в
- * routes/homeProfile.ts). Поэтому здесь бюджет — это потолок для плана.
+ * `expectedBudget` — дневной бюджет по ответу анкеты: он должен совпасть с тем,
+ * что посчитал сервер, иначе числа бюджета разъехались с общей таблицей
+ * (services/dailyBudget.ts). День сравнивается с бюджетом целиком: в дне лежат
+ * ежедневный минимум и недельные дела, и сумма не имеет права его превышать.
+ *
+ * Проверки раскладки недельного плана (фокусная зона в начале недели, «ни одна
+ * задача не стоит два дня подряд») убраны вместе с самим планом: набора они не
+ * касаются — ежедневный минимум по определению повторяется каждый день.
  */
 const verifyPlan = (
   title: string,
@@ -142,15 +174,19 @@ const verifyPlan = (
   options: { expectedBudget: number; level: string }
 ) => {
   const budget = plan.summary.dailyBudget;
-  const active = plan.days.filter((day: any) => day.selected);
+  const active = plan.days.filter((day: any) => day.totalTasks > 0);
 
   check(
     budget === options.expectedBudget,
     `${title}: бюджет ${budget}, а по ответу анкеты — ${options.expectedBudget}`
   );
+  check(
+    plan.summary.totalTasks > 0,
+    `${title}: набор пуст — финальный экран мастера показал бы пустоту`
+  );
 
   for (const day of active) {
-    // Дневной бюджет — жёсткое обещание: ни один день не должен его превышать.
+    // Дневной бюджет — жёсткое обещание: ни один день набора не должен его превышать.
     check(
       day.totalMinutes <= budget,
       `${title}: день ${DAY_LABELS[day.dayOfWeek]} — ${day.totalMinutes} мин при бюджете ${budget}`
@@ -161,31 +197,52 @@ const verifyPlan = (
       new Set(titles).size === titles.length,
       `${title}: в дне ${day.dayOfWeek} есть повтор задачи`
     );
-  }
-
-  // Никакая задача не стоит два дня подряд
-  for (let index = 1; index < active.length; index += 1) {
-    const previous = new Set(active[index - 1].tasks.map((task: any) => task.title));
-    const current = active[index].tasks.map((task: any) => task.title);
-    const overlapping = current.filter((task: string) => previous.has(task));
 
     check(
-      overlapping.length === 0,
-      `${title}: повтор два дня подряд (${DAY_LABELS[active[index - 1].dayOfWeek]} → ${DAY_LABELS[active[index].dayOfWeek]}): ${overlapping.join(', ')}`
+      day.tasks.every((task: any) => task.id !== null),
+      `${title}: в дне ${DAY_LABELS[day.dayOfWeek]} есть задача без id — её нельзя отметить`
     );
   }
 
+  // Недельное дело живёт ровно в одном дне: раньше за это отвечала раскладка
+  // плана, теперь — day_of_week задачи набора.
+  const weeklyByTitle = new Map<string, number[]>();
+
+  for (const day of plan.days) {
+    for (const task of day.tasks) {
+      if (task.frequency !== 'weekly') continue;
+
+      weeklyByTitle.set(task.title, [...(weeklyByTitle.get(task.title) ?? []), day.dayOfWeek]);
+    }
+  }
+
+  for (const [taskTitle, days] of weeklyByTitle) {
+    check(
+      days.length === 1,
+      `${title}: недельное дело «${taskTitle}» стоит в нескольких днях (${days.join(', ')})`
+    );
+    check(
+      plan.days.find((day: any) => day.dayOfWeek === days[0])?.selected === true,
+      `${title}: недельное дело «${taskTitle}» попало в невыбранный день`
+    );
+  }
+
+  // Уровень уборки: уровень знает только каталог, поэтому перенесённые разовые
+  // задачи (их в каталоге нет) из проверки исключаются — это честнее, чем
+  // требовать уровень у задачи, которой каталог не знает.
+  const known = plan.days.flatMap((day: any) => day.tasks).filter((task: any) => task.level);
+
   if (options.level === 'light') {
     check(
-      plan.days.every((day: any) => day.tasks.every((task: any) => task.level === 'light')),
-      `${title}: в лёгком плане есть задачи выше light`
+      known.every((task: any) => task.level === 'light'),
+      `${title}: в лёгком наборе есть задачи выше light`
     );
   }
 
   if (options.level === 'normal') {
     check(
-      plan.days.every((day: any) => day.tasks.every((task: any) => task.level !== 'deep')),
-      `${title}: в обычном плане есть глубокие задачи`
+      known.every((task: any) => task.level !== 'deep'),
+      `${title}: в обычном наборе есть глубокие задачи`
     );
   }
 };
@@ -268,60 +325,59 @@ const main = async () => {
   );
   if (planA) verifyPlan('A', planA, { expectedBudget: dayBudget({ dailyMinutes: 'under30' }), level: 'deep' });
 
-  // Идемпотентность: повторный вызов не должен плодить расписания
-  const schedulesBefore = await pool.query(
-    `SELECT COUNT(*)::int AS total FROM schedules WHERE user_id = $1 AND title = 'План по дому'`,
-    [first.id]
-  );
+  /**
+   * Идемпотентность и главный инвариант нового порядка: недельный план не
+   * создаётся ни одним вызовом, а набор «Мои задачи» остаётся один.
+   */
+  const planSchedulesBefore = await scheduleCount(first.id, PLAN_SCHEDULE);
   const secondCall = await call('POST', '/home-profile/plan', first.token);
-  const schedulesAfter = await pool.query(
-    `SELECT COUNT(*)::int AS total FROM schedules WHERE user_id = $1 AND title = 'План по дому'`,
-    [first.id]
-  );
-  const tasksAfter = await pool.query(
-    `SELECT COUNT(*)::int AS total FROM tasks t
-       JOIN schedules s ON s.id = t.schedule_id
-      WHERE s.user_id = $1 AND s.title = 'План по дому'`,
-    [first.id]
-  );
+  const planSchedulesAfter = await scheduleCount(first.id, PLAN_SCHEDULE);
+  const mySchedulesAfter = await scheduleCount(first.id, MY_TASKS);
 
   check(
-    schedulesBefore.rows[0].total === 1 && schedulesAfter.rows[0].total === 1,
-    `идемпотентность: расписаний стало ${schedulesAfter.rows[0].total}`
+    planSchedulesBefore === 0 && planSchedulesAfter === 0,
+    `«План по дому» создан заново: было ${planSchedulesBefore}, стало ${planSchedulesAfter}`
   );
   check(
-    tasksAfter.rows[0].total === secondCall.body?.summary?.totalTasks,
-    `идемпотентность: задач в БД ${tasksAfter.rows[0].total}, в ответе ${secondCall.body?.summary?.totalTasks}`
+    mySchedulesAfter === 1,
+    `«Мои задачи»: расписаний ${mySchedulesAfter}, ожидалось 1`
+  );
+  check(
+    (secondCall.body?.myTasks?.created ?? -1) === 0,
+    `повторный /plan создал ${secondCall.body?.myTasks?.created} новых задач набора`
   );
   console.log(
-    `\nИдемпотентность: расписаний до ${schedulesBefore.rows[0].total}, после ${schedulesAfter.rows[0].total}, задач в БД ${tasksAfter.rows[0].total} (в ответе ${secondCall.body?.summary?.totalTasks})`
+    `\nИдемпотентность: расписаний «${PLAN_SCHEDULE}» было ${planSchedulesBefore}, стало ${planSchedulesAfter}; ` +
+      `«${MY_TASKS}» — ${mySchedulesAfter}, создано задач ${secondCall.body?.myTasks?.created}`
   );
 
-  const weeklyRows = await pool.query(
+  const myTasksRows = await pool.query(
     `SELECT day_of_week, frequency, COUNT(*)::int AS total
        FROM tasks t JOIN schedules s ON s.id = t.schedule_id
-      WHERE s.user_id = $1 AND s.title = 'План по дому'
+      WHERE s.user_id = $1 AND s.title = $2
       GROUP BY day_of_week, frequency ORDER BY day_of_week`,
-    [first.id]
+    [first.id, MY_TASKS]
   );
-  console.log('Задачи в БД по дням:', JSON.stringify(weeklyRows.rows));
+  console.log('Задачи набора в БД по дням:', JSON.stringify(myTasksRows.rows));
 
-  // Пометка источника: задачи недельного плана пишет сервер, поэтому у всех
-  // должен стоять `home_plan` — иначе сгенерированное неотличимо от созданного
-  // руками (см. savePlan в routes/homeProfile.ts и миграцию 0016).
-  const planSources = await pool.query<{ source: string | null; total: number }>(
+  /**
+   * Пометка источника: все задачи набора пишет сервер, поэтому у них должен
+   * стоять `home_profile_defaults` — по ней пересборка и дневной бюджет
+   * отличают сгенерированное от созданного руками (миграция 0012).
+   */
+  const mySources = await pool.query<{ source: string | null; total: number }>(
     `SELECT t.source, COUNT(*)::int AS total
        FROM tasks t JOIN schedules s ON s.id = t.schedule_id
-      WHERE s.user_id = $1 AND s.title = 'План по дому'
+      WHERE s.user_id = $1 AND s.title = $2
       GROUP BY t.source`,
-    [first.id]
+    [first.id, MY_TASKS]
   );
 
   check(
-    planSources.rows.length > 0 && planSources.rows.every((row) => row.source === 'home_plan'),
-    `«План по дому»: источники задач ${JSON.stringify(planSources.rows)}`
+    mySources.rows.length > 0 && mySources.rows.every((row) => row.source === 'home_profile_defaults'),
+    `«${MY_TASKS}»: источники задач ${JSON.stringify(mySources.rows)}`
   );
-  console.log(`Источник задач плана: ${JSON.stringify(planSources.rows)}`);
+  console.log(`Источник задач набора: ${JSON.stringify(mySources.rows)}`);
 
   // ── 4. Второй сценарий: дом с двором, гаражом, детской и офисом ──────────
   const second = await createUser('house');
@@ -427,28 +483,14 @@ const main = async () => {
     return tags;
   };
 
-  const scheduleCount = async (userId: number, title: string): Promise<number> => {
-    const result = await pool.query<{ total: number }>(
-      'SELECT COUNT(*)::int AS total FROM schedules WHERE user_id = $1 AND title = $2',
-      [userId, title]
-    );
-
-    return result.rows[0].total;
-  };
-
   // Проверки содержимого: теги под ответы
   const allB = planB.days.flatMap((day: any) => day.tasks);
   const allC = planC.days.flatMap((day: any) => day.tasks);
 
   /**
-   * Контекст анкеты проверяем по **сумме** двух наборов: «Мои задачи» плюс план.
-   *
-   * Бюджет дня общий, поэтому план получает только остаток от набора «Мои
-   * задачи»: у второго пользователя набор занимает 33-35 минут из 40, и плану
-   * достаются считанные минуты. Требовать, чтобы тема (гараж, двор, сушка) была
-   * именно в плане, после этого нельзя — важно, что она есть в днях человека.
-   * Что каждая тема представлена внутри самого плана при свободном бюджете,
-   * проверяет отдельный сценарий D ниже.
+   * Контекст анкеты проверяем по задачам человека: недельного плана больше нет,
+   * поэтому единственный источник — набор «Мои задачи» (его же отдают дни ответа
+   * `/plan`, так что allB/allC — те же задачи, но сгруппированные по дням).
    */
   const myTasksB = (await loadMyTasks(second.id)).map((task) => task.title);
   const myTasksC = (await loadMyTasks(third.id)).map((task) => task.title);
@@ -481,10 +523,10 @@ const main = async () => {
   );
   check(
     allC.every((task: any) => !task.tags.includes('pets')),
-    'C: «нет питомцев», но в плане есть задачи про питомцев'
+    'C: «нет питомцев», но в задачах есть про питомцев'
   );
   check(
-    allC.every((task: any) => task.level === 'light'),
+    allC.filter((task: any) => task.level).every((task: any) => task.level === 'light'),
     'C: лёгкий уровень, но есть более тяжёлые задачи'
   );
   // Сушка на воздухе и в машине — взаимоисключающие пометки: в одном наборе их
@@ -494,13 +536,13 @@ const main = async () => {
     'B: в задачах смешаны сушка на воздухе и сушильная машина'
   );
 
-  // ── 5б. Сценарий D: свободный бюджет — фокусная зона идёт первой ─────────
+  // ── 5б. Сценарий D: фокусная зона из анкеты доходит до ответа ────────────
   //
-  // Отдельный пользователь с «минимумом» и двумя днями уборки: набор «Мои
-  // задачи» занимает только 12-17 минут из 25, поэтому у плана есть 10+ минут
-  // на день, и «трудная» зона обязана встать в начало недели. На сценарии A
-  // такой проверки больше нет: при остром бюджете первым днём может стать
-  // единственный свободный, и это правильное поведение — бюджет важнее фокуса.
+  // Раньше здесь проверялось, что «трудная» зона встаёт в начало недели: это
+  // делал генератор недельного плана. План больше не собирается, набор вокруг
+  // фокусной зоны не строится, поэтому проверяем то, что осталось обещанием
+  // интерфейсу: выбранная человеком зона приходит в ответе «плана» подписью, а не
+  // теряется вместе с генератором.
   const focus = await createUser('focus');
   await call('PUT', '/home-profile', focus.token, {
     housingType: 'apartment',
@@ -526,15 +568,14 @@ const main = async () => {
   if (planD) verifyPlan('D', planD, { expectedBudget: dayBudget({ dailyMinutes: 'under30' }), level: 'normal' });
 
   if (planD) {
-    const kitchenDays = planD.days
-      .filter((day: any) => day.selected && day.tasks.some((task: any) => task.room === 'Кухня'))
-      .map((day: any) => day.dayOfWeek);
-    const activeD = planD.days.filter((day: any) => day.selected).map((day: any) => day.dayOfWeek);
-
-    console.log(`Сценарий D: дни с кухней ${JSON.stringify(kitchenDays)} из активных ${JSON.stringify(activeD)}`);
+    console.log(`Сценарий D: фокусная зона ${JSON.stringify(planD.focusZone)}`);
     check(
-      kitchenDays.length > 0 && kitchenDays[0] === activeD[0],
-      `D: кухня (трудная зона) не попала в первый день недели (${JSON.stringify(kitchenDays)} vs ${JSON.stringify(activeD)})`
+      planD.focusZone === 'Кухня',
+      `D: фокусная зона ${JSON.stringify(planD.focusZone)}, ожидалась «Кухня»`
+    );
+    check(
+      planD.schedule?.title === MY_TASKS,
+      `D: план ссылается на расписание ${JSON.stringify(planD.schedule?.title)}, ожидалось «${MY_TASKS}»`
     );
   }
 
@@ -727,9 +768,16 @@ const main = async () => {
   const getPlan = await call('GET', '/home-profile/plan', first.token);
   check(getPlan.status === 200, `GET /plan: ${getPlan.status}`);
   check(getPlan.body?.myTasks?.created === 0, `GET /plan создал ${getPlan.body?.myTasks?.created} задач`);
-  check(getPlan.body?.schedule !== null, 'GET /plan не нашёл сохранённый «План по дому»');
+  check(
+    getPlan.body?.schedule?.title === MY_TASKS,
+    `GET /plan ссылается на расписание ${JSON.stringify(getPlan.body?.schedule?.title)}, ожидалось «${MY_TASKS}»`
+  );
+  check(
+    (await scheduleCount(first.id, PLAN_SCHEDULE)) === 0,
+    'GET /plan завёл расписание «План по дому»'
+  );
   console.log(
-    `GET /plan: расписание #${getPlan.body?.schedule?.id}, «Мои задачи» created=${getPlan.body?.myTasks?.created}`
+    `GET /plan: расписание #${getPlan.body?.schedule?.id} «${getPlan.body?.schedule?.title}», «Мои задачи» created=${getPlan.body?.myTasks?.created}`
   );
 
   // Правки пользователя не затираются пересборкой
@@ -828,6 +876,12 @@ const main = async () => {
   // ── 7. Сброс анкеты ─────────────────────────────────────────────────────
   const reset = await call('DELETE', '/home-profile', third.token);
   check(reset.status === 200 && reset.body?.profileReset === true, `DELETE: ${JSON.stringify(reset.body)}`);
+  // Сброс анкеты чистит и память об отказах: человек начинает настройку заново,
+  // и удалённые когда-то сгенерированные задачи снова могут быть предложены.
+  check(
+    typeof reset.body?.dismissedCleared === 'number',
+    `DELETE не сообщил, сколько отказов очищено: ${JSON.stringify(reset.body)}`
+  );
   console.log(`\nDELETE: ${JSON.stringify(reset.body)}`);
 
   const afterReset = await call('GET', '/home-profile', third.token);
@@ -837,13 +891,18 @@ const main = async () => {
   check(planAfterReset.status === 400, `после DELETE план собрался: ${planAfterReset.status}`);
   console.log(`После сброса: профиль ${JSON.stringify(afterReset.body)}, план → ${planAfterReset.status}`);
 
-  // После сброса старое расписание не должно висеть
-  const leftover = await pool.query(
-    `SELECT COUNT(*)::int AS total FROM schedules WHERE user_id = $1 AND title = 'План по дому'`,
+  // После сброса прежнее расписание плана (если оно было у пользователя) висеть
+  // не должно, а список отказов — обнулиться.
+  const leftover = await scheduleCount(third.id, PLAN_SCHEDULE);
+  check(leftover === 0, 'после DELETE осталось расписание «План по дому»');
+  console.log(`Расписаний «План по дому» после сброса: ${leftover}`);
+
+  const dismissals = await pool.query<{ total: number }>(
+    'SELECT COUNT(*)::int AS total FROM dismissed_default_tasks WHERE user_id = $1',
     [third.id]
   );
-  check(leftover.rows[0].total === 0, 'после DELETE осталось расписание «План по дому»');
-  console.log(`Расписаний «План по дому» после сброса: ${leftover.rows[0].total}`);
+  check(dismissals.rows[0].total === 0, 'после DELETE остались записи в памяти об отказах');
+  console.log(`Отказов после сброса: ${dismissals.rows[0].total}`);
 };
 
 const cleanup = async () => {

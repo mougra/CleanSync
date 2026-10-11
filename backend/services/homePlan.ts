@@ -11,6 +11,18 @@ import { DAY_BUDGET_MINUTES, dayBudget, MAX_DAILY_MINUTES } from './dailyBudget'
 /**
  * Генератор недельного плана уборки по анкете «Настройка по дому».
  *
+ * ВАЖНО, СОСТОЯНИЕ НА СЕГОДНЯ. Недельный план больше не создаётся: заказчик
+ * оставил один источник задач — постоянный набор «Мои задачи»
+ * (services/defaultTasks.ts). Маршрут завершения анкеты (routes/homeProfile.ts)
+ * не вызывает `buildHomePlan` и не пишет расписание «План по дому»; уже
+ * существующие планы переносятся в «Мои задачи» (services/mergePlanIntoTasks.ts).
+ *
+ * Модуль сохранён целиком и может вернуться как необязательная функция
+ * («собрать план на неделю» по кнопке): генератор чистый, в базу не пишет, а
+ * инвариант дневного бюджета для него продолжает проверяться
+ * (scripts/check-default-tasks.ts, tests/dailyBudget.spec.ts). Удалять его не
+ * нужно — вернуть кнопку дешевле, чем писать раскладку заново.
+ *
  * Вход — ответы пользователя (та же форма, что в таблице home_profiles), выход —
  * расписание по дням недели с задачами и итогами. Функция чистая: она ничего не
  * пишет в базу, записью занимается маршрут (backend/routes/homeProfile.ts).
@@ -106,16 +118,73 @@ export const DEFAULT_HOME_ANSWERS: HomeAnswers = {
   hardestZone: 'nothing',
 };
 
-/** Дополняет частичные ответы значениями по умолчанию. */
-export const withDefaultAnswers = (input: PartialHomeAnswers): HomeAnswers => ({
-  ...DEFAULT_HOME_ANSWERS,
-  ...input,
-  pets: input.pets && input.pets.length > 0 ? input.pets : DEFAULT_HOME_ANSWERS.pets,
-  cleaningDays:
-    input.cleaningDays && input.cleaningDays.length > 0
-      ? input.cleaningDays
-      : DEFAULT_HOME_ANSWERS.cleaningDays,
-});
+/**
+ * Дополняет частичные ответы значениями по умолчанию.
+ *
+ * Явные `undefined` в объекте пропускаются: «поля нет» и «поле равно undefined»
+ * означают одно и то же — шаг мастера не заполнен, — а спред такого значения
+ * затёр бы умолчание пустотой (это ломало бы чтение строки home_profiles, где
+ * колонки могут прийти NULL).
+ */
+export const withDefaultAnswers = (input: PartialHomeAnswers): HomeAnswers => {
+  const provided = Object.fromEntries(
+    Object.entries(input).filter(([, value]) => value !== undefined)
+  ) as PartialHomeAnswers;
+
+  return {
+    ...DEFAULT_HOME_ANSWERS,
+    ...provided,
+    pets: input.pets && input.pets.length > 0 ? input.pets : DEFAULT_HOME_ANSWERS.pets,
+    cleaningDays:
+      input.cleaningDays && input.cleaningDays.length > 0
+        ? input.cleaningDays
+        : DEFAULT_HOME_ANSWERS.cleaningDays,
+  };
+};
+
+/**
+ * Строка `home_profiles` в форме ответов анкеты (колонки snake_case).
+ *
+ * Недостающие и незаполненные ответы добираются значениями по умолчанию — ровно
+ * так же, как их трактует генератор. Помощник нужен, чтобы чтение анкеты было
+ * одним и тем же в маршруте (routes/homeProfile.ts) и в переносе задач
+ * (services/mergePlanIntoTasks.ts): второй копии этого сопоставления быть не
+ * должно, иначе набор и перенос разойдутся по ответам.
+ */
+export interface StoredHomeAnswers {
+  housing_type: string | null;
+  rooms: string | null;
+  composition: string | null;
+  pets: string[] | null;
+  outdoor: string | null;
+  has_kids_room: boolean | null;
+  has_garage: boolean | null;
+  works_from_home: boolean | null;
+  drying: string | null;
+  cleaning_level: string | null;
+  daily_minutes: string | null;
+  cleaning_style: string | null;
+  cleaning_days: number[] | null;
+  hardest_zone: string | null;
+}
+
+export const answersFromStoredRow = (row: StoredHomeAnswers): HomeAnswers =>
+  withDefaultAnswers({
+    housingType: (row.housing_type ?? undefined) as PartialHomeAnswers['housingType'],
+    rooms: (row.rooms ?? undefined) as PartialHomeAnswers['rooms'],
+    composition: (row.composition ?? undefined) as PartialHomeAnswers['composition'],
+    pets: (row.pets ?? []) as PartialHomeAnswers['pets'],
+    outdoor: (row.outdoor ?? undefined) as PartialHomeAnswers['outdoor'],
+    hasKidsRoom: row.has_kids_room ?? undefined,
+    hasGarage: row.has_garage ?? undefined,
+    worksFromHome: row.works_from_home ?? undefined,
+    drying: (row.drying ?? undefined) as PartialHomeAnswers['drying'],
+    cleaningLevel: (row.cleaning_level ?? undefined) as PartialHomeAnswers['cleaningLevel'],
+    dailyMinutes: (row.daily_minutes ?? undefined) as PartialHomeAnswers['dailyMinutes'],
+    cleaningStyle: (row.cleaning_style ?? undefined) as PartialHomeAnswers['cleaningStyle'],
+    cleaningDays: row.cleaning_days ?? [],
+    hardestZone: (row.hardest_zone ?? undefined) as PartialHomeAnswers['hardestZone'],
+  });
 
 // ── Типы результата ────────────────────────────────────────────────────────
 
@@ -220,6 +289,16 @@ const HARDEST_ZONE_LABELS: Record<HardestZone, string | null> = {
   tidiness: 'Порядок',
   nothing: null,
 };
+
+/**
+ * Подпись «трудной» зоны для ответа анкеты.
+ *
+ * Экспортируется: набор «Мои задачи» больше не строится вокруг фокусной зоны, но
+ * финальный экран мастера показывает выбранную человеком зону (routes/homeProfile.ts),
+ * поэтому подпись нужна и без недельного плана.
+ */
+export const focusZoneLabel = (hardestZone: HardestZone): string | null =>
+  HARDEST_ZONE_LABELS[hardestZone];
 
 /**
  * Задачи какого уровня допустимы при выбранном уровне уборки.

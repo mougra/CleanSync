@@ -4,59 +4,75 @@ import { authMiddleware } from '../auth';
 import {
   buildDefaultTasks,
   DEFAULT_TASK_SOURCE,
+  myTasksScheduleDescription,
+  normalizeTaskTitle,
   type DefaultTaskSet,
 } from '../services/defaultTasks';
-import { occupiedMinutesByWeekday } from '../services/dailyBudget';
+import { dayBudget } from '../services/dailyBudget';
+import { getTaskCatalog } from '../services/taskCatalog';
 import {
-  buildHomePlan,
   CLEANING_LEVELS,
   CLEANING_STYLES,
   COMPOSITIONS,
   DAILY_MINUTES_OPTIONS,
   DRYING_OPTIONS,
   HARDEST_ZONES,
-  HOME_PLAN_SOURCE,
   HOUSING_TYPES,
   OUTDOOR_OPTIONS,
   PET_OPTIONS,
   ROOM_OPTIONS,
-  withDefaultAnswers,
-  type HomePlan,
+  WEEK_DAYS,
+  answersFromStoredRow,
+  focusZoneLabel,
+  orderWeekDays,
+  type HomeAnswers,
   type PartialHomeAnswers,
 } from '../services/homePlan';
+import {
+  HOME_PLAN_SCHEDULE_TITLE,
+  mergePlanIntoTasks,
+  type MergePlanReport,
+} from '../services/mergePlanIntoTasks';
 
 /**
- * Мастер «Настройка по дому»: анкета о доме и ритме уборки + генерация планов.
+ * Мастер «Настройка по дому»: анкета о доме и ритме уборки + сборка набора задач.
  *
  * Профиль дома один на пользователя (home_profiles.user_id — первичный ключ),
  * ответы можно сохранять пошагово: PUT принимает и одно поле, и все сразу.
  *
- * По ответам собираются два набора:
- *  - «План по дому» — недельный план (services/homePlan.ts). Пересобирается
- *    целиком при каждом POST /plan, поэтому он всегда отражает анкету;
- *  - «Мои задачи» — постоянный список дел с периодичностью
- *    (services/defaultTasks.ts). Появляется сам, как только анкета пройдена
- *    (PUT с `complete: true`), и дальше живёт своей жизнью: пользователь может
- *    задачи менять и дополнять.
+ * Источник задач теперь один — постоянный набор «Мои задачи»
+ * (services/defaultTasks.ts): дела с периодичностью, которые дальше живут своей
+ * жизнью (человек может их менять и дополнять). Набор появляется сам, как только
+ * анкета пройдена (PUT с `complete: true`), а также достраивается при обращении к
+ * «плану» (POST и GET /plan).
  *
- * Оба набора живут в обычных schedules/tasks, поэтому сразу работают в
- * «Сегодня», статистике и достижениях.
+ * Недельного плана «План по дому» больше нет. Заказчик оставил один источник
+ * задач, поэтому:
+ *  - `buildHomePlan` (services/homePlan.ts) в этом маршруте не вызывается, а
+ *    расписание «План по дому» не создаётся ни в одном потоке завершения анкеты;
+ *  - у кого план уже был, его задачи переносятся в «Мои задачи»
+ *    (services/mergePlanIntoTasks.ts), после чего расписание плана удаляется;
+ *  - сам модуль недельного плана сохранён целиком и может вернуться как
+ *    необязательная функция — в его шапке это помечено.
  *
- * Общий дневной бюджет. Числа бюджета по ответу анкеты лежат в одном месте
- * (services/dailyBudget.ts), а согласование генераторов делает `buildPlanFor`:
- * недельный план получает бюджет дня за вычетом минут, которые уже занял
- * постоянный набор. Поэтому сумма сгенерированных дел дня не превышает бюджет,
- * а свои задачи пользователя в расчёт не входят вовсе — они добавляются сверх.
+ * Форма ответов API сохранена: `plan` (POST и GET /plan) по-прежнему описывает
+ * готовый план — дни, задачи, уровень, фокусную зону и сводку, — но теперь это
+ * набор «Мои задачи», а не недельная раскладка. Пустого экрана «План готов» не
+ * будет: количество задач и минуты берутся из реального расписания.
  *
  * Прогресс анкеты. Значения по умолчанию в таблице (миграция 0010) не дают
  * отличить отвеченный шаг от пропущенного, поэтому имена явно присланных полей
  * копятся в `home_profiles.answered_fields` и уходят наружу как `answeredFields`.
- * Это только информация для интерфейса: на генерацию планов список не влияет.
+ * Это только информация для интерфейса: на сборку набора список не влияет.
  */
 const router = express.Router();
 
-/** Заголовок сгенерированного плана: по нему находим прошлый план при пересборке. */
-const PLAN_TITLE = 'План по дому';
+/**
+ * Заголовок прежнего недельного плана: по нему план находится при переносе и
+ * удаляется при сбросе анкеты. Константа живёт рядом с переносом
+ * (services/mergePlanIntoTasks.ts) — там же, где её знают.
+ */
+const PLAN_TITLE = HOME_PLAN_SCHEDULE_TITLE;
 
 interface HomeProfileRow {
   housing_type: string;
@@ -353,13 +369,25 @@ router.put('/', authMiddleware, async (req: Request, res: Response) => {
      * дожидаясь кнопки «собрать план»: готовый список дел должен появляться
      * сам. Повторные вызовы безопасны: набор идемпотентен, а `removeStale`
      * здесь выключен, чтобы правки пользователя не улетали при каждом шаге.
+     *
+     * Перед пересборкой прежний недельный план переносится в набор
+     * (services/mergePlanIntoTasks.ts): второй источник задач больше не
+     * создаётся, а уже существующий должен влиться в «Мои задачи» без дублей.
+     * Порядок именно такой — сначала перенос, потом сборка: перенесённые
+     * названия уже стоят в расписании, и `syncDefaultTasks` видит их как
+     * существующие, а не создаёт вторые.
      */
     if (updated && updated.completed_at) {
       try {
-        const defaultSet = buildDefaultTasks(toAnswers(updated));
+        const answers = answersFromStoredRow(updated);
+        const defaultSet = buildDefaultTasks(answers);
+        const merged = await mergePlanIntoTasks(userId);
         const myTasks = await syncDefaultTasks(userId, defaultSet, { removeStale: false });
 
-        res.json({ ...toProfileResponse(updated), myTasks: toMyTasksResponse(myTasks, defaultSet) });
+        res.json({
+          ...toProfileResponse(updated),
+          myTasks: toMyTasksResponse(myTasks, defaultSet, merged),
+        });
         return;
       } catch (err) {
         // Профиль уже сохранён: неудача сборки набора не должна превращать
@@ -380,127 +408,140 @@ router.put('/', authMiddleware, async (req: Request, res: Response) => {
  *
  * `completed_at` здесь ни при чём: завершённость читается из самой колонки
  * (`toProfileResponse`), а не выводится из ответов — пропущенный шаг и ответ
- * «по умолчанию» по значениям неразличимы.
+ * «по умолчанию» по значениям неразличимы. Само сопоставление живёт в
+ * services/homePlan.ts (`answersFromStoredRow`): тем же помощником читает анкету
+ * перенос задач из «Плана по дому», и второй копии правил быть не должно.
  */
-const toAnswers = (row: HomeProfileRow): PartialHomeAnswers =>
-  withDefaultAnswers({
-    housingType: row.housing_type as PartialHomeAnswers['housingType'],
-    rooms: row.rooms as PartialHomeAnswers['rooms'],
-    composition: row.composition as PartialHomeAnswers['composition'],
-    pets: (row.pets ?? []) as PartialHomeAnswers['pets'],
-    outdoor: row.outdoor as PartialHomeAnswers['outdoor'],
-    hasKidsRoom: row.has_kids_room,
-    hasGarage: row.has_garage,
-    worksFromHome: row.works_from_home,
-    drying: row.drying as PartialHomeAnswers['drying'],
-    cleaningLevel: row.cleaning_level as PartialHomeAnswers['cleaningLevel'],
-    dailyMinutes: row.daily_minutes as PartialHomeAnswers['dailyMinutes'],
-    cleaningStyle: row.cleaning_style as PartialHomeAnswers['cleaningStyle'],
-    cleaningDays: row.cleaning_days ?? [],
-    hardestZone: row.hardest_zone as PartialHomeAnswers['hardestZone'],
-  });
+const toAnswers = (row: HomeProfileRow): HomeAnswers => answersFromStoredRow(row);
+
+/** Задача набора в объёме, который нужен «плану» и финальному экрану мастера. */
+interface PlanTaskRow {
+  id: number;
+  title: string;
+  room: string | null;
+  estimated_minutes: number | null;
+  frequency: string | null;
+  day_of_week: number | null;
+}
 
 /**
- * План и постоянный набор по одним и тем же ответам, согласованные по бюджету.
+ * «План» в терминах единого набора «Мои задачи».
  *
- * Возвращаются вместе намеренно: недельный план получает от набора карту
- * «день недели → занятые минуты» (`occupiedMinutesByWeekday`), иначе два
- * генератора снова сложили бы свои минуты поверх общего дневного бюджета —
- * ровно та ошибка, из-за которой у человека с ответом «до 30 минут в день»
- * выходило 53 минуты в понедельник (12 «Мои задачи» + 22 + 19 «План по дому»).
- *
- * Оба генератора берут числа из одного модуля (services/dailyBudget.ts), так что
- * бюджет в них не может разойтись.
+ * Раньше здесь была недельная раскладка (buildHomePlan): дни с планом и итогами.
+ * Источник задач теперь один, поэтому наружу уходит тот же конверт, но с
+ * содержимым набора:
+ *  - `days` — ежедневный минимум (он лежит в каждом дне) плюс недельные дела
+ *    своего дня, с настоящими id задач: интерфейс может отмечать их сразу;
+ *  - `summary` — сколько задач в наборе, сколько они занимают минут и сколько это
+ *    в среднем на день: финальный экран «План готов» не должен показывать пустоту;
+ *  - `focusZone` — «трудная» зона из анкеты (набор вокруг неё больше не строится,
+ *    но человек выбрал именно её, и мастер про неё пишет).
  */
-const buildPlanFor = (row: HomeProfileRow): { plan: HomePlan; defaultSet: DefaultTaskSet } => {
-  const answers = toAnswers(row);
-  const defaultSet = buildDefaultTasks(answers);
-  const plan = buildHomePlan(answers, occupiedMinutesByWeekday(defaultSet));
+const buildPlanView = async (answers: HomeAnswers, scheduleId: number, set: DefaultTaskSet) => {
+  const result = await pool.query<PlanTaskRow>(
+    `SELECT id, title, room, estimated_minutes, frequency, day_of_week
+       FROM tasks WHERE schedule_id = $1 ORDER BY id`,
+    [scheduleId]
+  );
 
-  return { plan, defaultSet };
+  const rows = result.rows;
+  const cleaningDays = new Set(orderWeekDays(answers.cleaningDays));
+  const catalogByTitle = new Map(getTaskCatalog().map((item) => [item.task, item]));
+  const days = WEEK_DAYS.map(({ dayOfWeek, label }) => {
+    const tasks = rows
+      .filter(
+        (row) =>
+          row.frequency === 'daily' ||
+          (row.frequency === 'weekly' && row.day_of_week === dayOfWeek)
+      )
+      .map((row, index) => {
+        const catalogTask = catalogByTitle.get(row.title);
+
+        return {
+          id: row.id,
+          position: index + 1,
+          title: row.title,
+          room: row.room ?? '',
+          estimatedMinutes: row.estimated_minutes ?? 0,
+          frequency: row.frequency ?? 'once',
+          dayOfWeek,
+          // Уровень и теги знает только каталог: перенесённая разовая задача
+          // (её в каталоге нет) отдаёт null, и это честнее выдуманного уровня.
+          level: catalogTask?.level ?? null,
+          tags: catalogTask?.tags ?? [],
+        };
+      });
+
+    return {
+      dayOfWeek,
+      label,
+      selected: cleaningDays.has(dayOfWeek),
+      totalTasks: tasks.length,
+      totalMinutes: tasks.reduce((sum, task) => sum + task.estimatedMinutes, 0),
+      tasks,
+    };
+  });
+
+  const totalMinutes = rows.reduce((sum, row) => sum + (row.estimated_minutes ?? 0), 0);
+  const activeDays = days.filter((day) => day.totalTasks > 0).length;
+  /**
+   * «Минут в день» считается по дням, а не делением всех минут набора: месячные и
+   * более редкие дела разложены по числам месяца, и делить их на дни недели
+   * нельзя — вышло бы 45 минут в день при бюджете 25. День человека состоит из
+   * ежедневного минимума и недельных дел своего дня, среднее по ним и показываем.
+   */
+  const perDayMinutes = activeDays > 0
+    ? Math.round(days.reduce((sum, day) => sum + day.totalMinutes, 0) / activeDays)
+    : 0;
+  const tags = [
+    ...new Set(rows.flatMap((row) => catalogByTitle.get(row.title)?.tags ?? [])),
+  ].filter((tag) => tag !== 'dry_air' && tag !== 'dry_machine');
+
+  return {
+    level: answers.cleaningLevel,
+    focusZone: focusZoneLabel(answers.hardestZone),
+    days,
+    summary: {
+      totalTasks: rows.length,
+      totalMinutes,
+      activeDays,
+      minutesPerDay: perDayMinutes,
+      dailyBudget: dayBudget(answers),
+      rooms: [
+        ...new Set(rows.map((row) => row.room).filter((room): room is string => Boolean(room))),
+      ],
+      tags,
+      notes: set.summary.notes,
+    },
+  };
 };
 
 /**
- * Записывает план в обычные schedules/tasks.
+ * Общий ответ «плана» для POST и GET /plan.
  *
- * Идемпотентность: прошлый «План по дому» вместе с задачами удаляется, новое
- * расписание создаётся заново. Так повторный вызов не плодит дубли, а отметки
- * о выполнении старого плана всё равно теряют смысл вместе с самим планом.
- *
- * Все задачи помечаются `source = 'home_plan'`: расписание целиком генерируется
- * сервером, и без пометки сгенерированное неотличимо от созданного руками
- * (у «Моих задач» пометка своя — `home_profile_defaults`).
+ * Разница между ними только в способе сборки набора (`removeStale`), поэтому
+ * конверт собирается в одном месте: расписание, дни, сводка, ответы анкеты и
+ * отчёт по набору. Форма ответа прежняя — менялось только её содержимое.
  */
-const savePlan = async (userId: string, plan: HomePlan) => {
-  const client = await pool.connect();
+const toPlanResponse = async (options: {
+  answers: HomeAnswers;
+  defaultSet: DefaultTaskSet;
+  myTasks: SyncResult;
+  merged: MergePlanReport;
+}) => {
+  const schedule = await pool.query<{ id: number; title: string; created_at: string }>(
+    'SELECT id, title, created_at::text AS created_at FROM schedules WHERE id = $1',
+    [options.myTasks.scheduleId]
+  );
+  const row = schedule.rows[0];
+  const plan = await buildPlanView(options.answers, options.myTasks.scheduleId, options.defaultSet);
 
-  try {
-    await client.query('BEGIN');
-
-    await client.query(
-      `DELETE FROM tasks
-        WHERE schedule_id IN (SELECT id FROM schedules WHERE user_id = $1 AND title = $2)`,
-      [userId, PLAN_TITLE]
-    );
-    await client.query('DELETE FROM schedules WHERE user_id = $1 AND title = $2', [
-      userId,
-      PLAN_TITLE,
-    ]);
-
-    const schedule = await client.query<{ id: number; created_at: string; updated_at: string }>(
-      `INSERT INTO schedules (user_id, title, description)
-       VALUES ($1, $2, $3)
-       RETURNING id, created_at::text AS created_at, updated_at::text AS updated_at`,
-      [
-        userId,
-        PLAN_TITLE,
-        `Собрано по настройкам дома: ${plan.summary.totalTasks} задач, ${plan.summary.totalMinutes} минут в неделю`,
-      ]
-    );
-
-    const scheduleId = schedule.rows[0].id;
-    const savedTasks: Array<{
-      id: number;
-      day_of_week: number;
-      title: string;
-      room: string;
-      estimated_minutes: number;
-      position: number;
-    }> = [];
-
-    for (const day of plan.days) {
-      for (const task of day.tasks) {
-        const inserted = await client.query<{ id: number }>(
-          `INSERT INTO tasks (schedule_id, title, room, estimated_minutes, frequency, day_of_week, source)
-           VALUES ($1, $2, $3, $4, 'weekly', $5, $6)
-           RETURNING id`,
-          [scheduleId, task.title, task.room, task.estimatedMinutes, day.dayOfWeek, HOME_PLAN_SOURCE]
-        );
-
-        savedTasks.push({
-          id: inserted.rows[0].id,
-          day_of_week: day.dayOfWeek,
-          title: task.title,
-          room: task.room,
-          estimated_minutes: task.estimatedMinutes,
-          position: task.position,
-        });
-      }
-    }
-
-    await client.query('COMMIT');
-
-    return {
-      scheduleId,
-      createdAt: schedule.rows[0].created_at,
-      tasks: savedTasks,
-    };
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
-  } finally {
-    client.release();
-  }
+  return {
+    schedule: row ? { id: row.id, title: row.title, createdAt: row.created_at } : null,
+    ...plan,
+    generatedFor: options.answers,
+    myTasks: toMyTasksResponse(options.myTasks, options.defaultSet, options.merged),
+  };
 };
 
 /**
@@ -510,6 +551,8 @@ const savePlan = async (userId: string, plan: HomePlan) => {
  *  - расписание ищется по заголовку и создаётся только если его нет;
  *  - уже существующие задачи с тем же названием не трогаются вообще — человек
  *    мог поменять им минуты, день или периодичность, и перезапись это стёрла бы;
+ *  - названия из списка отказов (`dismissed_default_tasks`) пропускаются: задачу,
+ *    которую человек удалил, пересборка возвращать не должна;
  *  - добавляются только недостающие названия, поэтому повторный вызов не плодит
  *    дубли (ключ — название задачи внутри расписания);
  *  - с `removeStale` (это явная пересборка через POST /plan) убираются только
@@ -520,7 +563,7 @@ const syncDefaultTasks = async (
   userId: string,
   set: DefaultTaskSet,
   options: { removeStale: boolean }
-): Promise<{ scheduleId: number; created: number; existing: number; removed: number; total: number }> => {
+): Promise<SyncResult> => {
   const client = await pool.connect();
 
   try {
@@ -545,11 +588,7 @@ const syncDefaultTasks = async (
         `INSERT INTO schedules (user_id, title, description)
          VALUES ($1, $2, $3)
          RETURNING id`,
-        [
-          userId,
-          set.scheduleTitle,
-          `Постоянные дела по настройкам дома: ${set.summary.totalTasks} задач, до ${set.summary.maxDailyMinutes} минут в день`,
-        ]
+        [userId, set.scheduleTitle, myTasksScheduleDescription(set)]
       );
 
       scheduleId = inserted.rows[0].id;
@@ -565,12 +604,31 @@ const syncDefaultTasks = async (
     const byTitle = new Map(current.rows.map((row) => [row.title, row]));
     const wanted = new Set(set.tasks.map((task) => task.title));
 
+    /**
+     * Память об отказах: названия, которые человек удалил (миграция 0017).
+     * Сравнение нормализованное — тем же ключом, что и у названий внутри
+     * расписания, иначе «Мыть пол» вернулось бы после удаления «Мыть пол».
+     */
+    const dismissedRows = await client.query<{ title: string }>(
+      'SELECT title FROM dismissed_default_tasks WHERE user_id = $1',
+      [userId]
+    );
+    const dismissed = new Set(dismissedRows.rows.map((row) => normalizeTaskTitle(row.title)));
+
     let created = 0;
     let existing = 0;
+    let skipped = 0;
 
     for (const task of set.tasks) {
       if (byTitle.has(task.title)) {
         existing += 1;
+        continue;
+      }
+
+      // Удалённое не воскрешаем: человек убрал это дело осознанно, и пересборка
+      // не должна возвращать его на экран.
+      if (dismissed.has(normalizeTaskTitle(task.title))) {
+        skipped += 1;
         continue;
       }
 
@@ -618,7 +676,14 @@ const syncDefaultTasks = async (
 
     await client.query('COMMIT');
 
-    return { scheduleId, created, existing, removed, total: total.rows[0].total };
+    return {
+      scheduleId,
+      created,
+      existing,
+      removed,
+      dismissed: skipped,
+      total: total.rows[0].total,
+    };
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
@@ -627,11 +692,19 @@ const syncDefaultTasks = async (
   }
 };
 
+/** Что записалось в набор: результат syncDefaultTasks. */
+interface SyncResult {
+  scheduleId: number;
+  created: number;
+  existing: number;
+  removed: number;
+  /** Сколько недостающих дел не создано: их названия в списке отказов. */
+  dismissed: number;
+  total: number;
+}
+
 /** Ответ по постоянному набору: что записалось и как он выглядит по нагрузке. */
-const toMyTasksResponse = (
-  saved: { scheduleId: number; created: number; existing: number; removed: number; total: number },
-  set: DefaultTaskSet
-) => ({
+const toMyTasksResponse = (saved: SyncResult, set: DefaultTaskSet, merge?: MergePlanReport) => ({
   ...saved,
   title: set.scheduleTitle,
   dailyMinutes: set.summary.dailyMinutes,
@@ -639,14 +712,18 @@ const toMyTasksResponse = (
   monthlyTasks: set.summary.monthlyTasks,
   maxDailyMinutes: set.summary.maxDailyMinutes,
   notes: set.summary.notes,
+  ...(merge ? { merged: merge } : {}),
 });
 
 /**
- * POST /api/home-profile/plan — собрать планы по сохранённым ответам.
+ * POST /api/home-profile/plan — собрать набор по сохранённым ответам.
  *
- * Повторный вызов заменяет недельный «План по дому» и достраивает «Мои задачи»
+ * Недельного плана здесь больше нет: прежний «План по дому» переносится в «Мои
+ * задачи» (services/mergePlanIntoTasks.ts), а сам набор достраивается
  * (недостающие дела добавляются, устаревшие незакрытые — убираются), поэтому
- * кнопку «пересобрать» можно нажимать сколько угодно раз: дублей не будет.
+ * кнопку «пересобрать» можно нажимать сколько угодно раз: дублей не будет. В
+ * ответе `plan` описывает именно набор — дни, задачи с id, уровень, фокусную зону
+ * и сводку, — чтобы финальный экран мастера «План готов» не был пустым.
  */
 router.post('/plan', authMiddleware, async (req: Request, res: Response) => {
   try {
@@ -658,46 +735,15 @@ router.post('/plan', authMiddleware, async (req: Request, res: Response) => {
       return;
     }
 
-    // План и постоянный набор считаются вместе: недельный план получает бюджет
-    // дня за вычетом того, что занимает набор «Мои задачи».
-    const { plan, defaultSet } = buildPlanFor(row);
-    const saved = await savePlan(userId, plan);
+    const answers = toAnswers(row);
+    const defaultSet = buildDefaultTasks(answers);
 
-    // Постоянный набор «Мои задачи» пишется идемпотентно: повторный вызов не
-    // создаёт второй раз те же дела.
+    // Сначала перенос прежнего плана, потом пересборка набора: перенесённые
+    // названия уже стоят в расписании, и syncDefaultTasks видит их как существующие.
+    const merged = await mergePlanIntoTasks(userId);
     const myTasks = await syncDefaultTasks(userId, defaultSet, { removeStale: true });
 
-    // Задачам присваиваем настоящие id: интерфейс сразу может их отмечать
-    // тем же PUT /api/tasks/:id, что и любую другую задачу.
-    let cursor = 0;
-    const days = plan.days.map((day) => ({
-      ...day,
-      tasks: day.tasks.map((task) => {
-        const savedTask = saved.tasks[cursor];
-        cursor += 1;
-
-        return {
-          ...task,
-          id: savedTask?.id ?? null,
-          frequency: 'weekly',
-          dayOfWeek: day.dayOfWeek,
-        };
-      }),
-    }));
-
-    res.json({
-      schedule: {
-        id: saved.scheduleId,
-        title: plan.title,
-        createdAt: saved.createdAt,
-      },
-      level: plan.level,
-      focusZone: plan.focusZone,
-      days,
-      summary: plan.summary,
-      generatedFor: toAnswers(row),
-      myTasks: toMyTasksResponse(myTasks, defaultSet),
-    });
+    res.json(await toPlanResponse({ answers, defaultSet, myTasks, merged }));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to generate home plan' });
@@ -705,12 +751,12 @@ router.post('/plan', authMiddleware, async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/home-profile/plan — посмотреть план по сохранённым ответам.
+ * GET /api/home-profile/plan — посмотреть набор по сохранённым ответам.
  *
- * Ничего не перезаписывает: недельный план считается заново (он идемпотентен),
- * а постоянный набор «Мои задачи» только достраивается, если пользователь
- * завёл анкету до появления этой функции. Так «первое обращение к плану» тоже
- * даёт человеку готовый список дел.
+ * Ничего не перезаписывает: недостающие дела набора только достраиваются (без
+ * `removeStale`), а прежний «План по дому» переносится в «Мои задачи», если
+ * человек завёл анкету до отказа от недельного плана. Так «первое обращение к
+ * плану» тоже даёт готовый список дел, но правки пользователя не затирает.
  */
 router.get('/plan', authMiddleware, async (req: Request, res: Response) => {
   try {
@@ -722,32 +768,25 @@ router.get('/plan', authMiddleware, async (req: Request, res: Response) => {
       return;
     }
 
-    const { plan, defaultSet } = buildPlanFor(row);
-    const stored = await pool.query<{ id: number; created_at: string }>(
-      `SELECT id, created_at::text AS created_at FROM schedules WHERE user_id = $1 AND title = $2 ORDER BY id LIMIT 1`,
-      [userId, PLAN_TITLE]
-    );
-
+    const answers = toAnswers(row);
+    const defaultSet = buildDefaultTasks(answers);
+    const merged = await mergePlanIntoTasks(userId);
     const myTasks = await syncDefaultTasks(userId, defaultSet, { removeStale: false });
 
-    res.json({
-      schedule: stored.rows[0]
-        ? { id: stored.rows[0].id, title: PLAN_TITLE, createdAt: stored.rows[0].created_at }
-        : null,
-      level: plan.level,
-      focusZone: plan.focusZone,
-      days: plan.days,
-      summary: plan.summary,
-      generatedFor: toAnswers(row),
-      myTasks: toMyTasksResponse(myTasks, defaultSet),
-    });
+    res.json(await toPlanResponse({ answers, defaultSet, myTasks, merged }));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch home plan' });
   }
 });
 
-/** DELETE /api/home-profile — сбросить анкету и собранный по ней недельный план. */
+/**
+ * DELETE /api/home-profile — сбросить анкету, прежний план и память об отказах.
+ *
+ * Отказы чистятся намеренно: человек начинает настройку заново, и удалённые
+ * когда-то сгенерированные задачи снова могут быть предложены. Держать их в
+ * списке после сброса — значит навсегда оставить набор неполным.
+ */
 router.delete('/', authMiddleware, async (req: Request, res: Response) => {
   const client = await pool.connect();
   const userId = String(req.userId);
@@ -763,12 +802,18 @@ router.delete('/', authMiddleware, async (req: Request, res: Response) => {
       'DELETE FROM home_profiles WHERE user_id = $1 RETURNING user_id',
       [userId]
     );
+    const deletedDismissed = await client.query(
+      'DELETE FROM dismissed_default_tasks WHERE user_id = $1 RETURNING title',
+      [userId]
+    );
 
     await client.query('COMMIT');
 
     res.json({
       profileReset: (deletedProfile.rowCount ?? 0) > 0,
       planDeleted: (deletedSchedule.rowCount ?? 0) > 0,
+      // Сколько названий перестало быть «удалёнными»: проверка для интерфейса и тестов.
+      dismissedCleared: deletedDismissed.rowCount ?? 0,
       // «Мои задачи» намеренно остаются: это уже рабочий список человека,
       // который он мог дополнить и поправить, — сброс анкеты его не касается.
       profile: null,

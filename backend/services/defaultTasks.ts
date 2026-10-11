@@ -66,6 +66,17 @@ export const DEFAULT_TASKS_SCHEDULE_TITLE = 'Мои задачи';
 export const DEFAULT_TASK_SOURCE = 'home_profile_defaults';
 
 /**
+ * Ключ задачи для сравнения названий: обрезанные пробелы и регистр.
+ *
+ * По нему работает вся идемпотентность набора: «уже есть в расписании»
+ * (syncDefaultTasks), «эту задачу переносить не нужно» (mergePlanIntoTasks) и
+ * «человек её удалил, возвращать не надо» (dismissed_default_tasks). Одно
+ * правило на все три места — иначе «Мытьё пола» и «мытьё пола » разошлись бы, и
+ * набор снова начал бы плодить дубли.
+ */
+export const normalizeTaskTitle = (title: string): string => title.trim().toLowerCase();
+
+/**
  * Абсолютный потолок дневной нагрузки набора: больше 40 минут в день он не назначает.
  *
  * Сами числа бюджета живут в services/dailyBudget.ts — общий источник правды для
@@ -116,6 +127,17 @@ const CADENCE_RULES: Record<
 
 const WEEKLY_CADENCES: readonly TaskCadence[] = ['weekly', 'biweekly'];
 const MONTHLY_CADENCES: readonly TaskCadence[] = ['monthly', 'quarterly', 'semiannual', 'yearly'];
+
+/**
+ * Периодичность каталога в виде пары, которую понимает таблица tasks.
+ *
+ * Экспортируется: перенос задач недельного плана в набор «Мои задачи»
+ * (services/mergePlanIntoTasks.ts) обязан брать частоту из того же правила, а не
+ * заводить вторую таблицу соответствий.
+ */
+export const cadenceRule = (
+  cadence: TaskCadence
+): { frequency: DefaultTaskFrequency; intervalCount: number } => CADENCE_RULES[cadence];
 
 /**
  * Порядок разбора месячного круга: сначала самые редкие дела.
@@ -190,6 +212,17 @@ export interface DefaultTaskSet {
 
 // ── Даты ───────────────────────────────────────────────────────────────────
 
+/**
+ * Описание расписания «Мои задачи» при создании.
+ *
+ * Одно и то же в двух местах: маршрут анкеты (syncDefaultTasks в
+ * routes/homeProfile.ts) и перенос задач из «Плана по дому»
+ * (services/mergePlanIntoTasks.ts). Расписание, созданное переносом, не должно
+ * отличаться от созданного анкетой — иначе описание пришлось бы держать в голове.
+ */
+export const myTasksScheduleDescription = (set: DefaultTaskSet): string =>
+  `Постоянные дела по настройкам дома: ${set.summary.totalTasks} задач, до ${set.summary.maxDailyMinutes} минут в день`;
+
 const isoDate = (date: Date): string => date.toISOString().slice(0, 10);
 
 const utcDay = (date: Date): Date =>
@@ -224,6 +257,127 @@ const shiftMonths = (date: string, months: number): string => {
   base.setUTCMonth(base.getUTCMonth() + months);
 
   return isoDate(base);
+};
+
+/**
+ * Свободные минуты каждого числа месяца (1-28).
+ *
+ * Число считается свободным настолько, насколько в этот календарный день
+ * остаётся места после ежедневного минимума и недельных дел попадающего на него
+ * дня недели; больше MONTHLY_DAY_CAP минут одному числу всё равно не нужно.
+ * Экспортируется: этим же расчётом пользуется перенос задач из «Плана по дому»
+ * (services/mergePlanIntoTasks.ts), чтобы не заводить вторую таблицу чисел.
+ */
+export const freeMinutesByMonthDay = (options: {
+  answers: HomeAnswers;
+  /** Минуты ежедневного минимума, уже занятые в каждом дне. */
+  dailyMinutes: number;
+  /** Минуты недельных дел по дням недели (0 — воскресенье). */
+  weeklyByWeekday: ReadonlyMap<number, number>;
+  today: Date;
+}): Map<number, number> => {
+  const budget = dayBudget(options.answers);
+  const free = new Map<number, number>();
+
+  for (let day = 1; day <= 28; day += 1) {
+    const weekly = options.weeklyByWeekday.get(weekdayOfMonthDay(options.today, day)) ?? 0;
+
+    free.set(day, Math.max(0, Math.min(MONTHLY_DAY_CAP, budget - options.dailyMinutes - weekly)));
+  }
+
+  return free;
+};
+
+/**
+ * Число месяца для одного дела «раз в месяц» и реже.
+ *
+ * Правило отбора то же, что и в раскладке месячного круга внутри
+ * `buildDefaultTasks`: сначала числа, свободные от выбранных дней уборки, затем —
+ * с наибольшим запасом минут, при равенстве — меньшее число. Разница только в
+ * том, что раскладка идёт пачкой и учитывает классы месяцев, а перенос ставит по
+ * одной задаче, поэтому запас пересчитывает вызывающий, вычитая уже занятое.
+ */
+export const pickMonthlyDay = (
+  free: ReadonlyMap<number, number>,
+  cleaningDays: readonly number[],
+  today: Date
+): number => {
+  const busy = new Set(cleaningDays);
+  const candidates = [...free.keys()].sort((left, right) => {
+    const byBusy =
+      (busy.has(weekdayOfMonthDay(today, left)) ? 1 : 0) -
+      (busy.has(weekdayOfMonthDay(today, right)) ? 1 : 0);
+
+    if (byBusy !== 0) return byBusy;
+
+    const byFree = (free.get(right) ?? 0) - (free.get(left) ?? 0);
+
+    if (byFree !== 0) return byFree;
+
+    return left - right;
+  });
+
+  return candidates[0] ?? 1;
+};
+
+/**
+ * Периодичность одной задачи по её `cadence` из каталога — готовая строка для
+ * tasks (frequency + interval_count + день/число + опора цикла).
+ *
+ * Экспортируется: перенос задач из «Плана по дому» (services/mergePlanIntoTasks.ts)
+ * обязан проставлять периодичность ровно по этим правилам, а не по своим:
+ *  - ежедневные дела не привязаны ни к чему;
+ *  - недельные и «раз в 2 недели» встают на первый выбранный день уборки;
+ *  - месячные и реже получают самое свободное число месяца (pickMonthlyDay), а
+ *    при интервале больше единицы — опорную дату, от которой считается цикл.
+ */
+export const cadenceSchedule = (options: {
+  cadence: TaskCadence;
+  answers: HomeAnswers;
+  today: Date;
+  /** Свободные минуты по числам месяца: нужны только для месячных и реже. */
+  freeByDate: ReadonlyMap<number, number>;
+  /** Порядковый номер дела этого каденса: разводит опорные даты циклов. */
+  monthOffset?: number;
+}): {
+  frequency: DefaultTaskFrequency;
+  intervalCount: number;
+  dayOfWeek: number | null;
+  dayOfMonth: number | null;
+  dueDate: string | null;
+} => {
+  const rule = CADENCE_RULES[options.cadence];
+
+  if (options.cadence === 'daily') {
+    return { ...rule, dayOfWeek: null, dayOfMonth: null, dueDate: null };
+  }
+
+  if (WEEKLY_CADENCES.includes(options.cadence)) {
+    const dayOfWeek = orderWeekDays(options.answers.cleaningDays)[0];
+
+    return {
+      ...rule,
+      dayOfWeek,
+      dayOfMonth: null,
+      dueDate: rule.intervalCount > 1 ? nextWeekdayDate(options.today, dayOfWeek) : null,
+    };
+  }
+
+  const dayOfMonth = pickMonthlyDay(
+    options.freeByDate,
+    options.answers.cleaningDays,
+    options.today
+  );
+
+  return {
+    ...rule,
+    dayOfWeek: null,
+    dayOfMonth,
+    dueDate:
+      rule.intervalCount > 1
+        ? shiftMonths(nextMonthDayDate(options.today, dayOfMonth), options.monthOffset ?? 0)
+        : null,
+  };
 };
 
 // ── Отбор кандидатов ───────────────────────────────────────────────────────
@@ -476,7 +630,8 @@ export const buildDefaultTasks = (
 
   /**
    * Свободное время каждого числа месяца: лимит дня минус ежедневный минимум и
-   * недельные дела этого дня недели.
+   * недельные дела этого дня недели. Считается общим помощником — им же
+   * пользуется перенос задач из «Плана по дому» (services/mergePlanIntoTasks.ts).
    */
   const weeklyLoad = new Map<number, number>();
 
@@ -484,7 +639,12 @@ export const buildDefaultTasks = (
     weeklyLoad.set(slot.dayOfWeek, slot.minutes - dailyMinutes);
   }
 
-  const freeByDate = new Map<number, number>();
+  const freeByDate = freeMinutesByMonthDay({
+    answers,
+    dailyMinutes,
+    weeklyByWeekday: weeklyLoad,
+    today,
+  });
   /**
    * Нагрузка числа по «классам месяцев» (0-11): задача с интервалом N и опорой
    * в месяце offset занимает классы месяцев, сравнимые с offset по модулю N.
@@ -494,12 +654,6 @@ export const buildDefaultTasks = (
   const monthSlots = new Map<number, number[]>();
 
   for (let day = 1; day <= 28; day += 1) {
-    const weekly = weeklyLoad.get(weekdayOfMonthDay(today, day)) ?? 0;
-
-    freeByDate.set(
-      day,
-      Math.max(0, Math.min(MONTHLY_DAY_CAP, budget - dailyMinutes - weekly))
-    );
     monthSlots.set(day, new Array<number>(12).fill(0));
   }
 
