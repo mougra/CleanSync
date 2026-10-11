@@ -168,20 +168,22 @@ const site = useSiteConfig();
  * Приложение бесплатное и устанавливается на телефон, поэтому размечаем его
  * как SoftwareApplication: в выдаче это даёт строку «Бесплатно».
  */
-defineSoftwareApp({
-  name: 'Clean Planner',
-  applicationCategory: 'LifestyleApplication',
-  operatingSystem: 'Web',
-  description: t('home.metaDescription'),
-  url: site.url,
-  offers: { price: '0', priceCurrency: 'RUB' },
-  inLanguage: 'ru-RU',
-});
-
-defineWebPage({
-  name: t('nav.today'),
-  description: t('home.metaDescription'),
-});
+useStructuredData(() => ({
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'SoftwareApplication',
+      '@id': `${site.url}/#app`,
+      name: 'Clean Planner',
+      applicationCategory: 'LifestyleApplication',
+      operatingSystem: 'Web',
+      description: t('home.metaDescription'),
+      url: site.url,
+      inLanguage: 'ru-RU',
+      offers: { '@type': 'Offer', price: '0', priceCurrency: 'RUB' },
+    },
+  ],
+}));
 </script>
 
 <template>

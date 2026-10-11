@@ -10,18 +10,27 @@ const { t } = useI18n();
 const localePath = useLocalePath();
 
 const sections = ['why', 'how', 'principles', 'who'] as const;
+const site = useSiteConfig();
 
-defineBreadcrumb({
-  itemListElement: [
-    { name: t('nav.today'), item: '/' },
-    { name: t('aboutPage.title'), item: '/about' },
+useStructuredData(() => ({
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'AboutPage',
+      '@id': `${site.url}/about#page`,
+      name: t('aboutPage.title'),
+      description: t('aboutPage.description'),
+      inLanguage: 'ru-RU',
+    },
+    {
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: t('nav.today'), item: `${site.url}/` },
+        { '@type': 'ListItem', position: 2, name: t('aboutPage.title'), item: `${site.url}/about` },
+      ],
+    },
   ],
-});
-
-defineWebPage({
-  name: t('aboutPage.title'),
-  description: t('aboutPage.description'),
-});
+}));
 
 useSeoMeta({
   title: () => t('aboutPage.title'),

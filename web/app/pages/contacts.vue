@@ -12,18 +12,40 @@ const localePath = useLocalePath();
 const SUPPORT_EMAIL = 'tidyflowup@gmail.com';
 
 const topics = ['support', 'ideas', 'data'] as const;
+const site = useSiteConfig();
 
-defineBreadcrumb({
-  itemListElement: [
-    { name: t('nav.today'), item: '/' },
-    { name: t('contactsPage.title'), item: '/contacts' },
+useStructuredData(() => ({
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'ContactPage',
+      '@id': `${site.url}/contacts#page`,
+      name: t('contactsPage.title'),
+      description: t('contactsPage.description'),
+      inLanguage: 'ru-RU',
+    },
+    {
+      '@type': 'Organization',
+      '@id': `${site.url}/#organization`,
+      name: 'Clean Planner',
+      url: site.url,
+      email: SUPPORT_EMAIL,
+      contactPoint: {
+        '@type': 'ContactPoint',
+        contactType: 'customer support',
+        email: SUPPORT_EMAIL,
+        availableLanguage: ['ru', 'en'],
+      },
+    },
+    {
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: t('nav.today'), item: `${site.url}/` },
+        { '@type': 'ListItem', position: 2, name: t('contactsPage.title'), item: `${site.url}/contacts` },
+      ],
+    },
   ],
-});
-
-defineWebPage({
-  name: t('contactsPage.title'),
-  description: t('contactsPage.description'),
-});
+}));
 
 useSeoMeta({
   title: () => t('contactsPage.title'),

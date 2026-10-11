@@ -21,6 +21,14 @@ const { data: detail, error } = await useAsyncData(`challenge-${slug}`, () =>
   api.request<ChallengeDetail>(`/api/challenges/${slug}`),
 );
 
+/**
+ * Несуществующий челлендж должен отдавать 404, а не пустую страницу с кодом
+ * 200: поисковики считают такие адреса «мягкими 404» и тратят на них краулинг.
+ */
+if (error.value || !detail.value) {
+  throw createError({ statusCode: 404, statusMessage: t('challengesPage.empty'), fatal: true });
+}
+
 const { active, refreshActive } = await useChallenges();
 const { show: showAchievements } = useAchievementToast();
 
@@ -108,32 +116,44 @@ const totalMinutes = computed(() =>
 
 /**
  * Челлендж — это готовая инструкция по дням, поэтому размечаем его как HowTo:
- * шаг = день челленджа, текст шага = задачи этого дня. Массив передаём готовым:
- * данные уже загружены на сервере, реактивность здесь не нужна.
+ * шаг = день, текст шага = задачи этого дня.
  */
-defineHowTo({
-  name: title.value,
-  description: detail.value?.challenge.description ?? '',
-  totalTime: totalMinutes.value > 0 ? `PT${totalMinutes.value}M` : undefined,
-  inLanguage: 'ru-RU',
-  image: detail.value?.challenge.cover_url ?? undefined,
-  step: days.value.map((day) => ({
-    name: String(day.title ?? ''),
-    text: day.tasks.map((task) => task.title).join(', '),
-  })),
-});
+useStructuredData(() => {
+  const current = detail.value;
 
-defineBreadcrumb({
-  itemListElement: [
-    { name: t('nav.today'), item: '/' },
-    { name: t('challengesPage.title'), item: '/challenges' },
-    { name: title.value, item: `${site.url}/challenges/${slug}` },
-  ],
-});
+  if (!current) {
+    return null;
+  }
 
-defineWebPage({
-  name: title.value,
-  description: detail.value?.challenge.description ?? '',
+  const url = `${site.url}/challenges/${slug}`;
+
+  return {
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'HowTo',
+        '@id': `${url}#howto`,
+        name: current.challenge.title,
+        description: current.challenge.description ?? '',
+        image: current.challenge.cover_url ?? undefined,
+        totalTime: totalMinutes.value > 0 ? `PT${totalMinutes.value}M` : undefined,
+        inLanguage: 'ru-RU',
+        step: days.value.map((day) => ({
+          '@type': 'HowToStep',
+          name: String(day.title ?? ''),
+          text: day.tasks.map((task) => task.title).join(', '),
+        })),
+      },
+      {
+        '@type': 'BreadcrumbList',
+        itemListElement: [
+          { '@type': 'ListItem', position: 1, name: t('nav.today'), item: `${site.url}/` },
+          { '@type': 'ListItem', position: 2, name: t('challengesPage.title'), item: `${site.url}/challenges` },
+          { '@type': 'ListItem', position: 3, name: current.challenge.title, item: url },
+        ],
+      },
+    ],
+  };
 });
 </script>
 

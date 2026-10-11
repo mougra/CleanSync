@@ -12,31 +12,36 @@ const total = 10;
 
 const items = Array.from({ length: total }, (_, index) => index + 1);
 
-for (const index of items) {
-  defineQuestion({
-    name: t(`faqPage.q${index}`),
-    acceptedAnswer: t(`faqPage.a${index}`),
-  });
-}
+const site = useSiteConfig();
 
-defineBreadcrumb({
-  itemListElement: [
-    { name: t('nav.today'), item: '/' },
-    { name: t('faqPage.title'), item: '/faq' },
+/** Все вопросы страницы — одним узлом FAQPage: шанс на расширенную выдачу. */
+useStructuredData(() => ({
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'FAQPage',
+      '@id': `${site.url}/faq#faq`,
+      mainEntity: items.map((index) => ({
+        '@type': 'Question',
+        name: t(`faqPage.q${index}`),
+        acceptedAnswer: { '@type': 'Answer', text: t(`faqPage.a${index}`) },
+      })),
+    },
+    {
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: t('nav.today'), item: `${site.url}/` },
+        { '@type': 'ListItem', position: 2, name: t('faqPage.title'), item: `${site.url}/faq` },
+      ],
+    },
   ],
-});
+}));
 
 useSeoMeta({
   title: () => t('faqPage.title'),
   description: () => t('faqPage.description'),
   ogTitle: () => t('faqPage.title'),
   ogDescription: () => t('faqPage.description'),
-});
-
-// Ссылку на страницу кладём в разметку как «страница вопросов сайта»
-defineWebPage({
-  name: t('faqPage.title'),
-  description: t('faqPage.description'),
 });
 </script>
 

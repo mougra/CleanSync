@@ -41,42 +41,63 @@ useSeoMeta({
 });
 
 const site = useSiteConfig();
-const absolute = (path: string) => (path.startsWith('http') ? path : `${site.url}${path}`);
+const absolute = useAbsoluteUrl();
 
-/**
- * Микроразметка статьи: автор, даты и обложка — то, что поисковики и модели
- * читают в первую очередь. Раньше здесь был рукописный JSON-LD без автора,
- * без даты обновления и с относительной картинкой.
- */
-defineArticle({
-  headline: computed(() => article.value?.title ?? ''),
-  description: computed(() => article.value?.description ?? ''),
-  image: computed(() => absolute(String(article.value?.cover ?? ''))),
-  datePublished: computed(() => article.value?.publishedAt ?? ''),
-  dateModified: computed(() => article.value?.updatedAt ?? article.value?.publishedAt ?? ''),
-  inLanguage: 'ru-RU',
-  author: [{ name: 'Команда Clean Planner', url: `${site.url}/about` }],
-  publisher: { name: 'Clean Planner' },
-  about: computed(() => (article.value?.keywords ?? []).join(', ')),
-  mainEntityOfPage: computed(() => `${site.url}/tips/${slug}`),
-});
-
-defineBreadcrumb({
-  itemListElement: computed(() => [
-    { name: t('nav.today'), item: '/' },
-    { name: t('nav.tips'), item: '/tips' },
-    { name: String(article.value?.title ?? ''), item: `/tips/${slug}` },
-  ]),
-});
-
-// Вопросы из front-matter отдаём как FAQPage: шанс попасть в расширенную выдачу
+/** Вопросы из front-matter: показываем на странице и отдаём в FAQPage. */
 const faq = computed(() => article.value?.faq ?? []);
 
-if (faq.value.length > 0) {
-  for (const item of faq.value) {
-    defineQuestion({ name: item.question, acceptedAnswer: item.answer });
+useStructuredData(() => {
+  const current = article.value;
+
+  if (!current) {
+    return null;
   }
-}
+
+  const url = `${site.url}/tips/${slug}`;
+
+  const graph: Record<string, unknown>[] = [
+    {
+      '@type': 'Article',
+      '@id': `${url}#article`,
+      headline: current.title,
+      description: current.description,
+      image: absolute(String(current.cover ?? '')),
+      datePublished: current.publishedAt,
+      dateModified: current.updatedAt ?? current.publishedAt,
+      inLanguage: 'ru-RU',
+      mainEntityOfPage: url,
+      keywords: (current.keywords ?? []).join(', '),
+      author: { '@type': 'Organization', name: 'Clean Planner', url: `${site.url}/about` },
+      publisher: {
+        '@type': 'Organization',
+        name: 'Clean Planner',
+        logo: { '@type': 'ImageObject', url: `${site.url}/icons/icon-512.png` },
+      },
+    },
+    {
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: t('nav.today'), item: `${site.url}/` },
+        { '@type': 'ListItem', position: 2, name: t('nav.tips'), item: `${site.url}/tips` },
+        { '@type': 'ListItem', position: 3, name: current.title, item: url },
+      ],
+    },
+  ];
+
+  if (faq.value.length > 0) {
+    graph.push({
+      '@type': 'FAQPage',
+      '@id': `${url}#faq`,
+      mainEntity: faq.value.map((item) => ({
+        '@type': 'Question',
+        name: item.question,
+        acceptedAnswer: { '@type': 'Answer', text: item.answer },
+      })),
+    });
+  }
+
+  return { '@context': 'https://schema.org', '@graph': graph };
+});
 </script>
 
 <template>

@@ -55,29 +55,32 @@ useSeoMeta({
 const site = useSiteConfig();
 
 /**
- * Список статей отдаём как ItemList: поисковики видят структуру раздела
- * и могут показать её как подборку, а не как одну страницу.
+ * Список статей как ItemList: поисковик видит структуру раздела и может
+ * показать её подборкой, а не одной страницей.
  */
-defineItemList({
-  itemListElement: computed(() =>
-    (articles.value ?? []).map((article) => ({
-      name: article.title,
-      url: `${site.url}${article.path}`,
-    })),
-  ),
-});
-
-defineBreadcrumb({
-  itemListElement: computed(() => [
-    { name: t('nav.today'), item: '/' },
-    { name: t('nav.tips'), item: '/tips' },
-  ]),
-});
-
-defineWebPage({
-  name: t('nav.tips'),
-  description: t('tipsPage.lead'),
-});
+useStructuredData(() => ({
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'ItemList',
+      name: t('nav.tips'),
+      numberOfItems: (articles.value ?? []).length,
+      itemListElement: (articles.value ?? []).map((article, index) => ({
+        '@type': 'ListItem',
+        position: index + 1,
+        name: article.title,
+        url: `${site.url}${article.path}`,
+      })),
+    },
+    {
+      '@type': 'BreadcrumbList',
+      itemListElement: [
+        { '@type': 'ListItem', position: 1, name: t('nav.today'), item: `${site.url}/` },
+        { '@type': 'ListItem', position: 2, name: t('nav.tips'), item: `${site.url}/tips` },
+      ],
+    },
+  ],
+}));
 </script>
 
 <template>
