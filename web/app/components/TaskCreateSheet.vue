@@ -204,6 +204,9 @@ const submit = async () => {
       due_date: dueDate.value || null,
       estimated_minutes: minutes,
       ...repeatFor(),
+      // Счётчик «− N +» уходит в базу: без него «раз в 3 недели» сохранилось бы
+      // как «каждую неделю». Для «один раз» интервал смысла не имеет.
+      interval_count: repeatUnit.value === 'once' ? 1 : intervalCount.value,
     };
 
     await api.request('/api/tasks', { method: 'POST', body });

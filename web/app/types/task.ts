@@ -44,7 +44,7 @@ export interface TodayPlan {
   tasks: Record<string, TodayPlanTask[]>;
 }
 
-/** Периодичность в терминах API: счётчик интервала схема БД не хранит. */
+/** Периодичность в терминах API: частота плюс интервал «раз в N». */
 export interface TaskRepeat {
   frequency: TaskFrequency;
   day_of_week: number | null;
@@ -58,4 +58,6 @@ export interface TaskCreateInput extends TaskRepeat {
   room: string | null;
   due_date: string | null;
   estimated_minutes: number;
+  /** Счётчик «раз в N дней/недель/месяцев» (миграция 0012, CHECK >= 1). */
+  interval_count?: number;
 }
