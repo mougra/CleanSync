@@ -7,8 +7,10 @@
  * Кнопки «Начать» здесь нет: отметка ставится в один тап, а запись пользователя
  * сервер создаёт сам при первой отметке (`PATCH /api/challenges/tasks/:taskId`).
  *
- * Гостю задачи видны, но отметки недоступны — для них нужна сессия
- * (httpOnly-cookie), поэтому показывается приглашение войти.
+ * Челлендж открыт всем. Гость отмечает задачи так же, в один тап, но отметки
+ * живут в localStorage браузера (структура — в `utils/guestChallenge.ts`), а
+ * «Завершить испытание» помечает челлендж пройденным локально. При входе или
+ * регистрации накопленное переносится в аккаунт — см. плагин `guest-challenge`.
  */
 
 import type { ChallengeDay, ChallengeDetail, ChallengeTask } from '~/types/challenge';
@@ -33,8 +35,15 @@ if (error.value || !detail.value) {
   throw createError({ statusCode: 404, statusMessage: t('challengesPage.empty'), fatal: true });
 }
 
-const { active, current, toggleTask: toggleChallengeTask, finish } = await useChallenges();
+const {
+  active,
+  current,
+  seasonGuestProgress,
+  toggleTask: toggleChallengeTask,
+  finish,
+} = await useChallenges();
 const { show: showAchievements } = useAchievementToast();
+const guest = useGuestChallenge();
 
 /** Челлендж с открытой записью пользователя — независимо от сезона. */
 const running = computed(() => (active.value?.challenge.slug === slug ? active.value : null));
@@ -82,7 +91,7 @@ const seasonProgress = computed(() => {
 /**
  * Дни с отметками берём оттуда, где они есть:
  * начатый челлендж → сезонный → закрытый (API их пока не отдаёт) → публичные
- * дни без отметок для челленджа другого сезона.
+ * дни, поверх которых у гостя лежат его локальные отметки.
  */
 const days = computed<ChallengeDay[]>(() => {
   if (running.value) {
@@ -93,12 +102,21 @@ const days = computed<ChallengeDay[]>(() => {
     return seasonDays.value;
   }
 
-  return detail.value?.days ?? [];
+  // Гость: публичные дни плюс то, что он отметил в этом браузере.
+  return auth.isAuthenticated
+    ? (detail.value?.days ?? [])
+    : guest.withGuestMarks(slug, detail.value?.days ?? []);
 });
 
 const progress = computed(() => {
   if (running.value) {
     return running.value.progress;
+  }
+
+  // Гость: прогресс и отметки считаются по одной и той же паре «дни + локальные
+  // отметки», иначе полоса расходилась бы с галочками.
+  if (!auth.isAuthenticated) {
+    return seasonGuestProgress.value;
   }
 
   if (seasonState.value || completed.value) {
@@ -108,9 +126,20 @@ const progress = computed(() => {
   return detail.value?.progress ?? null;
 });
 
-/** Отметка доступна только там, где сервер её примет: свой челлендж, не закрытый. */
+/** Гость завершил испытание в этом браузере — серверу об этом знать нечего. */
+const guestCompleted = computed(() => !auth.isAuthenticated && guest.isLocallyCompleted(slug));
+
+/**
+ * Отметка доступна там, где её примет сервер (свой челлендж), а гостю — на любом
+ * челлендже текущего сезона: его отметки живут в localStorage и сети не требуют.
+ */
 const tickable = computed(
-  () => auth.isAuthenticated && !completed.value && Boolean(running.value || seasonState.value),
+  () =>
+    !completed.value &&
+    !guestCompleted.value &&
+    (auth.isAuthenticated
+      ? Boolean(running.value || seasonState.value)
+      : Boolean(detail.value?.days?.length)),
 );
 
 const title = computed(() => detail.value?.challenge.title ?? '');
@@ -154,7 +183,11 @@ const onToggle = async (task: ChallengeTask) => {
   }
 };
 
-/** «Завершить испытание» — челлендж отмечается пройденным и уходит с главной. */
+/**
+ * «Завершить испытание» — челлендж отмечается пройденным и уходит с главной.
+ * Гостю сервер для этого не нужен: `finish` помечает челлендж пройденным
+ * в localStorage, и главная читает ту же отметку.
+ */
 const completeChallenge = async () => {
   if (finishing.value) {
     return;
@@ -276,20 +309,35 @@ useStructuredData(() => {
         </div>
       </section>
 
-      <p v-if="!auth.isAuthenticated" class="notice">
-        {{ t('challenge.signInToTrack') }}
-        <NuxtLink :to="localePath('/login')">{{ t('auth.login') }}</NuxtLink>
+      <!--
+        Гость отмечает задачи без аккаунта: прогресс лежит в этом браузере.
+        Плашка объясняет это сразу, а не после неожиданной потери данных,
+        и рядом стоит кнопка регистрации — прогресс перейдёт в аккаунт.
+      -->
+      <p v-if="!auth.isAuthenticated && !completed && !guestCompleted" class="notice">
+        {{ t('challenge.guestHint') }}
+        <NuxtLink :to="localePath('/register')" class="notice__link">
+          {{ t('challenge.registerCta') }}
+        </NuxtLink>
       </p>
 
-      <p v-else-if="completed" class="notice notice--done">
+      <p v-if="completed || guestCompleted" class="notice notice--done">
         {{ t('challenge.finished') }}<template v-if="finishedLabel"> · {{ finishedLabel }}</template>
       </p>
 
-      <p v-else-if="auth.isAuthenticated && progress && progress.total > 0 && progress.done === progress.total" class="notice notice--done">
+      <!-- У гостя завершение живёт только в браузере: говорим об этом прямо -->
+      <p v-if="guestCompleted" class="notice">
+        {{ t('challenge.storageNotice') }}
+      </p>
+
+      <p
+        v-if="!completed && !guestCompleted && progress && progress.total > 0 && progress.done === progress.total"
+        class="notice notice--done"
+      >
         {{ t('challenge.allDone') }}
       </p>
 
-      <p v-else-if="auth.isAuthenticated && !tickable" class="notice">
+      <p v-if="auth.isAuthenticated && !tickable && !completed" class="notice">
         {{ t('challenge.otherSeason') }}
       </p>
 
@@ -343,8 +391,22 @@ useStructuredData(() => {
           {{ t('auth.toHome') }}
         </AppButton>
 
-        <AppButton v-else variant="filled" block :to="localePath('/login')">
-          {{ t('auth.login') }}
+        <!--
+          Гость завершил испытание: предлагаем аккаунт — при входе или
+          регистрации локальные отметки переносятся, и челлендж останется
+          пройденным уже на сервере.
+        -->
+        <template v-else-if="guestCompleted">
+          <AppButton variant="filled" block :to="localePath('/register')">
+            {{ t('challenge.registerCta') }}
+          </AppButton>
+          <AppButton variant="outline" block :to="localePath('/')">
+            {{ t('auth.toHome') }}
+          </AppButton>
+        </template>
+
+        <AppButton v-else variant="filled" block :to="localePath('/')">
+          {{ t('auth.toHome') }}
         </AppButton>
       </div>
     </template>
@@ -443,6 +505,13 @@ useStructuredData(() => {
 .notice--error {
   background: var(--c-surface-task);
   color: var(--c-danger);
+}
+
+/* Ссылка внутри поясняющей строки: та же плотность текста, но заметнее */
+.notice__link {
+  color: var(--c-brand);
+  font-weight: 600;
+  text-underline-offset: 3px;
 }
 
 /* ── День ───────────────────────────────────────────────────────────── */

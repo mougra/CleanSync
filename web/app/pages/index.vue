@@ -32,7 +32,8 @@ const localePath = useLocalePath();
 const auth = useAuthStore();
 const api = useApi();
 
-const { active, current, seasonChallenge } = await useChallenges();
+const { active, current, seasonChallenge, seasonGuestProgress, guestCompletedSlug } =
+  await useChallenges();
 
 // Привычки: тот же composable, что и на вкладке «Привычки», ключи общие —
 // отметка на главной сразу видна и там.
@@ -67,8 +68,46 @@ const showcase = computed<AchievementProgress[]>(() =>
     : achievementsCatalog.value.slice(0, 2).map((item) => ({ ...item, current: 0, earned: false })),
 );
 
-/** Челлендж сезона закрыт пользователем — до следующего сезона на главной его нет. */
-const challengeCompleted = computed(() => current.value.status === 'completed');
+/**
+ * Челлендж сезона закрыт — до следующего сезона на главной его нет.
+ * У вошедшего это состояние сервера, у гостя — отметка в localStorage:
+ * `useChallenges` сводит оба случая к одному признаку.
+ */
+const challengeCompleted = computed(
+  () => current.value.status === 'completed' || guestCompletedSlug.value !== null,
+);
+
+/**
+ * Прогресс сезонного челленджа на карточке: у вошедшего он приходит с сервера
+ * вместе с состоянием, у гостя считается по локальным отметкам. Если гость ещё
+ * ничего не отметил, показываем описание — так же, как для незапущенного челленджа.
+ */
+const seasonCardProgress = computed(() => {
+  const state = current.value;
+
+  if (!('progress' in state) || !state.progress) {
+    return null;
+  }
+
+  const progress = auth.isAuthenticated ? state.progress : seasonGuestProgress.value;
+
+  if (!progress) {
+    return null;
+  }
+
+  return !auth.isAuthenticated && progress.done === 0 ? null : progress;
+});
+
+/** «День 3: осталось 55 мин» на карточке сезонного челленджа. */
+const seasonCardNote = computed(() => {
+  const progress = seasonCardProgress.value;
+
+  if (!progress?.currentDay) {
+    return null;
+  }
+
+  return t('home.dayLeft', { day: progress.currentDay, minutes: progress.minutesLeft });
+});
 
 /**
  * «План на сегодня» — только свои задачи и план по дому.
@@ -197,12 +236,16 @@ useStructuredData(() => ({
     <!--
       Сезонный челлендж, который ещё не начат: кнопки «начать» нет — задачи
       отмечаются сразу на экране челленджа, поэтому карточка просто ведёт туда.
+      Гость видит её наравне с вошедшим: если он уже отметил что-то в этом
+      браузере, карточка показывает его локальный прогресс.
     -->
     <ChallengeCard
       v-else-if="seasonChallenge"
       :title="seasonChallenge.title"
       :description="seasonChallenge.description"
       :badge-label="t('home.challenges')"
+      :progress="seasonCardProgress"
+      :note="seasonCardNote"
       :cover-url="seasonChallenge.cover_url"
       :to="localePath(`/challenges/${seasonChallenge.slug}`)"
     />

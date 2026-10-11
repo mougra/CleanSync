@@ -5,15 +5,31 @@
  */
 const { t } = useI18n();
 const localePath = useLocalePath();
-const { list, active, current, seasonChallenge, available } = await useChallenges();
+const auth = useAuthStore();
+const { list, active, current, seasonChallenge, seasonGuestProgress, guestCompletedSlug, available } =
+  await useChallenges();
 
-/** Челлендж сезона закрыт: до следующего сезона показываем только пояснение. */
-const completed = computed(() => current.value.status === 'completed');
+/**
+ * Челлендж сезона закрыт: у вошедшего это состояние сервера, у гостя — отметка
+ * в localStorage. До следующего сезона показываем только пояснение.
+ */
+const completed = computed(
+  () => current.value.status === 'completed' || guestCompletedSlug.value !== null,
+);
 
 /** Сезонный челлендж не дублируем, если он уже показан как «в процессе». */
 const seasonCard = computed(() =>
-  seasonChallenge.value && seasonChallenge.value.slug !== active.value?.challenge.slug
+  seasonChallenge.value &&
+  seasonChallenge.value.slug !== active.value?.challenge.slug &&
+  seasonChallenge.value.slug !== guestCompletedSlug.value
     ? seasonChallenge.value
+    : null,
+);
+
+/** Прогресс на карточке сезона: у гостя — по локальным отметкам, иначе нет. */
+const seasonCardProgress = computed(() =>
+  !auth.isAuthenticated && seasonGuestProgress.value && seasonGuestProgress.value.done > 0
+    ? seasonGuestProgress.value
     : null,
 );
 
@@ -44,6 +60,7 @@ useSeoMeta({
         :title="seasonCard.title"
         :description="seasonCard.description"
         :badge-label="`${seasonCard.days_count} ${t('challengesPage.days')} · ${seasonCard.tasks_count} ${t('challengesPage.tasks')}`"
+        :progress="seasonCardProgress"
         :cover-url="seasonCard.cover_url"
         :to="localePath(`/challenges/${seasonCard.slug}`)"
       />

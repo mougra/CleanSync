@@ -2,6 +2,7 @@ import type {
   ActiveChallenge,
   ActiveChallengeResponse,
   ChallengeDay,
+  ChallengeProgress,
   ChallengeSummary,
   ChallengeTask,
   ChallengeTaskToggleResponse,
@@ -25,6 +26,8 @@ import type {
 export const useChallenges = async () => {
   const auth = useAuthStore();
   const api = useApi();
+  // Гостевой путь: отметки незарегистрированного человека живут в localStorage.
+  const guest = useGuestChallenge();
 
   const listState = useAsyncData('challenges', () => api.request<ChallengeSummary[]>('/api/challenges'), {
     default: () => [] as ChallengeSummary[],
@@ -33,26 +36,46 @@ export const useChallenges = async () => {
   /**
    * Ключ оставлен прежним ('active-challenge'): его чистят при входе, выходе и
    * сбросе данных (AppAuthLink, AppSidebarProfile, login, settings).
+   *
+   * Эндпоинт публичный: без сессии он отдаёт гостевую форму (`available` с
+   * нулевым прогрессом), поэтому запрашиваем его всегда — иначе гость не увидел
+   * бы сезонный челлендж на главной.
    */
   const currentState = useAsyncData<CurrentChallenge>(
     'active-challenge',
     async () => {
       if (!auth.isAuthenticated) {
-        return { status: 'none' } as CurrentChallenge;
+        return await guestCurrent();
       }
 
-      try {
-        const result = await api.request<CurrentChallenge>('/api/challenges/current');
+      let result: CurrentChallenge;
 
-        if (result && typeof result.status === 'string') {
-          return result;
-        }
+      try {
+        result = await api.request<CurrentChallenge>('/api/challenges/current');
       } catch {
         // Эндпоинт недоступен (старая сборка бэкенда или сбой) — соберём состояние
         // из прежних методов, чтобы главная не осталась без челленджа.
+        return await fallbackCurrent();
       }
 
-      return await fallbackCurrent();
+      if (!result || typeof result.status !== 'string') {
+        return await fallbackCurrent();
+      }
+
+      // Access-cookie живёт 15 минут, и истёкшая сессия выглядит для публичного
+      // эндпоинта как гость: прогресс «пропадает», хотя он есть на сервере.
+      // Обновляем токен и спрашиваем заново — один раз.
+      if (result.status === 'available' && (result.progress?.done ?? 0) === 0) {
+        const retried = await retryAfterRefresh();
+
+        // Токен не обновился или сервер снова ответил гостевой формой: показываем
+        // данные как есть. Локальные отметки гостя при этом не трогаем.
+        if (retried) {
+          return retried;
+        }
+      }
+
+      return result;
     },
     { default: () => ({ status: 'none' }) as CurrentChallenge },
   );
@@ -75,11 +98,47 @@ export const useChallenges = async () => {
     'challenge' in current.value && current.value.challenge ? current.value.challenge : null,
   );
 
+  /**
+   * Прогресс сезонного челленджа у гостя — считается по локальным отметкам
+   * (`summarizeChallengeDays`). У вошедшего прогресс приходит с сервера, поэтому
+   * здесь `null`: карточки обоих путей читают одно поле и не дублируют условие.
+   */
+  const seasonGuestProgress = computed<ChallengeProgress | null>(() => {
+    if (auth.isAuthenticated) {
+      return null;
+    }
+
+    const state = current.value;
+
+    if (!('days' in state) || !state.challenge) {
+      return null;
+    }
+
+    return guest.guestProgress(state.challenge.slug, state.days ?? []);
+  });
+
+  /**
+   * Гость завершил сезонный челлендж в этом браузере: он уходит с главной так же,
+   * как серверный `completed`. Проверяем только гостя — у вошедшего состоянием
+   * владеет сервер, а локальная копия к этому моменту уже перенесена и стёрта.
+   */
+  const guestCompletedSlug = computed<string | null>(() => {
+    if (auth.isAuthenticated) {
+      return null;
+    }
+
+    const slug = seasonChallenge.value?.slug;
+
+    return slug && guest.isLocallyCompleted(slug) ? slug : null;
+  });
+
   /** Челленджи, которые пользователь не проходит: остальные сезоны и будущие. */
   const available = computed(() =>
     (list.value ?? []).filter(
       (challenge) =>
-        challenge.slug !== active.value?.challenge.slug && challenge.slug !== seasonChallenge.value?.slug,
+        challenge.slug !== active.value?.challenge.slug &&
+        challenge.slug !== seasonChallenge.value?.slug &&
+        challenge.slug !== guestCompletedSlug.value,
     ),
   );
 
@@ -156,6 +215,9 @@ export const useChallenges = async () => {
    *
    * Оптимистично: галочка и прогресс меняются сразу. Если запрос упал, состояние
    * возвращается к снимку, а ошибку обрабатывает страница (тост/строка).
+   *
+   * Гость идёт тем же путём, но вместо сервера пишет в localStorage: если запись
+   * не удалась (приватный режим), состояние откатывается как при ошибке сети.
    */
   const toggleTask = async (task: ChallengeTask): Promise<{ awarded: string[] }> => {
     const host = hostOf(task.id);
@@ -180,6 +242,25 @@ export const useChallenges = async () => {
       activeState.data.value.active.progress = localProgress;
     }
 
+    if (!auth.isAuthenticated) {
+      const slug = host.source === 'current' ? seasonChallenge.value?.slug : active.value?.challenge.slug;
+
+      if (!slug) {
+        restore(before);
+        return { awarded: [] };
+      }
+
+      try {
+        guest.toggleGuestTask(slug, task);
+      } catch (error) {
+        // Хранилище недоступно — состояние челленджа возвращаем как было.
+        restore(before);
+        throw error;
+      }
+
+      return { awarded: [] };
+    }
+
     try {
       const response = await api.request<ChallengeTaskToggleResponse>(
         `/api/challenges/tasks/${task.id}`,
@@ -198,8 +279,39 @@ export const useChallenges = async () => {
   /**
    * Завершение челленджа: «пройден» для пользователя. Идемпотентно на сервере,
    * поэтому повторный вызов после сетевой ошибки безопасен.
+   *
+   * У гостя сервера нет: отмечаем локально, и карточка уходит с главной так же,
+   * как после серверного завершения.
    */
   const finish = async (slug: string) => {
+    if (!auth.isAuthenticated) {
+      const before = snapshot();
+      const state = currentState.data.value;
+
+      if (state?.status === 'completed') {
+        return;
+      }
+
+      guest.completeGuestChallenge(slug);
+      currentState.data.value = {
+        status: 'completed',
+        season: state?.season ?? null,
+        challengeSlug: slug,
+        finishedAt: new Date().toISOString(),
+        challenge: seasonChallenge.value ?? undefined,
+        days: state && 'days' in state ? state.days : undefined,
+        progress: state && 'progress' in state ? state.progress : undefined,
+      };
+
+      // Запись в localStorage может не пройти (приватный режим) — тогда состояние
+      // челленджа возвращаем к снимку, и главная не соврёт.
+      if (!guest.isLocallyCompleted(slug)) {
+        restore(before);
+      }
+
+      return;
+    }
+
     await api.request(`/api/challenges/${slug}/finish`, { method: 'POST' });
     await refresh();
   };
@@ -250,11 +362,57 @@ export const useChallenges = async () => {
     };
   };
 
+  /**
+   * Гостевой запрос публичного эндпоинта. Если он недоступен (старая сборка
+   * бэкенда отвечала 401 гостю), падаем в запасной путь — он умеет собирать
+   * состояние из публичного списка челленджей.
+   *
+   * Объявления ниже — `function`, а не `const`: колбэк `useAsyncData` может
+   * выполниться раньше, чем дойдёт очередь до их инициализации.
+   */
+  async function guestCurrent(): Promise<CurrentChallenge> {
+    try {
+      return await api.request<CurrentChallenge>('/api/challenges/current');
+    } catch {
+      return await fallbackCurrent();
+    }
+  }
+
+  /**
+   * Обновление истёкшей сессии и один повторный запрос состояния.
+   *
+   * `POST /api/auth/refresh` живёт на пути `/api/auth`, поэтому может идти
+   * обычным `$fetch`: CSRF для него не нужен, а браузер уже несёт refresh-cookie.
+   * Возвращаем новое состояние только если сервер после обновления действительно
+   * узнал пользователя — иначе показываем прежний ответ как есть.
+   */
+  async function retryAfterRefresh(): Promise<CurrentChallenge | null> {
+    try {
+      await $fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' });
+    } catch {
+      return null;
+    }
+
+    try {
+      const retried = await api.request<CurrentChallenge>('/api/challenges/current');
+
+      if (retried?.status === 'available' && (retried.progress?.done ?? 0) === 0) {
+        return null;
+      }
+
+      return retried ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   return {
     list,
     current,
     active,
     seasonChallenge,
+    seasonGuestProgress,
+    guestCompletedSlug,
     available,
     refresh,
     /** Прежнее имя метода: страницы вызывали refreshActive после отметок. */
