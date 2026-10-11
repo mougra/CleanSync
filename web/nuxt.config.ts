@@ -57,6 +57,9 @@ export default defineNuxtConfig({
       globPatterns: ['**/*.{js,css,woff2,png,svg,jpg,ico,webmanifest}'],
     },
     manifest: {
+      // Источник правды для прода. В dev этот объект не собирается (см.
+      // devOptions ниже), и тот же JSON лежит готовым файлом в
+      // public/manifest.webmanifest — при правке одного правьте оба.
       name: 'TidyPlan',
       short_name: 'TidyPlan',
       description:
@@ -91,6 +94,21 @@ export default defineNuxtConfig({
      *
      * Push-уведомления проверяем на собранном приложении:
      * `npm run build && node .output/server/index.mjs`.
+     *
+     * Манифест в dev отдаётся статикой: public/manifest.webmanifest (содержимое
+     * повторяет объект `manifest` выше). Отдельной опции «манифест без service
+     * worker» у @vite-pwa/nuxt 1.1.1 / vite-plugin-pwa 1.3.0 нет: в dev манифест
+     * собирается только при `devOptions.enabled: true` (см. проверку
+     * `devEnvironment && !devOptions.enabled` в vite-plugin-pwa), а этот флаг
+     * включает и dev-воркер. Ссылка `<link rel="manifest">` живёт в app.head
+     * и без файла давала 404 в консоли.
+     *
+     * В проде статика модулю не мешает: `buildDir/manifests` модуль кладёт
+     * в `nitro.publicAssets` раньше, чем лишний `public/` (Nuxt дописывает
+     * каталоги слоёв в конец массива), а Nitro при копировании пропускает файл,
+     * который в выходном каталоге уже есть, — в сборку уходит манифест,
+     * собранный модулем из конфига выше. Даже если порядок когда-нибудь
+     * изменится, оба файла описывают один и тот же манифест.
      */
     devOptions: { enabled: false },
   },
@@ -169,10 +187,19 @@ export default defineNuxtConfig({
 
   // Тема: модуль ставит класс на <html>. classSuffix пустой, чтобы это был ровно
   // `dark` — тот же селектор читает PrimeVue (darkModeSelector).
+  //
+  // storage: 'cookie' — не косметика, а условие совпадения разметки сервера и
+  // клиента. По умолчанию модуль пишет выбор в localStorage: на сервере его нет,
+  // и SSR рисовал `preference: 'system'` («Как в системе»), а клиент после
+  // чтения хранилища — сохранённую тему. Vue ругался на hydration mismatch
+  // иконки, подписи и title у переключателя темы. С cookie серверный плагин
+  // модуля (dist/runtime/plugin.server) читает тот же выбор из cookie, что и
+  // инлайновый скрипт в браузере, поэтому первый рендер совпадает.
   colorMode: {
     classSuffix: '',
     preference: 'system',
     fallback: 'light',
+    storage: 'cookie',
     storageKey: 'tidyplan-color-mode',
   },
 

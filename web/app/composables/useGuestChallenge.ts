@@ -49,9 +49,29 @@ export const useGuestChallenge = () => {
     ready.value = true;
   };
 
-  // Компонент может вызвать composable и не позаботиться о гидратации: читаем
-  // хранилище сами. На сервере и повторно это ничего не делает.
-  onMounted(hydrate);
+  /**
+   * Явная инициализация: читает localStorage и запоминает, что отметки загружены.
+   * Нужна тому, кто вызывает composable вне компонента — плагину
+   * `guest-challenge.client.ts`. Повторные вызовы ничего не делают (`ready`),
+   * на сервере тоже (localStorage там нет).
+   */
+  const initGuestProgress = () => {
+    hydrate();
+  };
+
+  /*
+   * Компонент может вызвать composable и не позаботиться о гидратации: читаем
+   * хранилище сами. Именно `onMounted`, а не сразу в setup: первый рендер в
+   * браузере обязан совпасть с серверной разметкой, где отметок гостя ещё нет
+   * (иначе — тот же hydration mismatch, только на страницах челленджей).
+   *
+   * Вне компонента (в плагине) инстанса нет, `onMounted` вызвал бы
+   * предупреждение Vue и потерялся бы — там инициализацию запускает
+   * `initGuestProgress()` явно, хук `app:mounted` (см. плагин).
+   */
+  if (getCurrentInstance()) {
+    onMounted(initGuestProgress);
+  }
 
   const persist = (next: GuestChallengeStore) => {
     progress.value = next;
@@ -212,6 +232,7 @@ export const useGuestChallenge = () => {
   return {
     guestProgressState: progress,
     hydrateGuestProgress: hydrate,
+    initGuestProgress,
     taskIdsOf,
     toggleGuestTask,
     completeGuestChallenge,
