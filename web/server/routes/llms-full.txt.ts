@@ -79,7 +79,7 @@ export default defineEventHandler(async (event) => {
   );
 
   const parts: string[] = [
-    '# Clean Planner — полный текст материалов',
+    '# TidyPlan — полный текст материалов',
     '',
     `Источник: ${base}. Файл собран автоматически из статей раздела «Советы».`,
     `Дата сборки: ${new Date().toISOString().slice(0, 10)}. Статей: ${sorted.length}.`,

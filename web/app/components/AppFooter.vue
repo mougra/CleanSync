@@ -3,8 +3,10 @@
  * Подвал сайта: ссылки на публичные разделы и справочные страницы.
  *
  * Нужен не «для красоты»: он раскрывает структуру сайта поисковикам
- * (внутренние ссылки с каждой страницы) и даёт людям путь к контактам,
- * частым вопросам и условиям.
+ * (внутренние ссылки с каждой страницы) и даёт людям путь к контактам
+ * и частым вопросам. Политика конфиденциальности живёт в настройках
+ * и в уведомлении о cookie — в подвале её не дублируем, как и служебные
+ * адреса (RSS и llms.txt нужны машинам, а не людям).
  */
 const { t } = useI18n();
 const localePath = useLocalePath();
@@ -23,15 +25,11 @@ const project = [
   { labelKey: 'faqPage.title', to: '/faq' },
   { labelKey: 'contactsPage.title', to: '/contacts' },
 ];
-
-const legal = [
-  { labelKey: 'settings.privacy', to: '/privacy' },
-];
 </script>
 
 <template>
   <footer class="footer">
-    <p class="footer__brand">Clean Planner — {{ t('footer.tagline') }}</p>
+    <p class="footer__brand">TidyPlan — {{ t('footer.tagline') }}</p>
 
     <nav class="footer__group" :aria-label="t('footer.sections')">
       <h2 class="footer__heading">{{ t('footer.sections') }}</h2>
@@ -54,22 +52,7 @@ const legal = [
       </ul>
     </nav>
 
-    <nav class="footer__group" :aria-label="t('footer.legal')">
-      <h2 class="footer__heading">{{ t('footer.legal') }}</h2>
-      <ul class="footer__list">
-        <li v-for="item in legal" :key="item.to">
-          <NuxtLink :to="localePath(item.to)" class="footer__link">{{ t(item.labelKey) }}</NuxtLink>
-        </li>
-        <li>
-          <a class="footer__link" href="/feed.xml">RSS</a>
-        </li>
-        <li>
-          <a class="footer__link" href="/llms.txt">llms.txt</a>
-        </li>
-      </ul>
-    </nav>
-
-    <p class="footer__note">© {{ year }} Clean Planner</p>
+    <p class="footer__note">© {{ year }} TidyPlan</p>
   </footer>
 </template>
 

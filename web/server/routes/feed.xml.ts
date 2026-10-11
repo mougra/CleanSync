@@ -48,7 +48,7 @@ export default defineEventHandler(async (event) => {
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
-    <title>Clean Planner — советы по уборке</title>
+    <title>TidyPlan — советы по уборке</title>
     <link>${escapeXml(base)}/tips</link>
     <description>Статьи о домашней уборке: короткие планы, порядок в комнатах и привычки без выгорания.</description>
     <language>ru-RU</language>

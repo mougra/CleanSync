@@ -16,8 +16,9 @@ useCanonical();
 // Значения по умолчанию для соцсетей: без своей картинки страница
 // не покажет превью при шаринге. Страницы со своей обложкой перекрывают это.
 useSeoMeta({
-  ogSiteName: 'Clean Planner',
-  ogImage: '/photos/spring-cleaning.jpg',
+  ogSiteName: 'TidyPlan',
+  // Картинка бренда по умолчанию: страницы со своей обложкой её перекрывают
+  ogImage: '/og-image.png',
 });
 </script>
 

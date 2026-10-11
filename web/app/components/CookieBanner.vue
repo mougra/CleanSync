@@ -10,7 +10,7 @@
 const { t } = useI18n();
 const localePath = useLocalePath();
 
-const STORAGE_KEY = 'clean-planner-cookies-notice';
+const STORAGE_KEY = 'tidyplan-cookies-notice';
 const hidden = ref(true);
 
 onMounted(() => {

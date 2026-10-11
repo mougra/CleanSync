@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="TidyPlan">
+  <!--
+    Знак TidyPlan: незамкнутое кольцо (прогресс и серия привычек), галочка внутри
+    (закрытое дело) и коралловая искра (лёгкость, а не химчистка).
+    Работает в один цвет, читается на 32 px.
+  -->
+  <defs>
+    <linearGradient id="tpRing" x1="10" y1="8" x2="54" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3F8A73"/>
+      <stop offset="1" stop-color="#2A584D"/>
+    </linearGradient>
+  </defs>
+
+  <circle
+    cx="32" cy="32" r="20"
+    fill="none"
+    stroke="url(#tpRing)"
+    stroke-width="6"
+    stroke-linecap="round"
+    stroke-dasharray="94 32"
+    transform="rotate(-90 32 32)"
+  />
+
+  <path
+    d="M23 33.5 L29.5 40 L42 26"
+    fill="none"
+    stroke="#2A584D"
+    stroke-width="5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <path
+    d="M50.5 12.5 l1.9 4.7 4.7 1.9 -4.7 1.9 -1.9 4.7 -1.9 -4.7 -4.7 -1.9 4.7 -1.9z"
+    fill="#D8664E"
+  />
+</svg>

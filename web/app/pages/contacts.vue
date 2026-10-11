@@ -27,7 +27,7 @@ useStructuredData(() => ({
     {
       '@type': 'Organization',
       '@id': `${site.url}/#organization`,
-      name: 'Clean Planner',
+      name: 'TidyPlan',
       url: site.url,
       email: SUPPORT_EMAIL,
       contactPoint: {

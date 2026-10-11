@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 140" width="520" height="140" role="img" aria-label="TidyPlan">
+  <!--
+    Логотип-локап: знак + название. Нужен для писем, картинок для соцсетей
+    и любых мест, где рядом с иконкой должно стоять имя. В интерфейсе подпись
+    остаётся живым текстом (i18n и доступность), а не частью картинки.
+  -->
+  <defs>
+    <linearGradient id="tpRingLock" x1="24" y1="24" x2="104" y2="112" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3F8A73"/>
+      <stop offset="1" stop-color="#2A584D"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(20 26) scale(1.4)">
+    <circle
+      cx="32" cy="32" r="20"
+      fill="none"
+      stroke="url(#tpRingLock)"
+      stroke-width="6"
+      stroke-linecap="round"
+      stroke-dasharray="94 32"
+      transform="rotate(-90 32 32)"
+    />
+    <path
+      d="M23 33.5 L29.5 40 L42 26"
+      fill="none"
+      stroke="#2A584D"
+      stroke-width="5"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <path
+      d="M50.5 12.5 l1.9 4.7 4.7 1.9 -4.7 1.9 -1.9 4.7 -1.9 -4.7 -4.7 -1.9 4.7 -1.9z"
+      fill="#D8664E"
+    />
+  </g>
+
+  <text
+    x="150" y="88"
+    font-family="Onest, Manrope, system-ui, -apple-system, 'Segoe UI', sans-serif"
+    font-size="54"
+    font-weight="700"
+    letter-spacing="-1.2"
+    fill="#2A584D"
+  >TidyPlan</text>
+</svg>

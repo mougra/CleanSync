@@ -11,11 +11,13 @@ const isActive = (to: string) =>
 <template>
   <aside class="sidebar">
     <NuxtLink to="/" class="sidebar__brand">
-      <span class="sidebar__mark" aria-hidden="true">⚑</span>
-      <span class="sidebar__name">Clean Planner</span>
+      <span class="sidebar__mark">
+        <img class="sidebar__logo" src="/logo.svg" alt="" width="36" height="36" >
+      </span>
+      <span class="sidebar__name">TidyPlan</span>
     </NuxtLink>
 
-    <nav class="sidebar__nav" aria-label="Clean Planner">
+    <nav class="sidebar__nav" aria-label="TidyPlan">
       <NuxtLink
         v-for="item in appNavItems"
         :key="item.key"
@@ -74,8 +76,14 @@ const isActive = (to: string) =>
   width: 36px;
   height: 36px;
   border-radius: var(--r-pill);
+  /* Мятная подложка: знак тёмно-зелёный, и на тёмной теме без неё пропадёт */
   background: var(--c-surface-mint);
   color: var(--c-brand);
+}
+
+.sidebar__logo {
+  width: 30px;
+  height: 30px;
 }
 
 .sidebar__name {

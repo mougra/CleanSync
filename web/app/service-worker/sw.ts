@@ -32,7 +32,7 @@ self.addEventListener('push', (event: PushEvent) => {
   }
 
   event.waitUntil(
-    self.registration.showNotification(payload.title ?? 'Clean Planner', {
+    self.registration.showNotification(payload.title ?? 'TidyPlan', {
       body: payload.body ?? '',
       icon: '/icons/icon-192.png',
       badge: '/icons/favicon-32.png',

@@ -34,7 +34,7 @@ const getEmailTemplate = (title: string, content: string, actionText: string, ac
   return `
     <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px; background-color: #f9f9f9;">
       <div style="text-align: center; margin-bottom: 20px;">
-        <h1 style="color: #28a745; margin: 0;">✨ Clean Planner</h1>
+        <h1 style="color: #28a745; margin: 0;">✨ TidyPlan</h1>
       </div>
       <div style="background-color: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
         <h2 style="color: #333; text-align: center; margin-top: 0;">${title}</h2>
@@ -52,7 +52,7 @@ const getEmailTemplate = (title: string, content: string, actionText: string, ac
         </p>
       </div>
       <div style="text-align: center; margin-top: 20px; color: #aaa; font-size: 12px;">
-        © ${new Date().getFullYear()} Clean Planner. Помогаем делать мир чище.
+        © ${new Date().getFullYear()} TidyPlan. Помогаем делать мир чище.
       </div>
     </div>
   `;
@@ -79,7 +79,7 @@ const sendPasswordResetEmail = async (to: string, resetToken: string) => {
   const resetLink = appLink(`/reset-password?token=${resetToken}`);
   return sendEmail({
     to,
-    subject: 'Сброс пароля Clean Planner',
+    subject: 'Сброс пароля TidyPlan',
     html: getEmailTemplate(
       'Сброс пароля',
       'Вы запросили сброс пароля для своего аккаунта. Перейдите по кнопке ниже, чтобы установить новый пароль.',
@@ -93,10 +93,10 @@ const sendConfirmationEmail = async (to: string, confirmToken: string) => {
   const confirmLink = appLink(`/confirm-email?token=${confirmToken}`);
   return sendEmail({
     to,
-    subject: 'Подтвердите email для Clean Planner',
+    subject: 'Подтвердите email для TidyPlan',
     html: getEmailTemplate(
       'Подтверждение почты',
-      'Добро пожаловать в Clean Planner! Чтобы начать пользоваться приложением, пожалуйста, подтвердите ваш адрес электронной почты.',
+      'Добро пожаловать в TidyPlan! Чтобы начать пользоваться приложением, пожалуйста, подтвердите ваш адрес электронной почты.',
       'Подтвердить email',
       confirmLink
     ),

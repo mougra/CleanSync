@@ -1,6 +1,6 @@
 ---
 title: Политика конфиденциальности
-description: Какие данные Clean Planner собирает, зачем, сколько хранит и как их удалить.
+description: Какие данные TidyPlan собирает, зачем, сколько хранит и как их удалить.
 updatedAt: "2026-10-09"
 operator:
   status: "физическое лицо (заполнить перед публикацией)"
@@ -59,7 +59,7 @@ operator:
 
 - `cp_access`, `cp_refresh` — авторизация (httpOnly, недоступны из JavaScript);
 - `cp_csrf` — защита от подделки запросов;
-- `clean-planner-color-mode`, `clean-planner-locale` — выбранная тема и язык интерфейса.
+- `tidyplan-color-mode`, `tidyplan-locale` — выбранная тема и язык интерфейса.
 
 Аналитических и рекламных cookies сторонних сервисов нет.
 

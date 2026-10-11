@@ -1,4 +1,4 @@
-// Nuxt 4 приложение Clean Planner.
+// Nuxt 4 приложение TidyPlan.
 //
 // Решения, зафиксированные в docs/PLAN.md §0:
 //   - SSR/SSG всех публичных страниц, Express-бэкенд переиспользуется как API;
@@ -35,7 +35,7 @@ export default defineNuxtConfig({
 
   site: {
     url: process.env.NUXT_PUBLIC_SITE_URL || 'http://localhost:3000',
-    name: 'Clean Planner',
+    name: 'TidyPlan',
     description:
       'Челленджи уборки по дням, полезные привычки и советы — чтобы навести порядок дома без выгорания.',
     defaultLocale: 'ru',
@@ -57,8 +57,8 @@ export default defineNuxtConfig({
       globPatterns: ['**/*.{js,css,woff2,png,svg,jpg,ico,webmanifest}'],
     },
     manifest: {
-      name: 'Clean Planner',
-      short_name: 'Clean Planner',
+      name: 'TidyPlan',
+      short_name: 'TidyPlan',
       description:
         'Челленджи уборки по дням, полезные привычки и советы — порядок дома без выгорания.',
       lang: 'ru',
@@ -160,7 +160,7 @@ export default defineNuxtConfig({
     classSuffix: '',
     preference: 'system',
     fallback: 'light',
-    storageKey: 'clean-planner-color-mode',
+    storageKey: 'tidyplan-color-mode',
   },
 
   // Языки: русский по умолчанию (без префикса в URL), английский — /en/...
@@ -175,7 +175,7 @@ export default defineNuxtConfig({
     ],
     detectBrowserLanguage: {
       useCookie: true,
-      cookieKey: 'clean-planner-locale',
+      cookieKey: 'tidyplan-locale',
       redirectOn: 'root',
       alwaysRedirect: false,
     },
@@ -243,7 +243,7 @@ export default defineNuxtConfig({
   schemaOrg: {
     identity: {
       type: 'Organization',
-      name: 'Clean Planner',
+      name: 'TidyPlan',
       logo: '/icons/icon-512.png',
       email: 'tidyflowup@gmail.com',
     },
@@ -262,8 +262,8 @@ export default defineNuxtConfig({
 
   app: {
     head: {
-      title: 'Clean Planner',
-      titleTemplate: '%s — Clean Planner',
+      title: 'TidyPlan',
+      titleTemplate: '%s — TidyPlan',
       link: [
         { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/icons/favicon-32.png' },
         { rel: 'apple-touch-icon', sizes: '180x180', href: '/icons/apple-touch-icon.png' },
@@ -273,7 +273,7 @@ export default defineNuxtConfig({
         // viewport Nuxt ставит сам — не дублируем.
         { name: 'theme-color', content: '#FEF9F6' },
         { name: 'apple-mobile-web-app-capable', content: 'yes' },
-        { name: 'apple-mobile-web-app-title', content: 'Clean Planner' },
+        { name: 'apple-mobile-web-app-title', content: 'TidyPlan' },
       ],
     },
   },

@@ -1,4 +1,4 @@
-# Clean Planner Backend
+# TidyPlan Backend
 
 Node.js + Express + PostgreSQL API для управления графиками уборки с JWT авторизацией.
 
