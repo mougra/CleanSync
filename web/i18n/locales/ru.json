@@ -65,7 +65,11 @@
     "unitMonthMany": "месяцев",
     "guestTitle": "План собирается под ваш дом",
     "guestText": "Комнаты, питомцы и то, сколько времени готовы тратить на уборку, — всё это учтём.",
-    "guestRegister": "Создать аккаунт"
+    "guestRegister": "Создать аккаунт",
+    "upcomingTitle": "Что дальше",
+    "upcomingTaskOne": "задача",
+    "upcomingTaskFew": "задачи",
+    "upcomingTaskMany": "задач"
   },
   "challengesPage": {
     "metaDescription": "Челленджи уборки по дням: выберите программу и отмечайте шаги — дом становится чище без генеральной уборки за один день.",

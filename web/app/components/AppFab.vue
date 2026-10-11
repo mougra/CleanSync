@@ -10,10 +10,10 @@
 const { t } = useI18n();
 const { open, openSheet, closeSheet } = useTaskSheet();
 
-/** После создания задачи обновляем план дня на главной — он в кэше под ключом 'today-plan'. */
+/** После создания задачи обновляем план дня и ближайшие дни на главной. */
 const afterCreated = async () => {
   closeSheet();
-  await refreshNuxtData('today-plan');
+  await refreshNuxtData(['today-plan', 'upcoming-plan']);
 };
 </script>
 

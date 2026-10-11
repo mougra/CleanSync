@@ -26,54 +26,68 @@ router.get('/:id/checklists', authMiddleware, async (req: Request, res: Response
   }
 });
 
+/**
+ * Задачи, попадающие на конкретный день.
+ *
+ * Условия периодичности живут в одном месте: «План на сегодня» и список
+ * ближайших дней обязаны считать одинаково, иначе недельная задача появится в
+ * одном месте и исчезнет в другом. Дата — в UTC, как было и раньше.
+ *
+ * Про интервал: при `interval_count = 1` всё как раньше (задача дня/недели/
+ * месяца), при большем цикл считается от `due_date` — даты первой постановки,
+ * поэтому «раз в 3 месяца» не всплывает каждый месяц.
+ */
+const tasksDueOn = async (userId: string, date: Date) => {
+  const dayOfWeek = date.getUTCDay(); // 0-6, 0 — воскресенье
+  const dayOfMonth = date.getUTCDate(); // 1-31
+  const dayStr = date.toISOString().split('T')[0];
+
+  const result = await pool.query(
+    `SELECT t.*, s.title as schedule_title
+     FROM tasks t
+     JOIN schedules s ON t.schedule_id = s.id
+     WHERE (
+             s.user_id = $1
+             -- Общий план дома: задачи мои или ничейные, чужие не показываем
+             OR (s.household_id IS NOT NULL
+                 AND s.household_id IN (SELECT household_id FROM household_members WHERE user_id = $1)
+                 AND (t.assignee_id IS NULL OR t.assignee_id = $1))
+           )
+       AND (
+         -- Периодичность «раз в N дней/недель/месяцев» (interval_count).
+         -- При interval_count = 1 всё как раньше: задача дня/недели/месяца.
+         -- При большем интервале цикл считается от due_date — даты первой
+         -- постановки, поэтому «раз в 3 месяца» не всплывает каждый месяц.
+         (t.frequency = 'daily' AND t.interval_count <= 1) OR
+         (t.frequency = 'daily' AND t.due_date IS NOT NULL
+           AND MOD(($4::date - t.due_date), t.interval_count) = 0) OR
+         (t.frequency = 'weekly' AND t.day_of_week = $2 AND t.interval_count <= 1) OR
+         (t.frequency = 'weekly' AND t.day_of_week = $2 AND t.due_date IS NOT NULL
+           AND MOD(FLOOR(($4::date - t.due_date)::numeric / 7)::int, t.interval_count) = 0) OR
+         (t.frequency = 'monthly' AND t.day_of_month = $3 AND t.interval_count <= 1) OR
+         (t.frequency = 'monthly' AND t.day_of_month = $3 AND t.due_date IS NOT NULL
+           AND MOD(
+                 MOD(
+                   (EXTRACT(YEAR FROM $4::date) * 12 + EXTRACT(MONTH FROM $4::date))
+                   - (EXTRACT(YEAR FROM t.due_date) * 12 + EXTRACT(MONTH FROM t.due_date)),
+                   t.interval_count
+                 ) + t.interval_count,
+                 t.interval_count
+               ) = 0) OR
+         (t.due_date = $4)
+       )
+     ORDER BY t.time ASC`,
+    [userId, dayOfWeek, dayOfMonth, dayStr]
+  );
+
+  return result.rows;
+};
+
 // Get today's tasks
 router.get('/today', authMiddleware, async (req: Request, res: Response) => {
 
   try {
-    const now = new Date();
-    const currentDayOfWeek = now.getUTCDay(); // 0-6
-    const currentDayOfMonth = now.getUTCDate(); // 1-31
-    const todayStr = now.toISOString().split('T')[0];
-
-    const result = await pool.query(
-      `SELECT t.*, s.title as schedule_title
-       FROM tasks t
-       JOIN schedules s ON t.schedule_id = s.id
-       WHERE (
-               s.user_id = $1
-               -- Общий план дома: задачи мои или ничейные, чужие не показываем
-               OR (s.household_id IS NOT NULL
-                   AND s.household_id IN (SELECT household_id FROM household_members WHERE user_id = $1)
-                   AND (t.assignee_id IS NULL OR t.assignee_id = $1))
-             )
-         AND (
-           -- Периодичность «раз в N дней/недель/месяцев» (interval_count).
-           -- При interval_count = 1 всё как раньше: задача дня/недели/месяца.
-           -- При большем интервале цикл считается от due_date — даты первой
-           -- постановки, поэтому «раз в 3 месяца» не всплывает каждый месяц.
-           (t.frequency = 'daily' AND t.interval_count <= 1) OR
-           (t.frequency = 'daily' AND t.due_date IS NOT NULL
-             AND MOD(($4::date - t.due_date), t.interval_count) = 0) OR
-           (t.frequency = 'weekly' AND t.day_of_week = $2 AND t.interval_count <= 1) OR
-           (t.frequency = 'weekly' AND t.day_of_week = $2 AND t.due_date IS NOT NULL
-             AND MOD(FLOOR(($4::date - t.due_date)::numeric / 7)::int, t.interval_count) = 0) OR
-           (t.frequency = 'monthly' AND t.day_of_month = $3 AND t.interval_count <= 1) OR
-           (t.frequency = 'monthly' AND t.day_of_month = $3 AND t.due_date IS NOT NULL
-             AND MOD(
-                   MOD(
-                     (EXTRACT(YEAR FROM $4::date) * 12 + EXTRACT(MONTH FROM $4::date))
-                     - (EXTRACT(YEAR FROM t.due_date) * 12 + EXTRACT(MONTH FROM t.due_date)),
-                     t.interval_count
-                   ) + t.interval_count,
-                   t.interval_count
-                 ) = 0) OR
-           (t.due_date = $4)
-         )
-       ORDER BY t.time ASC`,
-      [req.userId, currentDayOfWeek, currentDayOfMonth, todayStr]
-    );
-
-    const tasks = result.rows;
+    const tasks = await tasksDueOn(req.userId as string, new Date());
     const totalTasks = tasks.length;
     const completedTasks = tasks.filter(t => t.is_completed).length;
     const totalMinutes = tasks.reduce((acc, t) => acc + (t.estimated_minutes || 0), 0);
@@ -100,6 +114,51 @@ router.get('/today', authMiddleware, async (req: Request, res: Response) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch today\'s tasks' });
+  }
+});
+
+/**
+ * Задачи на ближайшие дни (по умолчанию три, максимум 14).
+ *
+ * Нужно, чтобы «план на каждый день» было видно, а не подразумевалось: недельная
+ * задача появится в свой день, «раз в 3 месяца» — только через три месяца. Считаем
+ * тем же помощником, что и «сегодня», поэтому правила совпадают по определению.
+ */
+router.get('/upcoming', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const requested = Number.parseInt(String(req.query.days ?? '3'), 10);
+    const days = Number.isFinite(requested) ? Math.min(Math.max(requested, 1), 14) : 3;
+
+    const userId = req.userId as string;
+    const start = new Date();
+
+    const result = [];
+
+    for (let offset = 1; offset <= days; offset += 1) {
+      const date = new Date(start.getTime() + offset * 24 * 60 * 60 * 1000);
+      const tasks = await tasksDueOn(userId, date);
+
+      result.push({
+        date: date.toISOString().split('T')[0],
+        weekday: date.getUTCDay(),
+        total_tasks: tasks.length,
+        total_minutes: tasks.reduce((sum, task) => sum + (task.estimated_minutes || 0), 0),
+        tasks: tasks.map((task) => ({
+          id: task.id,
+          title: task.title,
+          room: task.room,
+          estimated_minutes: task.estimated_minutes,
+          frequency: task.frequency,
+          interval_count: task.interval_count,
+          schedule_title: task.schedule_title,
+        })),
+      });
+    }
+
+    res.json({ days: result });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch upcoming tasks' });
   }
 });
 

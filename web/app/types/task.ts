@@ -67,3 +67,17 @@ export interface TaskCreateInput extends TaskRepeat {
   /** Счётчик «раз в N дней/недель/месяцев» (миграция 0012, CHECK >= 1). */
   interval_count?: number;
 }
+
+/** Один день в списке ближайших: ответ `GET /api/tasks/upcoming`. */
+export interface UpcomingPlanDay {
+  date: string;
+  /** 0-6, 0 — воскресенье (как `day_of_week` в API). */
+  weekday: number;
+  total_tasks: number;
+  total_minutes: number;
+  tasks: TodayPlanTask[];
+}
+
+export interface UpcomingPlanResponse {
+  days: UpcomingPlanDay[];
+}

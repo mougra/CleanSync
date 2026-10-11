@@ -9,7 +9,7 @@
 
 import type { AchievementProgress } from '~/types/achievement';
 import type { StatsPeriod } from '~/types/stats';
-import type { TodayPlan, TodayPlanTask } from '~/types/task';
+import type { TodayPlan, TodayPlanTask, UpcomingPlanResponse } from '~/types/task';
 
 interface SeasonalTemplate {
   title: string;
@@ -62,6 +62,36 @@ const { show: showAchievements } = useAchievementToast();
 const { data: today } = await useAsyncData('today-plan', () =>
   auth.isAuthenticated ? api.request<TodayPlan>('/api/tasks/today') : Promise.resolve(null),
 );
+
+/**
+ * Ближайшие три дня: «план на каждый день» должно быть видно, а не
+ * подразумеваться. Считает сервер тем же правилом, что и «сегодня», поэтому
+ * недельная задача и «раз в 3 месяца» попадают ровно в свои дни.
+ */
+const { data: upcoming } = await useAsyncData('upcoming-plan', () =>
+  auth.isAuthenticated
+    ? api.request<UpcomingPlanResponse>('/api/tasks/upcoming?days=3')
+    : Promise.resolve(null),
+);
+
+/** Показываем только дни, где что-то есть: пустые строки — шум. */
+const upcomingDays = computed(() =>
+  (upcoming.value?.days ?? []).filter((day) => day.total_tasks > 0),
+);
+
+/** Дата ближайшего дня в формате локали: «вт, 13 октября». */
+const formatUpcomingDay = (date: string): string =>
+  new Intl.DateTimeFormat(locale.value, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'long',
+  }).format(fromISODate(date));
+
+/** Склонение «задача / задачи / задач» — теми же помощниками, что везде. */
+const upcomingTasksLabel = (count: number): string =>
+  locale.value === 'ru'
+    ? pluralRu(count, t('plan.upcomingTaskOne'), t('plan.upcomingTaskFew'), t('plan.upcomingTaskMany'))
+    : pluralEn(count, t('plan.upcomingTaskOne'), t('plan.upcomingTaskMany'));
 
 const checklists = computed(() => templates.value?.checklist ?? []);
 const checklistTasksTotal = computed(() =>
@@ -270,7 +300,7 @@ const togglePlanTask = async (task: { id: number; done: boolean }) => {
   try {
     // Отметка сохранена: подтягиваем план, серию и достижения, чтобы числа
     // на экране совпали с сервером.
-    await refreshNuxtData(['today-plan', 'streak', 'achievements-progress']);
+    await refreshNuxtData(['today-plan', 'upcoming-plan', 'streak', 'achievements-progress']);
   } catch {
     // Обновление не прошло — отметку ниже оставим: она уже верна.
   }
@@ -480,6 +510,24 @@ useStructuredData(() => ({
 
         <!-- Ошибка отметки: строка, а не молчаливый откат -->
         <p v-if="planError" class="plan__error" role="alert">{{ planError }}</p>
+
+        <!--
+          Что дальше: задачи на ближайшие дни. План собирается на каждый день,
+          а недельные и редкие дела попадают в конкретные даты — здесь это видно
+          без перехода на другие экраны.
+        -->
+        <div v-if="upcomingDays.length" class="plan__upcoming">
+          <p class="plan__upcoming-title">{{ t('plan.upcomingTitle') }}</p>
+
+          <ul class="plan__upcoming-list">
+            <li v-for="day in upcomingDays" :key="day.date">
+              <span class="plan__upcoming-date">{{ formatUpcomingDay(day.date) }}</span>
+              <span class="plan__upcoming-meta">
+                {{ upcomingTasksLabel(day.total_tasks) }} · {{ t('plan.minutes', { minutes: day.total_minutes }) }}
+              </span>
+            </li>
+          </ul>
+        </div>
       </template>
 
       <!--
@@ -917,6 +965,49 @@ useStructuredData(() => ({
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+}
+
+/* ── Что дальше: ближайшие дни ─────────────────────────────────────────── */
+.plan__upcoming {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--c-border);
+}
+
+.plan__upcoming-title {
+  margin: 0;
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  color: var(--c-text-muted);
+}
+
+.plan__upcoming-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.plan__upcoming-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--fs-caption);
+}
+
+.plan__upcoming-date {
+  color: var(--c-text);
+  text-transform: capitalize;
+}
+
+.plan__upcoming-meta {
+  color: var(--c-text-muted);
+  white-space: nowrap;
 }
 
 /* Пустой план: короткое объяснение и два выхода — добавить задачу или настроить дом */
