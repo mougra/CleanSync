@@ -30,7 +30,7 @@ router.get('/seasonal', authMiddleware, async (req: Request, res: Response) => {
     const seasonalSchedules = await Promise.all(
       schedulesResult.rows.map(async (schedule) => {
         const tasksResult = await pool.query(
-          'SELECT id, title, frequency, day_of_week, time, is_completed, created_at, estimated_minutes, room FROM tasks WHERE schedule_id = $1 ORDER BY day_of_week, time',
+          'SELECT id, title, frequency, interval_count, day_of_week, day_of_month, due_date, time, is_completed, created_at, estimated_minutes, room FROM tasks WHERE schedule_id = $1 ORDER BY day_of_week, time',
           [schedule.id]
         );
         return { ...schedule, tasks: tasksResult.rows };
@@ -61,7 +61,7 @@ router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
     const schedule = scheduleResult.rows[0];
 
     const tasksResult = await pool.query(
-      'SELECT id, title, frequency, day_of_week, time, is_completed, created_at FROM tasks WHERE schedule_id = $1 ORDER BY day_of_week, time',
+      'SELECT id, title, frequency, interval_count, day_of_week, day_of_month, due_date, time, is_completed, created_at FROM tasks WHERE schedule_id = $1 ORDER BY day_of_week, time',
       [id]
     );
 

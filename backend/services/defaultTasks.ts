@@ -1,0 +1,636 @@
+import {
+  getTaskCatalog,
+  type CatalogTask,
+  type TaskCadence,
+  type TaskLevel,
+  type TaskTag,
+} from './taskCatalog';
+import {
+  activeHomeTags,
+  allowedLevels,
+  CONTEXT_TAGS,
+  orderWeekDays,
+  WEEK_DAYS,
+  withDefaultAnswers,
+  type DailyMinutesOption,
+  type HomeAnswers,
+  type PartialHomeAnswers,
+  type RoomsOption,
+} from './homePlan';
+
+/**
+ * Постоянный набор повторяющихся задач «Мои задачи».
+ *
+ * Отличие от недельного плана (services/homePlan.ts): план отвечает на вопрос
+ * «что делать на этой неделе» и заменяется при каждой пересборке, а этот модуль
+ * собирает постоянный список дел с периодичностью — он живёт в расписании
+ * «Мои задачи» и дальше меняется пользователем вручную.
+ *
+ * Правила набора:
+ *  1. Контекст — жёсткий фильтр. Нет питомцев — в наборе нет ни одной задачи с
+ *     тегом pets; нет детской, балкона, двора, гаража или работы из дома — нет и
+ *     их задач. Стирка фильтруется по способу сушки (`drying`): при сушильной
+ *     машине не предлагаем развешивание на воздухе и наоборот.
+ *  2. Число комнат масштабирует объём: теги `floors` и `dust` ограничены
+ *     квотами (1-2 комнаты — 2 задачи про полы, 8+ — до 5), поэтому в маленькой
+ *     квартире нет полов «лишних» зон.
+ *  3. Дневной предел — MAX_DAILY_MINUTES (40) минут. Ежедневный минимум
+ *     занимает 12-18 минут, недельные дела ложатся на выбранные дни
+ *     (cleaningDays), а месячные и более редкие — на остальные числа месяца.
+ *     Больше MAX_WEEKLY_DAYS дней в неделю недельные дела не занимают: иначе в
+ *     сорока минутах дня не осталось бы места делам «раз в месяц» и реже.
+ *  4. Нагрузка месячных дел считается по числам месяца и «классам месяцев»
+ *     (0-11): задача с интервалом N и опорой в месяце offset занимает только
+ *     сравнимые с ним месяцы. Поэтому «раз в 3 месяца» не сталкивается с другой
+ *     квартальной задачей на том же числе, а опорные даты циклов разводятся по
+ *     месяцам. Дела, которым не хватило места в лимите, в набор не попадают —
+ *     в сводке видно, сколько их.
+ *  5. Периодичность выражается парой (frequency, intervalCount): «раз в день»,
+ *     «раз в неделю», «раз в 2 недели», «раз в месяц», «раз в 3 месяца»,
+ *     «раз в полгода», «раз в год». Задачи с интервалом больше единицы
+ *     получают dueDate — опорную дату, от которой считается цикл
+ *     (см. выборку «Сегодня» в backend/routes/tasks.ts).
+ *
+ * Модуль чистый: он ничего не пишет в базу и не знает про Express. Записью
+ * занимается маршрут (backend/routes/homeProfile.ts).
+ */
+
+/** Заголовок расписания, в котором живёт постоянный набор. */
+export const DEFAULT_TASKS_SCHEDULE_TITLE = 'Мои задачи';
+
+/** Пометка источника: по ней видно, что задача собрана по анкете, а не создана руками. */
+export const DEFAULT_TASK_SOURCE = 'home_profile_defaults';
+
+/** Жёсткий дневной предел набора: больше 40 минут в день он не назначает. */
+export const MAX_DAILY_MINUTES = 40;
+
+/** Сколько минут в день занимает ежедневный минимум — зависит от ответа анкеты. */
+const DAILY_MINUTES_CAP: Record<DailyMinutesOption, number> = {
+  under30: 12,
+  '30to60': 18,
+  '1to2h': 18,
+  depends: 15,
+};
+
+/** Предел минут на одно число месяца для месячных и более редких дел. */
+const MONTHLY_DAY_CAP = 25;
+
+/**
+ * Сколько дней в неделю могут занимать недельные дела.
+ *
+ * Остальные дни остаются под месячные и более редкие: у задачи на 15-20 минут
+ * в сорока минутах дня есть место только там, где нет недельной уборки.
+ */
+const MAX_WEEKLY_DAYS = 5;
+
+/** Сколько недельных задач про полы и пыль брать — по числу комнат. */
+const FLOOR_QUOTA: Record<RoomsOption, number> = { '1-2': 2, '3-4': 3, '5-7': 4, '8+': 5 };
+const DUST_QUOTA: Record<RoomsOption, number> = { '1-2': 1, '3-4': 2, '5-7': 2, '8+': 3 };
+
+/** Частота, которую понимает таблица tasks и выборка «Сегодня». */
+export type DefaultTaskFrequency = 'daily' | 'weekly' | 'monthly';
+
+/** Периодичность каталога → пара (frequency, interval_count). */
+const CADENCE_RULES: Record<
+  TaskCadence,
+  { frequency: DefaultTaskFrequency; intervalCount: number }
+> = {
+  daily: { frequency: 'daily', intervalCount: 1 },
+  weekly: { frequency: 'weekly', intervalCount: 1 },
+  biweekly: { frequency: 'weekly', intervalCount: 2 },
+  monthly: { frequency: 'monthly', intervalCount: 1 },
+  quarterly: { frequency: 'monthly', intervalCount: 3 },
+  semiannual: { frequency: 'monthly', intervalCount: 6 },
+  yearly: { frequency: 'monthly', intervalCount: 12 },
+};
+
+const WEEKLY_CADENCES: readonly TaskCadence[] = ['weekly', 'biweekly'];
+const MONTHLY_CADENCES: readonly TaskCadence[] = ['monthly', 'quarterly', 'semiannual', 'yearly'];
+
+/** Месячные идут первыми, годовые — последними: так числа месяца заполняются по частоте. */
+const CADENCE_RANK: Record<TaskCadence, number> = {
+  daily: 0,
+  weekly: 1,
+  biweekly: 1,
+  monthly: 2,
+  quarterly: 3,
+  semiannual: 4,
+  yearly: 5,
+};
+
+/** Одна задача постоянного набора: готовая строка для INSERT в tasks. */
+export interface DefaultTask {
+  title: string;
+  room: string;
+  minutes: number;
+  level: TaskLevel;
+  tags: TaskTag[];
+  /** Исходная периодичность каталога: по ней строятся подписи в интерфейсе. */
+  cadence: TaskCadence;
+  frequency: DefaultTaskFrequency;
+  intervalCount: number;
+  dayOfWeek: number | null;
+  dayOfMonth: number | null;
+  /** Опора цикла для «раз в N ...»: ISO-дата первой постановки. */
+  dueDate: string | null;
+  source: string;
+}
+
+export interface DefaultTaskDay {
+  dayOfWeek: number;
+  label: string;
+  selected: boolean;
+  /** Ежедневный минимум плюс недельные дела этого дня. */
+  tasks: DefaultTask[];
+  minutes: number;
+}
+
+export interface DefaultTaskSet {
+  scheduleTitle: string;
+  tasks: DefaultTask[];
+  summary: {
+    totalTasks: number;
+    totalMinutes: number;
+    dailyTasks: number;
+    dailyMinutes: number;
+    weeklyTasks: number;
+    weeklyMinutes: number;
+    monthlyTasks: number;
+    monthlyMinutes: number;
+    /** Сколько дел каталога не поместилось в дневной лимит и не попало в набор. */
+    droppedTasks: number;
+    /** Худший день недели: ежедневный минимум плюс недельные дела. */
+    maxDailyMinutes: number;
+    dailyLimit: number;
+    rooms: string[];
+    tags: TaskTag[];
+    days: DefaultTaskDay[];
+    notes: string[];
+  };
+}
+
+// ── Даты ───────────────────────────────────────────────────────────────────
+
+const isoDate = (date: Date): string => date.toISOString().slice(0, 10);
+
+const utcDay = (date: Date): Date =>
+  new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+
+/** Ближайший день недели на сегодня или позже: опора цикла «раз в N недель». */
+export const nextWeekdayDate = (today: Date, dayOfWeek: number): string => {
+  const base = utcDay(today);
+  base.setUTCDate(base.getUTCDate() + ((dayOfWeek - base.getUTCDay() + 7) % 7));
+
+  return isoDate(base);
+};
+
+/** Ближайшее число месяца на сегодня или позже: опора цикла «раз в N месяцев». */
+export const nextMonthDayDate = (today: Date, dayOfMonth: number): string => {
+  const base = utcDay(today);
+
+  if (dayOfMonth >= base.getUTCDate()) {
+    return isoDate(new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), dayOfMonth)));
+  }
+
+  return isoDate(new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + 1, dayOfMonth)));
+};
+
+/** Какой день недели у числа месяца в текущем месяце (0 — воскресенье). */
+const weekdayOfMonthDay = (today: Date, dayOfMonth: number): number =>
+  new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), dayOfMonth)).getUTCDay();
+
+/** Сдвигает ISO-дату на месяцы вперёд: разводит опорные даты циклов. */
+const shiftMonths = (date: string, months: number): string => {
+  const base = new Date(`${date}T00:00:00Z`);
+  base.setUTCMonth(base.getUTCMonth() + months);
+
+  return isoDate(base);
+};
+
+// ── Отбор кандидатов ───────────────────────────────────────────────────────
+
+/**
+ * Стирка под способ сушки. Общие задачи про стирку (без пометки) подходят всем,
+ * а «развесить на воздухе» при сушильной машине не предлагаем.
+ */
+const matchesDrying = (task: CatalogTask, answers: HomeAnswers): boolean => {
+  if (!task.tags.includes('laundry')) return true;
+
+  const wantsAir = task.tags.includes('dry_air');
+  const wantsMachine = task.tags.includes('dry_machine');
+
+  if (!wantsAir && !wantsMachine) return true;
+
+  return answers.drying === 'air' ? wantsAir : wantsMachine;
+};
+
+/** Подходит ли задача ответам анкеты: уровень уборки, контекст и способ сушки. */
+const isRelevant = (task: CatalogTask, answers: HomeAnswers, declared: TaskTag[]): boolean => {
+  if (!allowedLevels(answers.cleaningLevel).includes(task.level)) return false;
+
+  const needs = task.tags.filter((tag) => CONTEXT_TAGS.includes(tag));
+
+  if (needs.length > 0 && !needs.some((tag) => declared.includes(tag))) return false;
+
+  return matchesDrying(task, answers);
+};
+
+// ── Сборка набора ──────────────────────────────────────────────────────────
+
+interface DaySlot {
+  dayOfWeek: number;
+  label: string;
+  selected: boolean;
+  tasks: CatalogTask[];
+  /** Минуты дня: ежедневный минимум уже заложен в каждом дне. */
+  minutes: number;
+}
+
+/**
+ * Собирает постоянный набор задач по ответам анкеты.
+ *
+ * `today` передаётся параметром (а не берётся из Date.now внутри): от него
+ * зависят опорные даты циклов, и в проверках нужен предсказуемый результат.
+ */
+export const buildDefaultTasks = (
+  input: PartialHomeAnswers,
+  today: Date = new Date()
+): DefaultTaskSet => {
+  const answers = withDefaultAnswers(input);
+  const declared = activeHomeTags(answers);
+  const catalog = getTaskCatalog();
+  const catalogOrder = new Map(catalog.map((task, index) => [task.task, index]));
+  const pool = catalog.filter((task) => isRelevant(task, answers, declared));
+
+  const notes: string[] = [];
+  const tasks: DefaultTask[] = [];
+
+  // ── 1. Ежедневный минимум: 3-8 минут на пункт, суммарно до DAILY_MINUTES_CAP ─
+  const dailyLimit = DAILY_MINUTES_CAP[answers.dailyMinutes];
+  const dailyTasks: CatalogTask[] = [];
+  let dailyMinutes = 0;
+
+  for (const task of pool.filter((item) => item.cadence === 'daily')) {
+    if (dailyMinutes + task.minutes > dailyLimit) continue;
+
+    dailyTasks.push(task);
+    dailyMinutes += task.minutes;
+  }
+
+  // ── 2. Недельные дела по дням недели ──────────────────────────────────────
+  const selectedDays = orderWeekDays(answers.cleaningDays);
+  const cleaningDays = new Set(selectedDays);
+  const slots: DaySlot[] = WEEK_DAYS.map(({ dayOfWeek, label }) => ({
+    dayOfWeek,
+    label,
+    selected: cleaningDays.has(dayOfWeek),
+    tasks: [],
+    minutes: dailyMinutes,
+  }));
+
+  const weeklyPool = pool.filter((task) => WEEKLY_CADENCES.includes(task.cadence));
+  const placed = new Set<CatalogTask>();
+  const overflow: CatalogTask[] = [];
+
+  // Недельные дела занимают не больше MAX_WEEKLY_DAYS дней: оставшиеся дни
+  // недели остаются под месячные дела, которым нужно 15-20 минут подряд.
+  const weeklyDays = new Set(selectedDays.slice(0, MAX_WEEKLY_DAYS));
+
+  const fits = (slot: DaySlot, task: CatalogTask): boolean =>
+    slot.minutes + task.minutes <= MAX_DAILY_MINUTES;
+
+  /**
+   * Ставит задачу в самый свободный из выбранных дней недели.
+   *
+   * Возвращает false, если неделя заполнена — тогда дело уходит в месячный круг.
+   */
+  const place = (task: CatalogTask): boolean => {
+    const candidates = slots.filter(
+      (slot) => slot.selected && weeklyDays.has(slot.dayOfWeek) && fits(slot, task)
+    );
+
+    if (candidates.length === 0) return false;
+
+    const target = candidates.reduce((best, slot) => (slot.minutes < best.minutes ? slot : best));
+
+    target.tasks.push(task);
+    target.minutes += task.minutes;
+    placed.add(task);
+
+    return true;
+  };
+
+  /**
+   * Представители заявленных тем: по одному делу на каждый контекст анкеты.
+   * Без них про кота, гараж или офис в наборе можно не увидеть ни слова —
+   * жадный отбор всегда предпочтёт кухню и ванную.
+   */
+  const representatives = new Set<CatalogTask>();
+
+  for (const tag of CONTEXT_TAGS) {
+    if (!declared.includes(tag)) continue;
+
+    const candidate =
+      weeklyPool.find((task) => task.tags.includes(tag)) ??
+      pool.find((task) => task.tags.includes(tag));
+
+    if (candidate) representatives.add(candidate);
+  }
+
+  for (const task of representatives) {
+    if (task.cadence === 'weekly' || task.cadence === 'biweekly') place(task);
+  }
+
+  // Полы и пыль масштабируются по числу комнат: в маленькой квартире нет
+  // смысла в задачах «вымыть пол» для пяти разных зон.
+  const quotas: Array<{ tag: TaskTag; limit: number; skipped: number }> = [
+    { tag: 'floors', limit: FLOOR_QUOTA[answers.rooms], skipped: 0 },
+    { tag: 'dust', limit: DUST_QUOTA[answers.rooms], skipped: 0 },
+  ];
+
+  const countWith = (tag: TaskTag): number =>
+    [...placed].filter((task) => task.tags.includes(tag)).length;
+
+  for (const quota of quotas) {
+    for (const task of weeklyPool) {
+      if (countWith(quota.tag) >= quota.limit) break;
+      if (placed.has(task) || !task.tags.includes(quota.tag)) continue;
+
+      place(task);
+    }
+  }
+
+  for (const task of weeklyPool) {
+    if (placed.has(task)) continue;
+
+    const quota = quotas.find((item) => task.tags.includes(item.tag));
+
+    if (quota) {
+      if (countWith(quota.tag) >= quota.limit) {
+        quota.skipped += 1;
+        continue;
+      }
+      place(task);
+      continue;
+    }
+
+    if (!place(task)) overflow.push(task);
+  }
+
+  for (const slot of slots) {
+    for (const task of slot.tasks) {
+      const rule = CADENCE_RULES[task.cadence];
+
+      tasks.push({
+        title: task.task,
+        room: task.room,
+        minutes: task.minutes,
+        level: task.level,
+        tags: task.tags,
+        cadence: task.cadence,
+        frequency: rule.frequency,
+        intervalCount: rule.intervalCount,
+        dayOfWeek: slot.dayOfWeek,
+        dayOfMonth: null,
+        dueDate: rule.intervalCount > 1 ? nextWeekdayDate(today, slot.dayOfWeek) : null,
+        source: DEFAULT_TASK_SOURCE,
+      });
+    }
+  }
+
+  // ── 3. Месячные, квартальные, полугодовые и годовые дела ──────────────────
+  const skippedByQuota = quotas.reduce((sum, quota) => sum + quota.skipped, 0);
+
+  // Недельные дела, которым не хватило места ни в один день, не теряются:
+  // они переезжают в месячный круг — лимит недели остаётся неприкосновенным.
+  const monthlyPool = [
+    ...pool.filter((task) => MONTHLY_CADENCES.includes(task.cadence)),
+    ...overflow,
+  ].sort((left, right) => {
+    // Сначала представители заявленных тем: контекст анкеты важнее каданса.
+    const byRepresentative =
+      (representatives.has(left) ? 0 : 1) - (representatives.has(right) ? 0 : 1);
+
+    if (byRepresentative !== 0) return byRepresentative;
+
+    const byCadence = CADENCE_RANK[left.cadence] - CADENCE_RANK[right.cadence];
+
+    if (byCadence !== 0) return byCadence;
+
+    return (catalogOrder.get(left.task) ?? 0) - (catalogOrder.get(right.task) ?? 0);
+  });
+
+  /**
+   * Свободное время каждого числа месяца: лимит дня минус ежедневный минимум и
+   * недельные дела этого дня недели.
+   */
+  const weeklyLoad = new Map<number, number>();
+
+  for (const slot of slots) {
+    weeklyLoad.set(slot.dayOfWeek, slot.minutes - dailyMinutes);
+  }
+
+  const freeByDate = new Map<number, number>();
+  /**
+   * Нагрузка числа по «классам месяцев» (0-11): задача с интервалом N и опорой
+   * в месяце offset занимает классы месяцев, сравнимые с offset по модулю N.
+   * Так видно, что «раз в 3 месяца» не сталкивается с другой квартальной
+   * задачей на том же числе, а месячные и годовые не наезжают друг на друга.
+   */
+  const monthSlots = new Map<number, number[]>();
+
+  for (let day = 1; day <= 28; day += 1) {
+    const weekly = weeklyLoad.get(weekdayOfMonthDay(today, day)) ?? 0;
+
+    freeByDate.set(
+      day,
+      Math.max(0, Math.min(MONTHLY_DAY_CAP, MAX_DAILY_MINUTES - dailyMinutes - weekly))
+    );
+    monthSlots.set(day, new Array<number>(12).fill(0));
+  }
+
+  const monthBudget = [...freeByDate.values()].reduce((sum, value) => sum + value, 0);
+  const cycleOffset = new Map<TaskCadence, number>();
+  const monthTasks: DefaultTask[] = [];
+  const dropped: CatalogTask[] = [];
+  let spent = 0;
+
+  /** Месяцы цикла, в которые задача занимает своё число. */
+  const activeMonths = (interval: number, offset: number): number[] => {
+    const months: number[] = [];
+
+    for (let month = 0; month < 12; month += 1) {
+      if ((((month - offset) % interval) + interval) % interval === 0) months.push(month);
+    }
+
+    return months;
+  };
+
+  for (const task of monthlyPool) {
+    const demoted = WEEKLY_CADENCES.includes(task.cadence);
+    const cadence: TaskCadence = demoted ? 'monthly' : task.cadence;
+    const rule = CADENCE_RULES[cadence];
+
+    /**
+     * Амортизированная нагрузка: сколько минут числа занимает дело в пересчёте
+     * на месяц. «Раз в 3 месяца» по 15 минут — это 5 минут в месяц, поэтому
+     * редкие дела не съедают день целиком.
+     */
+    const weight = task.minutes / rule.intervalCount;
+
+    if (spent + weight > monthBudget) {
+      dropped.push(task);
+      continue;
+    }
+
+    const offset = (cycleOffset.get(cadence) ?? 0) % rule.intervalCount;
+    const months = activeMonths(rule.intervalCount, offset);
+
+    /** Сколько минут ещё влезает на это число в худшем из его месяцев. */
+    const slack = (day: number): number => {
+      const loads = monthSlots.get(day) ?? [];
+      const limit = freeByDate.get(day) ?? 0;
+
+      return months.reduce(
+        (worst, month) => Math.min(worst, limit - (loads[month] ?? 0) - task.minutes),
+        Number.POSITIVE_INFINITY
+      );
+    };
+
+    const candidates = [...freeByDate.keys()].filter((day) => slack(day) >= 0);
+
+    if (candidates.length === 0) {
+      dropped.push(task);
+      continue;
+    }
+
+    const target = candidates.sort((left, right) => {
+      const bySlack = slack(right) - slack(left);
+
+      if (Math.abs(bySlack) > 0.001) return bySlack;
+
+      // При равном запасе — сначала числа, свободные от недельной уборки.
+      const leftBusy = cleaningDays.has(weekdayOfMonthDay(today, left)) ? 1 : 0;
+      const rightBusy = cleaningDays.has(weekdayOfMonthDay(today, right)) ? 1 : 0;
+
+      if (leftBusy !== rightBusy) return leftBusy - rightBusy;
+
+      return left - right;
+    })[0];
+
+    const loads = monthSlots.get(target) ?? [];
+
+    for (const month of months) {
+      loads[month] = (loads[month] ?? 0) + task.minutes;
+    }
+
+    monthSlots.set(target, loads);
+    cycleOffset.set(cadence, (cycleOffset.get(cadence) ?? 0) + 1);
+    spent += weight;
+
+    monthTasks.push({
+      title: task.task,
+      room: task.room,
+      minutes: task.minutes,
+      level: task.level,
+      tags: task.tags,
+      cadence,
+      frequency: rule.frequency,
+      intervalCount: rule.intervalCount,
+      dayOfWeek: null,
+      dayOfMonth: target,
+      // Опорные даты циклов разводятся по месяцам: иначе все квартальные дела
+      // выпадали бы на один и тот же месяц и устраивали там «генеральную».
+      dueDate: rule.intervalCount > 1 ? shiftMonths(nextMonthDayDate(today, target), offset) : null,
+      source: DEFAULT_TASK_SOURCE,
+    });
+  }
+
+  // ── 4. Ежедневные и итоги ─────────────────────────────────────────────────
+  const dailyResult: DefaultTask[] = dailyTasks.map((task) => {
+    const rule = CADENCE_RULES.daily;
+
+    return {
+      title: task.task,
+      room: task.room,
+      minutes: task.minutes,
+      level: task.level,
+      tags: task.tags,
+      cadence: task.cadence,
+      frequency: rule.frequency,
+      intervalCount: rule.intervalCount,
+      dayOfWeek: null,
+      dayOfMonth: null,
+      dueDate: null,
+      source: DEFAULT_TASK_SOURCE,
+    };
+  });
+
+  const allTasks = [...dailyResult, ...tasks, ...monthTasks];
+
+  const weeklyTasks = tasks.filter((task) => task.frequency === 'weekly');
+  const weeklyMinutes = weeklyTasks.reduce((sum, task) => sum + task.minutes, 0);
+  const monthlyMinutes = monthTasks.reduce((sum, task) => sum + task.minutes, 0);
+  const maxDailyMinutes = slots.reduce((max, slot) => Math.max(max, slot.minutes), 0);
+
+  const days: DefaultTaskDay[] = slots.map((slot) => ({
+    dayOfWeek: slot.dayOfWeek,
+    label: slot.label,
+    selected: slot.selected,
+    tasks: [
+      ...dailyResult,
+      ...tasks.filter((task) => task.dayOfWeek === slot.dayOfWeek),
+    ],
+    minutes: slot.minutes,
+  }));
+
+  notes.push(`Ежедневный минимум: ${dailyResult.length} дел на ${dailyMinutes} минут каждый день`);
+
+  if (overflow.length > 0) {
+    notes.push(
+      `Недельных дел больше, чем помещается в лимит: ${overflow.length} переведены в месячные`
+    );
+  }
+
+  if (dropped.length > 0) {
+    notes.push(
+      `В набор вошли ${allTasks.length} дел — столько помещается в лимит ${MAX_DAILY_MINUTES} минут в день`
+    );
+  }
+
+  if (skippedByQuota > 0) {
+    notes.push(
+      `Полы и пыль масштабированы по числу комнат (${answers.rooms}): ${skippedByQuota} задач других зон не добавлены`
+    );
+  }
+
+  return {
+    scheduleTitle: DEFAULT_TASKS_SCHEDULE_TITLE,
+    tasks: allTasks,
+    summary: {
+      totalTasks: allTasks.length,
+      totalMinutes: allTasks.reduce((sum, task) => sum + task.minutes, 0),
+      dailyTasks: dailyResult.length,
+      dailyMinutes,
+      weeklyTasks: weeklyTasks.length,
+      weeklyMinutes,
+      monthlyTasks: monthTasks.length,
+      monthlyMinutes,
+      droppedTasks: dropped.length,
+      maxDailyMinutes,
+      dailyLimit: MAX_DAILY_MINUTES,
+      rooms: [...new Set(allTasks.map((task) => task.room))],
+      tags: [...new Set(allTasks.flatMap((task) => task.tags))],
+      days,
+      notes,
+    },
+  };
+};
+
+/** Сколько задач каталога подходит под ответы — для диагностики пустого набора. */
+export const defaultTaskCandidateCount = (input: PartialHomeAnswers): number => {
+  const answers = withDefaultAnswers(input);
+  const declared = activeHomeTags(answers);
+
+  return getTaskCatalog().filter((task) => isRelevant(task, answers, declared)).length;
+};

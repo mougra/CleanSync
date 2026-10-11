@@ -47,9 +47,26 @@ router.get('/today', authMiddleware, async (req: Request, res: Response) => {
                    AND (t.assignee_id IS NULL OR t.assignee_id = $1))
              )
          AND (
-           (t.frequency = 'daily') OR
-           (t.frequency = 'weekly' AND t.day_of_week = $2) OR
-           (t.frequency = 'monthly' AND t.day_of_month = $3) OR
+           -- Периодичность «раз в N дней/недель/месяцев» (interval_count).
+           -- При interval_count = 1 всё как раньше: задача дня/недели/месяца.
+           -- При большем интервале цикл считается от due_date — даты первой
+           -- постановки, поэтому «раз в 3 месяца» не всплывает каждый месяц.
+           (t.frequency = 'daily' AND t.interval_count <= 1) OR
+           (t.frequency = 'daily' AND t.due_date IS NOT NULL
+             AND MOD(($4::date - t.due_date), t.interval_count) = 0) OR
+           (t.frequency = 'weekly' AND t.day_of_week = $2 AND t.interval_count <= 1) OR
+           (t.frequency = 'weekly' AND t.day_of_week = $2 AND t.due_date IS NOT NULL
+             AND MOD(FLOOR(($4::date - t.due_date)::numeric / 7)::int, t.interval_count) = 0) OR
+           (t.frequency = 'monthly' AND t.day_of_month = $3 AND t.interval_count <= 1) OR
+           (t.frequency = 'monthly' AND t.day_of_month = $3 AND t.due_date IS NOT NULL
+             AND MOD(
+                   MOD(
+                     (EXTRACT(YEAR FROM $4::date) * 12 + EXTRACT(MONTH FROM $4::date))
+                     - (EXTRACT(YEAR FROM t.due_date) * 12 + EXTRACT(MONTH FROM t.due_date)),
+                     t.interval_count
+                   ) + t.interval_count,
+                   t.interval_count
+                 ) = 0) OR
            (t.due_date = $4)
          )
        ORDER BY t.time ASC`,
@@ -90,7 +107,7 @@ router.get('/today', authMiddleware, async (req: Request, res: Response) => {
 router.post('/', authMiddleware, async (req: Request, res: Response) => {
 
   try {
-    const { schedule_id, title, frequency, day_of_week, day_of_month, due_date, time, estimated_minutes, room } = req.body;
+    const { schedule_id, title, frequency, day_of_week, day_of_month, due_date, time, estimated_minutes, room, interval_count } = req.body;
 
     if (!schedule_id || !title) {
       return res.status(400).json({ error: 'schedule_id and title required' });
@@ -106,9 +123,15 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
+    // «Раз в N дней/недель/месяцев»: интервал меньше единицы не имеет смысла,
+    // поэтому всё, что не положительное целое, сводится к «раз в 1».
+    const interval = Number.isInteger(interval_count) && interval_count > 0 ? interval_count : 1;
+
+    // `??`, а не `||`: ноль здесь законное значение. `day_of_week = 0` — это
+    // воскресенье, и с `||` повтор на воскресенье сохранялся как «без дня».
     const result = await pool.query(
-      'INSERT INTO tasks (schedule_id, title, frequency, day_of_week, day_of_month, due_date, time, estimated_minutes, room) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id, title, frequency, day_of_week, day_of_month, due_date, time, estimated_minutes, room, is_completed, created_at',
-      [schedule_id, title, frequency || null, day_of_week || null, day_of_month || null, due_date || null, time || null, estimated_minutes || 0, room || null]
+      'INSERT INTO tasks (schedule_id, title, frequency, day_of_week, day_of_month, due_date, time, estimated_minutes, room, interval_count) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id, title, frequency, interval_count, day_of_week, day_of_month, due_date, time, estimated_minutes, room, is_completed, created_at',
+      [schedule_id, title, frequency ?? null, day_of_week ?? null, day_of_month ?? null, due_date ?? null, time ?? null, estimated_minutes ?? 0, room ?? null, interval]
     );
 
     res.status(201).json(result.rows[0]);
@@ -122,7 +145,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
 router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { title, frequency, day_of_week, day_of_month, due_date, time, estimated_minutes, room, is_completed } = req.body;
+    const { title, frequency, day_of_week, day_of_month, due_date, time, estimated_minutes, room, is_completed, interval_count } = req.body;
 
     // Check ownership via schedule
     const taskResult = await pool.query(
@@ -151,6 +174,8 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
         time = COALESCE($6, time),
         estimated_minutes = COALESCE($7, estimated_minutes),
         room = COALESCE($8, room),
+        -- Интервал периодичности: принимаем только положительное целое
+        interval_count = COALESCE($12::int, interval_count),
         is_completed = COALESCE($9, is_completed),
         completed_at = CASE
           WHEN COALESCE($9, is_completed) = TRUE THEN CURRENT_TIMESTAMP
@@ -163,8 +188,8 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
           ELSE NULL
         END
       WHERE id = $10
-      RETURNING id, title, frequency, day_of_week, day_of_month, due_date, time, estimated_minutes, room, is_completed, completed_at, created_at, assignee_id, completed_by`,
-      [title || null, frequency || null, day_of_week || null, day_of_month || null, due_date || null, time || null, estimated_minutes || null, room || null, is_completed !== undefined ? is_completed : null, id, req.userId]
+      RETURNING id, title, frequency, interval_count, day_of_week, day_of_month, due_date, time, estimated_minutes, room, is_completed, completed_at, created_at, assignee_id, completed_by`,
+      [title ?? null, frequency ?? null, day_of_week ?? null, day_of_month ?? null, due_date ?? null, time ?? null, estimated_minutes ?? null, room ?? null, is_completed !== undefined ? is_completed : null, id, req.userId, Number.isInteger(interval_count) && interval_count > 0 ? interval_count : null]
     );
 
     // Award achievements if task was completed

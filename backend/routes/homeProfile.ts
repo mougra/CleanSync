@@ -2,6 +2,11 @@ import express, { Request, Response } from 'express';
 import pool from '../db';
 import { authMiddleware } from '../auth';
 import {
+  buildDefaultTasks,
+  DEFAULT_TASK_SOURCE,
+  type DefaultTaskSet,
+} from '../services/defaultTasks';
+import {
   buildHomePlan,
   CLEANING_LEVELS,
   CLEANING_STYLES,
@@ -20,12 +25,21 @@ import {
 } from '../services/homePlan';
 
 /**
- * Мастер «Настройка по дому»: анкета о доме и ритме уборки + генерация плана.
+ * Мастер «Настройка по дому»: анкета о доме и ритме уборки + генерация планов.
  *
  * Профиль дома один на пользователя (home_profiles.user_id — первичный ключ),
  * ответы можно сохранять пошагово: PUT принимает и одно поле, и все сразу.
- * Сгенерированный план живёт в обычных schedules/tasks с заголовком «План по
- * дому», поэтому он сразу работает в «Сегодня», статистике и достижениях.
+ *
+ * По ответам собираются два набора:
+ *  - «План по дому» — недельный план (services/homePlan.ts). Пересобирается
+ *    целиком при каждом POST /plan, поэтому он всегда отражает анкету;
+ *  - «Мои задачи» — постоянный список дел с периодичностью
+ *    (services/defaultTasks.ts). Появляется сам, как только анкета пройдена
+ *    (PUT с `complete: true`), и дальше живёт своей жизнью: пользователь может
+ *    задачи менять и дополнять.
+ *
+ * Оба набора живут в обычных schedules/tasks, поэтому сразу работают в
+ * «Сегодня», статистике и достижениях.
  */
 const router = express.Router();
 
@@ -254,7 +268,29 @@ router.put('/', authMiddleware, async (req: Request, res: Response) => {
       );
     }
 
-    res.json(toProfileResponse(await loadProfile(userId)));
+    const updated = await loadProfile(userId);
+
+    /**
+     * Анкета пройдена — сразу собираем постоянный набор «Мои задачи», не
+     * дожидаясь кнопки «собрать план»: готовый список дел должен появляться
+     * сам. Повторные вызовы безопасны: набор идемпотентен, а `removeStale`
+     * здесь выключен, чтобы правки пользователя не улетали при каждом шаге.
+     */
+    if (updated && updated.completed_at) {
+      try {
+        const defaultSet = buildDefaultTasks(toAnswers(updated));
+        const myTasks = await syncDefaultTasks(userId, defaultSet, { removeStale: false });
+
+        res.json({ ...toProfileResponse(updated), myTasks: toMyTasksResponse(myTasks, defaultSet) });
+        return;
+      } catch (err) {
+        // Профиль уже сохранён: неудача сборки набора не должна превращать
+        // успешный PUT в 500 — набор достроится при следующем обращении.
+        console.error('Не удалось собрать «Мои задачи»:', err);
+      }
+    }
+
+    res.json(toProfileResponse(updated));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to save home profile' });
@@ -389,10 +425,149 @@ const savePlan = async (userId: string, plan: HomePlan) => {
 };
 
 /**
- * POST /api/home-profile/plan — собрать план по сохранённым ответам.
+ * Приводит расписание «Мои задачи» в соответствие с набором по анкете.
  *
- * Повторный вызов заменяет прошлый план, поэтому кнопку «пересобрать» можно
- * нажимать сколько угодно раз.
+ * Идемпотентность устроена так:
+ *  - расписание ищется по заголовку и создаётся только если его нет;
+ *  - уже существующие задачи с тем же названием не трогаются вообще — человек
+ *    мог поменять им минуты, день или периодичность, и перезапись это стёрла бы;
+ *  - добавляются только недостающие названия, поэтому повторный вызов не плодит
+ *    дубли (ключ — название задачи внутри расписания);
+ *  - с `removeStale` (это явная пересборка через POST /plan) убираются только
+ *    устаревшие задачи, которые создал этот же набор (`source`), и только
+ *    незакрытые: выполненная история и задачи, созданные руками, остаются.
+ */
+const syncDefaultTasks = async (
+  userId: string,
+  set: DefaultTaskSet,
+  options: { removeStale: boolean }
+): Promise<{ scheduleId: number; created: number; existing: number; removed: number; total: number }> => {
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    // Два одновременных вызова (двойной клик по «пересобрать») иначе могли бы
+    // создать два расписания «Мои задачи»: блокировка живёт до конца транзакции.
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1), $2::int)', [
+      set.scheduleTitle,
+      userId,
+    ]);
+
+    const existingSchedule = await client.query<{ id: number }>(
+      'SELECT id FROM schedules WHERE user_id = $1 AND title = $2 ORDER BY id LIMIT 1',
+      [userId, set.scheduleTitle]
+    );
+
+    let scheduleId = existingSchedule.rows[0]?.id;
+
+    if (scheduleId === undefined) {
+      const inserted = await client.query<{ id: number }>(
+        `INSERT INTO schedules (user_id, title, description)
+         VALUES ($1, $2, $3)
+         RETURNING id`,
+        [
+          userId,
+          set.scheduleTitle,
+          `Постоянные дела по настройкам дома: ${set.summary.totalTasks} задач, до ${set.summary.maxDailyMinutes} минут в день`,
+        ]
+      );
+
+      scheduleId = inserted.rows[0].id;
+    }
+
+    const current = await client.query<{
+      id: number;
+      title: string;
+      is_completed: boolean;
+      source: string | null;
+    }>('SELECT id, title, is_completed, source FROM tasks WHERE schedule_id = $1', [scheduleId]);
+
+    const byTitle = new Map(current.rows.map((row) => [row.title, row]));
+    const wanted = new Set(set.tasks.map((task) => task.title));
+
+    let created = 0;
+    let existing = 0;
+
+    for (const task of set.tasks) {
+      if (byTitle.has(task.title)) {
+        existing += 1;
+        continue;
+      }
+
+      await client.query(
+        `INSERT INTO tasks
+           (schedule_id, title, room, estimated_minutes, frequency, interval_count,
+            day_of_week, day_of_month, due_date, source)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          scheduleId,
+          task.title,
+          task.room,
+          task.minutes,
+          task.frequency,
+          task.intervalCount,
+          task.dayOfWeek,
+          task.dayOfMonth,
+          task.dueDate,
+          task.source,
+        ]
+      );
+
+      created += 1;
+    }
+
+    let removed = 0;
+
+    if (options.removeStale) {
+      const stale = current.rows.filter(
+        (row) => row.source === DEFAULT_TASK_SOURCE && !row.is_completed && !wanted.has(row.title)
+      );
+
+      if (stale.length > 0) {
+        await client.query('DELETE FROM tasks WHERE id = ANY($1::int[])', [
+          stale.map((row) => row.id),
+        ]);
+        removed = stale.length;
+      }
+    }
+
+    const total = await client.query<{ total: number }>(
+      'SELECT COUNT(*)::int AS total FROM tasks WHERE schedule_id = $1',
+      [scheduleId]
+    );
+
+    await client.query('COMMIT');
+
+    return { scheduleId, created, existing, removed, total: total.rows[0].total };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+};
+
+/** Ответ по постоянному набору: что записалось и как он выглядит по нагрузке. */
+const toMyTasksResponse = (
+  saved: { scheduleId: number; created: number; existing: number; removed: number; total: number },
+  set: DefaultTaskSet
+) => ({
+  ...saved,
+  title: set.scheduleTitle,
+  dailyMinutes: set.summary.dailyMinutes,
+  weeklyTasks: set.summary.weeklyTasks,
+  monthlyTasks: set.summary.monthlyTasks,
+  maxDailyMinutes: set.summary.maxDailyMinutes,
+  notes: set.summary.notes,
+});
+
+/**
+ * POST /api/home-profile/plan — собрать планы по сохранённым ответам.
+ *
+ * Повторный вызов заменяет недельный «План по дому» и достраивает «Мои задачи»
+ * (недостающие дела добавляются, устаревшие незакрытые — убираются), поэтому
+ * кнопку «пересобрать» можно нажимать сколько угодно раз: дублей не будет.
  */
 router.post('/plan', authMiddleware, async (req: Request, res: Response) => {
   try {
@@ -406,6 +581,11 @@ router.post('/plan', authMiddleware, async (req: Request, res: Response) => {
 
     const plan = buildHomePlan(toAnswers(row));
     const saved = await savePlan(userId, plan);
+
+    // Постоянный набор «Мои задачи» собирается из тех же ответов, но пишется
+    // идемпотентно: повторный вызов не создаёт второй раз те же дела.
+    const defaultSet = buildDefaultTasks(toAnswers(row));
+    const myTasks = await syncDefaultTasks(userId, defaultSet, { removeStale: true });
 
     // Задачам присваиваем настоящие id: интерфейс сразу может их отмечать
     // тем же PUT /api/tasks/:id, что и любую другую задачу.
@@ -436,6 +616,7 @@ router.post('/plan', authMiddleware, async (req: Request, res: Response) => {
       days,
       summary: plan.summary,
       generatedFor: toAnswers(row),
+      myTasks: toMyTasksResponse(myTasks, defaultSet),
     });
   } catch (err) {
     console.error(err);
@@ -443,7 +624,51 @@ router.post('/plan', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
-/** DELETE /api/home-profile — сбросить анкету и созданный по ней план. */
+/**
+ * GET /api/home-profile/plan — посмотреть план по сохранённым ответам.
+ *
+ * Ничего не перезаписывает: недельный план считается заново (он идемпотентен),
+ * а постоянный набор «Мои задачи» только достраивается, если пользователь
+ * завёл анкету до появления этой функции. Так «первое обращение к плану» тоже
+ * даёт человеку готовый список дел.
+ */
+router.get('/plan', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const userId = String(req.userId);
+    const row = await loadProfile(userId);
+
+    if (!row) {
+      res.status(400).json({ error: 'Сначала заполните анкету о доме' });
+      return;
+    }
+
+    const plan = buildHomePlan(toAnswers(row));
+    const stored = await pool.query<{ id: number; created_at: string }>(
+      `SELECT id, created_at::text AS created_at FROM schedules WHERE user_id = $1 AND title = $2 ORDER BY id LIMIT 1`,
+      [userId, PLAN_TITLE]
+    );
+
+    const defaultSet = buildDefaultTasks(toAnswers(row));
+    const myTasks = await syncDefaultTasks(userId, defaultSet, { removeStale: false });
+
+    res.json({
+      schedule: stored.rows[0]
+        ? { id: stored.rows[0].id, title: PLAN_TITLE, createdAt: stored.rows[0].created_at }
+        : null,
+      level: plan.level,
+      focusZone: plan.focusZone,
+      days: plan.days,
+      summary: plan.summary,
+      generatedFor: toAnswers(row),
+      myTasks: toMyTasksResponse(myTasks, defaultSet),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch home plan' });
+  }
+});
+
+/** DELETE /api/home-profile — сбросить анкету и собранный по ней недельный план. */
 router.delete('/', authMiddleware, async (req: Request, res: Response) => {
   const client = await pool.connect();
   const userId = String(req.userId);
@@ -465,6 +690,8 @@ router.delete('/', authMiddleware, async (req: Request, res: Response) => {
     res.json({
       profileReset: (deletedProfile.rowCount ?? 0) > 0,
       planDeleted: (deletedSchedule.rowCount ?? 0) > 0,
+      // «Мои задачи» намеренно остаются: это уже рабочий список человека,
+      // который он мог дополнить и поправить, — сброс анкеты его не касается.
       profile: null,
       completed: false,
     });

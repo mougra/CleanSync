@@ -7,6 +7,7 @@
  */
 import dotenv from 'dotenv';
 import pool from '../db';
+import { getTaskCatalog } from '../services/taskCatalog';
 
 dotenv.config();
 
@@ -215,10 +216,28 @@ const main = async () => {
     cleaningStyle: 'often_small',
     cleaningDays: [1, 3, 6],
     hardestZone: 'kitchen',
+    // Мастер отмечает последний шаг явно: без флага completed_at не ставится
+    complete: true,
   });
   check(complete.status === 200, `полная анкета: ${complete.status}`);
   check(complete.body?.completed === true, 'анкета заполнена, но completed=false');
   console.log(`\nАнкета заполнена, completed=${complete.body.completed}`);
+
+  // Постоянный набор обязан появиться сам, ещё до кнопки «собрать план»
+  const autoCreated = await pool.query<{ total: number }>(
+    `SELECT COUNT(*)::int AS total FROM tasks t
+       JOIN schedules s ON s.id = t.schedule_id
+      WHERE s.user_id = $1 AND s.title = 'Мои задачи'`,
+    [first.id]
+  );
+
+  check(
+    autoCreated.rows[0].total > 0,
+    'после завершения анкеты набор «Мои задачи» не создался автоматически'
+  );
+  console.log(
+    `«Мои задачи» сразу после анкеты: ${autoCreated.rows[0].total} задач (создано вызовом ${complete.body?.myTasks?.created})`
+  );
 
   // ── 3. Сценарий из задания ───────────────────────────────────────────────
   const scenarioA = await call('POST', '/home-profile/plan', first.token);
@@ -374,7 +393,321 @@ const main = async () => {
     `A: кухня (трудная зона) не попала в первый день недели (${JSON.stringify(kitchenDays)} vs ${JSON.stringify(activeA)})`
   );
 
-  // ── 6. Сброс анкеты ─────────────────────────────────────────────────────
+  // ── 6. Постоянный набор «Мои задачи» ────────────────────────────────────
+  const MY_TASKS = 'Мои задачи';
+
+  interface MyTaskRow {
+    id: number;
+    title: string;
+    room: string | null;
+    estimated_minutes: number;
+    frequency: string;
+    interval_count: number;
+    day_of_week: number | null;
+    day_of_month: number | null;
+    due_date: string | null;
+    source: string | null;
+    is_completed: boolean;
+  }
+
+  const loadMyTasks = async (userId: number): Promise<MyTaskRow[]> => {
+    const result = await pool.query<MyTaskRow>(
+      `SELECT t.id, t.title, t.room, t.estimated_minutes, t.frequency, t.interval_count,
+              t.day_of_week, t.day_of_month, t.due_date::text AS due_date, t.source, t.is_completed
+         FROM tasks t
+         JOIN schedules s ON s.id = t.schedule_id
+        WHERE s.user_id = $1 AND s.title = $2
+        ORDER BY t.id`,
+      [userId, MY_TASKS]
+    );
+
+    return result.rows;
+  };
+
+  const catalogTitles = (tag: string): Set<string> =>
+    new Set(getTaskCatalog().filter((task) => task.tags.includes(tag as never)).map((task) => task.task));
+
+  const petTitles = catalogTitles('pets');
+  const kidsTitles = catalogTitles('kids');
+
+  const scheduleCount = async (userId: number, title: string): Promise<number> => {
+    const result = await pool.query<{ total: number }>(
+      'SELECT COUNT(*)::int AS total FROM schedules WHERE user_id = $1 AND title = $2',
+      [userId, title]
+    );
+
+    return result.rows[0].total;
+  };
+
+  const tasksFirst = await loadMyTasks(first.id);
+  const mySchedules = await scheduleCount(first.id, MY_TASKS);
+
+  check(mySchedules === 1, `«Мои задачи»: расписаний ${mySchedules}, ожидалось 1`);
+  check(tasksFirst.length >= 20, `«Мои задачи»: всего ${tasksFirst.length} задач — слишком мало`);
+  check(
+    new Set(tasksFirst.map((task) => task.title)).size === tasksFirst.length,
+    '«Мои задачи»: есть дубли названий'
+  );
+  check(
+    tasksFirst.every((task) => task.source === 'home_profile_defaults'),
+    '«Мои задачи»: не у всех задач проставлен source'
+  );
+
+  // Периодичность: у набора есть ежедневные, недельные, месячные и редкие дела
+  for (const [label, predicate] of [
+    ['ежедневные', (task: MyTaskRow) => task.frequency === 'daily'],
+    ['недельные', (task: MyTaskRow) => task.frequency === 'weekly'],
+    ['месячные', (task: MyTaskRow) => task.frequency === 'monthly'],
+    ['раз в 3 месяца', (task: MyTaskRow) => task.interval_count === 3],
+    ['раз в полгода', (task: MyTaskRow) => task.interval_count === 6],
+  ] as Array<[string, (task: MyTaskRow) => boolean]>) {
+    check(tasksFirst.some(predicate), `«Мои задачи»: нет дел «${label}»`);
+  }
+
+  check(
+    tasksFirst.filter((task) => task.interval_count > 1).every((task) => task.due_date !== null),
+    '«Мои задачи»: у дела с интервалом больше 1 нет опорной даты'
+  );
+  check(
+    tasksFirst
+      .filter((task) => task.frequency === 'weekly')
+      .every((task) => task.day_of_week !== null),
+    '«Мои задачи»: недельное дело без дня недели'
+  );
+  check(
+    tasksFirst
+      .filter((task) => task.frequency === 'monthly')
+      .every((task) => task.day_of_month !== null && task.day_of_month >= 1 && task.day_of_month <= 28),
+    '«Мои задачи»: месячное дело без числа месяца'
+  );
+
+  // Дневной лимит: ежедневный минимум плюс недельные дела любого дня недели
+  const dailyMinutes = tasksFirst
+    .filter((task) => task.frequency === 'daily')
+    .reduce((sum, task) => sum + task.estimated_minutes, 0);
+
+  for (let day = 0; day <= 6; day += 1) {
+    const weeklyMinutes = tasksFirst
+      .filter((task) => task.frequency === 'weekly' && task.day_of_week === day)
+      .reduce((sum, task) => sum + task.estimated_minutes, 0);
+
+    check(
+      dailyMinutes + weeklyMinutes <= 40,
+      `«Мои задачи»: день ${DAY_LABELS[day]} — ${dailyMinutes + weeklyMinutes} мин при лимите 40`
+    );
+  }
+
+  console.log(
+    `\n«Мои задачи»: расписаний ${mySchedules}, задач ${tasksFirst.length}, ежедневно ${dailyMinutes} мин`
+  );
+  console.log(
+    `периодичность: ${JSON.stringify(
+      tasksFirst.reduce<Record<string, number>>((acc, task) => {
+        const key = task.frequency === 'monthly' ? `monthly+${task.interval_count}` : task.frequency;
+        acc[key] = (acc[key] ?? 0) + 1;
+        return acc;
+      }, {})
+    )}`
+  );
+
+  // Сами задачи: они попадают в «Сегодня» по правилу (частота + интервал)
+  const todayResult = await call('GET', '/tasks/today', first.token);
+  check(todayResult.status === 200, `GET /tasks/today: ${todayResult.status}`);
+
+  const todayIds = new Set<number>(
+    Object.values(todayResult.body?.tasks ?? {})
+      .flat()
+      .map((task: any) => Number(task.id))
+  );
+
+  /** Та же выборка, что и в SQL маршрута: проверяем её на живых данных. */
+  const mod = (value: number, divisor: number) => ((value % divisor) + divisor) % divisor;
+  const daysBetween = (from: string, to: string) =>
+    Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+  const monthsBetween = (from: string, to: string) => {
+    const left = new Date(`${from}T00:00:00Z`);
+    const right = new Date(`${to}T00:00:00Z`);
+
+    return (
+      right.getUTCFullYear() * 12 +
+      right.getUTCMonth() -
+      (left.getUTCFullYear() * 12 + left.getUTCMonth())
+    );
+  };
+
+  const now = new Date();
+  const todayIso = now.toISOString().slice(0, 10);
+  const dayOfWeek = now.getUTCDay();
+  const dayOfMonth = now.getUTCDate();
+
+  const isDue = (task: MyTaskRow): boolean => {
+    if (task.frequency === 'daily') {
+      if (task.interval_count <= 1) return true;
+      return task.due_date !== null && mod(daysBetween(task.due_date, todayIso), task.interval_count) === 0;
+    }
+
+    if (task.frequency === 'weekly') {
+      if (task.day_of_week !== dayOfWeek) return false;
+      if (task.interval_count <= 1) return true;
+      return (
+        task.due_date !== null &&
+        mod(Math.floor(daysBetween(task.due_date, todayIso) / 7), task.interval_count) === 0
+      );
+    }
+
+    if (task.frequency === 'monthly') {
+      if (task.day_of_month !== dayOfMonth) return false;
+      if (task.interval_count <= 1) return true;
+      return (
+        task.due_date !== null &&
+        mod(monthsBetween(task.due_date, todayIso), task.interval_count) === 0
+      );
+    }
+
+    return task.due_date === todayIso;
+  };
+
+  const allTasks = await pool.query<MyTaskRow>(
+    `SELECT t.id, t.title, t.room, t.estimated_minutes, t.frequency, t.interval_count,
+            t.day_of_week, t.day_of_month, t.due_date::text AS due_date, t.source, t.is_completed
+       FROM tasks t JOIN schedules s ON s.id = t.schedule_id
+      WHERE s.user_id = $1`,
+    [first.id]
+  );
+
+  const expectedIds = allTasks.rows.filter(isDue).map((task) => task.id).sort((a, b) => a - b);
+  const actualIds = [...todayIds].sort((a, b) => a - b);
+
+  check(
+    JSON.stringify(expectedIds) === JSON.stringify(actualIds),
+    `«Сегодня»: выборка расходится с правилом (ожидалось ${expectedIds.length}, пришло ${actualIds.length})`
+  );
+  check(todayIds.size > 0, '«Сегодня»: у пользователя с набором нет ни одной задачи на сегодня');
+  console.log(`«Сегодня»: задач ${todayIds.size}, ожидалось по правилу ${expectedIds.length}`);
+
+  // Идемпотентность: повторная пересборка не плодит задачи
+  const secondBuild = await call('POST', '/home-profile/plan', first.token);
+  const tasksSecond = await loadMyTasks(first.id);
+
+  check(
+    secondBuild.body?.myTasks?.created === 0,
+    `повторный план создал ${secondBuild.body?.myTasks?.created} новых задач «Мои задачи»`
+  );
+  check(
+    tasksSecond.length === tasksFirst.length,
+    `повторный план изменил число задач: ${tasksFirst.length} → ${tasksSecond.length}`
+  );
+  check(
+    (await scheduleCount(first.id, MY_TASKS)) === 1,
+    'повторный план создал второе расписание «Мои задачи»'
+  );
+  console.log(
+    `Идемпотентность «Мои задачи»: created=${secondBuild.body?.myTasks?.created}, existing=${secondBuild.body?.myTasks?.existing}, всего ${tasksSecond.length}`
+  );
+
+  // GET /plan достраивает набор, но ничего не перезаписывает
+  const getPlan = await call('GET', '/home-profile/plan', first.token);
+  check(getPlan.status === 200, `GET /plan: ${getPlan.status}`);
+  check(getPlan.body?.myTasks?.created === 0, `GET /plan создал ${getPlan.body?.myTasks?.created} задач`);
+  check(getPlan.body?.schedule !== null, 'GET /plan не нашёл сохранённый «План по дому»');
+  console.log(
+    `GET /plan: расписание #${getPlan.body?.schedule?.id}, «Мои задачи» created=${getPlan.body?.myTasks?.created}`
+  );
+
+  // Правки пользователя не затираются пересборкой
+  const edited = tasksFirst[0];
+  const edit = await call('PUT', `/tasks/${edited.id}`, first.token, { estimated_minutes: 7 });
+  check(edit.status === 200 && edit.body?.estimated_minutes === 7, `правка задачи: ${edit.status}`);
+  await call('POST', '/home-profile/plan', first.token);
+
+  const afterRebuild = await loadMyTasks(first.id);
+  const kept = afterRebuild.find((task) => task.id === edited.id);
+
+  check(kept?.estimated_minutes === 7, 'пересборка перезаписала правку пользователя');
+  check(Boolean(kept), 'пересборка удалила задачу пользователя');
+  console.log(`Правка задачи сохранена: ${edited.title} → ${kept?.estimated_minutes} мин`);
+
+  // Фильтрация по ответам: у третьего пользователя питомцев нет
+  const thirdTasks = await loadMyTasks(third.id);
+  check(thirdTasks.length > 0, 'у третьего пользователя нет набора «Мои задачи»');
+  check(
+    thirdTasks.every((task) => !petTitles.has(task.title)),
+    'у пользователя без питомцев есть задачи про питомцев'
+  );
+  check(
+    thirdTasks.every((task) => !kidsTitles.has(task.title)),
+    'у пользователя без детской есть задачи про детскую'
+  );
+  console.log(`Без питомцев и детской: задач ${thirdTasks.length}, из них про питомцев 0`);
+
+  // Ответы изменились (появился кот) — набор достраивается, а потом лишнее уходит
+  await call('PUT', '/home-profile', third.token, { pets: ['cats'] });
+  const withCat = await call('POST', '/home-profile/plan', third.token);
+  const withCatTasks = await loadMyTasks(third.id);
+
+  check(
+    withCatTasks.some((task) => petTitles.has(task.title)),
+    'после появления кота в наборе нет задач про питомцев'
+  );
+  console.log(
+    `Появился кот: добавлено ${withCat.body?.myTasks?.created}, задач про питомцев ${withCatTasks.filter((task) => petTitles.has(task.title)).length}`
+  );
+
+  await call('PUT', '/home-profile', third.token, { pets: ['none'] });
+  const withoutCat = await call('POST', '/home-profile/plan', third.token);
+  const withoutCatTasks = await loadMyTasks(third.id);
+
+  check(
+    withoutCatTasks.every((task) => !petTitles.has(task.title)),
+    'после удаления кота задачи про питомцев остались'
+  );
+  check(
+    (withoutCat.body?.myTasks?.removed ?? 0) > 0,
+    'устаревшие задачи про питомцев не были убраны'
+  );
+  console.log(
+    `Кот исчез: убрано ${withoutCat.body?.myTasks?.removed}, задач про питомцев ${withoutCatTasks.filter((task) => petTitles.has(task.title)).length}`
+  );
+
+  // Периодичность задачи через API: POST/PUT принимают счётчик интервала
+  const scheduleRow = await pool.query<{ id: number }>(
+    'SELECT id FROM schedules WHERE user_id = $1 AND title = $2 LIMIT 1',
+    [first.id, MY_TASKS]
+  );
+  const createdTask = await call('POST', '/tasks', first.token, {
+    schedule_id: scheduleRow.rows[0].id,
+    title: 'Проверка интервала',
+    frequency: 'monthly',
+    day_of_month: 15,
+    estimated_minutes: 10,
+    interval_count: 3,
+  });
+
+  check(
+    createdTask.status === 201 && createdTask.body?.interval_count === 3,
+    `POST /tasks с интервалом: ${createdTask.status} ${JSON.stringify(createdTask.body)}`
+  );
+
+  const updatedTask = await call('PUT', `/tasks/${createdTask.body.id}`, first.token, {
+    interval_count: 2,
+  });
+  check(
+    updatedTask.status === 200 && updatedTask.body?.interval_count === 2,
+    `PUT /tasks с интервалом: ${updatedTask.status} ${JSON.stringify(updatedTask.body)}`
+  );
+
+  const scheduleDetail = await call('GET', `/schedules/${scheduleRow.rows[0].id}`, first.token);
+  check(
+    scheduleDetail.body?.tasks?.every((task: any) => typeof task.interval_count === 'number'),
+    'GET /schedules/:id не отдаёт interval_count'
+  );
+
+  await call('DELETE', `/tasks/${createdTask.body.id}`, first.token);
+  console.log(
+    `API периодичности: POST interval_count=${createdTask.body?.interval_count}, PUT interval_count=${updatedTask.body?.interval_count}`
+  );
+
+  // ── 7. Сброс анкеты ─────────────────────────────────────────────────────
   const reset = await call('DELETE', '/home-profile', third.token);
   check(reset.status === 200 && reset.body?.profileReset === true, `DELETE: ${JSON.stringify(reset.body)}`);
   console.log(`\nDELETE: ${JSON.stringify(reset.body)}`);

@@ -1,5 +1,6 @@
 import {
   getTaskCatalog,
+  MAX_CATALOG_TASK_MINUTES,
   TASK_TAG_LABELS,
   type CatalogTask,
   type TaskLevel,
@@ -29,8 +30,9 @@ import {
  *     а не откладывается на конец недели.
  *  6. Способ сушки меняет формулировки про стирку: при сушке на воздухе это
  *     развешивание и съём белья с сушилки, при машине — фильтр и загрузка.
- *  7. Сумма минут дня не превышает дневной бюджет (under30 → 25, 30to60 → 55,
- *     1to2h → 110, depends → 45).
+ *  7. Сумма минут дня не превышает дневной бюджет и никогда не больше 40 минут
+ *     (under30 → 20, 30to60 → 35, 1to2h → 40, depends → 30): задачи каталога
+ *     раздроблены до шагов на 10-20 минут, поэтому день собирается из 2-4 дел.
  *  8. Одна и та же задача не ставится два дня подряд: неделя остаётся
  *     разнообразной, а не превращается в «помыть пол» каждый день.
  */
@@ -152,16 +154,30 @@ export interface HomePlan {
 
 // ── Константы раскладки ────────────────────────────────────────────────────
 
-/** Дневной бюджет времени: сколько минут в день человек готов тратить. */
+/**
+ * Дневной бюджет времени: сколько минут в день человек готов тратить.
+ *
+ * Потолок — 40 минут: задачи раздроблены до 10-20 минут, и «убрать всю
+ * квартиру за раз» больше не помещается в один день (см. правило раскладки 7).
+ */
 export const DAILY_BUDGET: Record<DailyMinutesOption, number> = {
-  under30: 25,
-  '30to60': 55,
-  '1to2h': 110,
-  depends: 45,
+  under30: 20,
+  '30to60': 35,
+  '1to2h': 40,
+  depends: 30,
 };
 
-/** Максимальная длительность одной задачи по уровню уборки. */
-const MAX_TASK_MINUTES: Record<CleaningLevel, number> = { light: 15, normal: 40, deep: 70 };
+/**
+ * Максимальная длительность одной задачи по уровню уборки.
+ *
+ * Ни одна задача каталога не длиннее MAX_CATALOG_TASK_MINUTES: длинные дела
+ * раздроблены на шаги, поэтому и потолок уровня упирается в то же число.
+ */
+const MAX_TASK_MINUTES: Record<CleaningLevel, number> = {
+  light: 15,
+  normal: 20,
+  deep: MAX_CATALOG_TASK_MINUTES,
+};
 
 /** Сколько задач стараемся поставить в день — от уровня уборки. */
 const TASKS_PER_DAY: Record<CleaningLevel, [number, number]> = {
@@ -191,8 +207,13 @@ const HARDEST_ZONE_LABELS: Record<HardestZone, string | null> = {
   nothing: null,
 };
 
-/** Задачи какого уровня допустимы при выбранном уровне уборки. */
-const allowedLevels = (level: CleaningLevel): TaskLevel[] => {
+/**
+ * Задачи какого уровня допустимы при выбранном уровне уборки.
+ *
+ * Экспортируется: постоянный набор «Мои задачи» (services/defaultTasks.ts)
+ * фильтрует каталог по тому же правилу, и второй копии быть не должно.
+ */
+export const allowedLevels = (level: CleaningLevel): TaskLevel[] => {
   if (level === 'light') return ['light'];
   if (level === 'normal') return ['light', 'normal'];
   return ['light', 'normal', 'deep'];
@@ -200,10 +221,16 @@ const allowedLevels = (level: CleaningLevel): TaskLevel[] => {
 
 // ── Отбор кандидатов ───────────────────────────────────────────────────────
 
-const CONTEXT_TAGS: readonly TaskTag[] = ['pets', 'balcony', 'yard', 'garage', 'kids', 'office'];
-
 /** Тематические теги, которые включает анкета. */
-const activeTags = (answers: HomeAnswers): TaskTag[] => {
+export const CONTEXT_TAGS: readonly TaskTag[] = ['pets', 'balcony', 'yard', 'garage', 'kids', 'office'];
+
+/**
+ * Тематические теги, которые включает анкета.
+ *
+ * Экспортируется: и недельный план, и постоянный набор «Мои задачи»
+ * (services/defaultTasks.ts) включают контекстные задачи по одному правилу.
+ */
+export const activeHomeTags = (answers: HomeAnswers): TaskTag[] => {
   const tags: TaskTag[] = [];
 
   if (answers.pets.some((pet) => pet !== 'none')) tags.push('pets');
@@ -267,7 +294,7 @@ const isCandidate = (task: CatalogTask, answers: HomeAnswers, level: CleaningLev
 
   if (needs.length === 0) return true;
 
-  const have = activeTags(answers);
+  const have = activeHomeTags(answers);
 
   // Достаточно одного совпавшего тега: задача про шерсть подходит и с кошкой,
   // и с собакой — конкретика в тексте, а не в теге.
@@ -354,8 +381,13 @@ const preparePool = (answers: HomeAnswers): CatalogTask[] => {
 
 // ── Раскладка по дням ──────────────────────────────────────────────────────
 
-/** Порядок дней недели для раскладки: сначала понедельник, воскресенье в конце. */
-const orderDays = (days: number[]): number[] => {
+/**
+ * Порядок дней недели для раскладки: сначала понедельник, воскресенье в конце.
+ *
+ * Экспортируется: «Мои задачи» раскладывают недельные дела по тем же дням и в
+ * том же порядке, что и недельный план.
+ */
+export const orderWeekDays = (days: number[]): number[] => {
   const unique = [...new Set(days)].filter((day) => Number.isInteger(day) && day >= 0 && day <= 6);
   const ordered = WEEK_DAYS.map((item) => item.dayOfWeek).filter((day) => unique.includes(day));
 
@@ -389,7 +421,7 @@ const shapeWeek = (answers: HomeAnswers, days: number[]): DayShape[] => {
     return days.map((day) => ({
       day,
       minutes: DAILY_BUDGET[answers.dailyMinutes],
-      maxTaskMinutes: level === 'deep' ? 35 : 20,
+      maxTaskMinutes: MAX_TASK_MINUTES[level],
       maxTasks: Math.max(budgetForTasks.min, 3),
     }));
   }
@@ -583,7 +615,7 @@ const interestRepresentatives = (
   answers: HomeAnswers,
   budget: number
 ): CatalogTask[] => {
-  const declared = activeTags(answers);
+  const declared = activeHomeTags(answers);
   const limit = Math.max(15, Math.round(budget / 3));
   const seen = new Set<string>();
   const representatives: CatalogTask[] = [];
@@ -613,7 +645,7 @@ export const buildHomePlan = (input: PartialHomeAnswers): HomePlan => {
 
   const budget = DAILY_BUDGET[answers.dailyMinutes];
   const pool = preparePool(answers);
-  const days = orderDays(answers.cleaningDays);
+  const days = orderWeekDays(answers.cleaningDays);
   const shapes = shapeWeek(answers, days);
   const focusZone = HARDEST_ZONE_LABELS[answers.hardestZone];
 
