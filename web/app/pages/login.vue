@@ -14,7 +14,7 @@ const submit = async () => {
   try {
     await auth.login(email.value.trim(), password.value);
     // Сбрасываем кеш страниц: после входа план дня, достижения и челлендж должны перечитаться.
-    clearNuxtData(['today-plan', 'achievements-earned', 'active-challenge']);
+    clearNuxtData(['today-plan', 'achievements-earned', 'active-challenge', 'challenges-active']);
     await navigateTo(localePath('/'));
   } catch {
     error.value = true;

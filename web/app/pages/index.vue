@@ -7,7 +7,6 @@
  * заработанные достижения) — только для вошедшего: авторизация на httpOnly-cookie.
  */
 
-import type { ChallengeSummary } from '~/types/challenge';
 import type { AchievementProgress } from '~/types/achievement';
 import type { StatsPeriod } from '~/types/stats';
 import type { TodayPlan } from '~/types/task';
@@ -33,7 +32,7 @@ const localePath = useLocalePath();
 const auth = useAuthStore();
 const api = useApi();
 
-const { active, available } = await useChallenges();
+const { active, current, seasonChallenge } = await useChallenges();
 
 // Привычки: тот же composable, что и на вкладке «Привычки», ключи общие —
 // отметка на главной сразу видна и там.
@@ -68,52 +67,28 @@ const showcase = computed<AchievementProgress[]>(() =>
     : achievementsCatalog.value.slice(0, 2).map((item) => ({ ...item, current: 0, earned: false })),
 );
 
-const nextChallenge = computed<ChallengeSummary | null>(() => available.value[0] ?? null);
-
-/** День челленджа, который пользователь проходит сейчас. */
-const currentDay = computed(() => {
-  const state = active.value;
-  if (!state?.progress.currentDay) {
-    return null;
-  }
-  return state.days.find((day) => day.day_number === state.progress.currentDay) ?? null;
-});
-
-const dayTaskCount = computed(
-  () => currentDay.value?.tasks.length ?? today.value?.summary.total_tasks ?? checklistTasksTotal.value,
-);
-
-const dayMinutesLeft = computed(() => {
-  const day = currentDay.value;
-  if (!day) {
-    return today.value?.summary.total_estimated_time ?? 0;
-  }
-  return day.tasks.filter((task) => !task.is_done).reduce((sum, task) => sum + task.estimated_minutes, 0);
-});
-
-/** Кольцо плана: закрытые задачи дня и их общее число. */
-const planTotal = computed(() => today.value?.summary.total_tasks ?? dayTaskCount.value);
-const planDone = computed(() => today.value?.summary.completed_tasks ?? 0);
+/** Челлендж сезона закрыт пользователем — до следующего сезона на главной его нет. */
+const challengeCompleted = computed(() => current.value.status === 'completed');
 
 /**
- * В карточке плана хватает трёх ближайших пунктов — остальное внутри челленджа.
- * К задачам активного челленджа добавляем свои задачи на сегодня из
- * `GET /api/tasks/today`: в ответе они приходят словарём «зона → задачи»,
- * поэтому разворачиваем значения, а закрытые не показываем — они уже в кольце.
- * Ключу нужен префикс: идентификаторы челленджа и своих задач — разные таблицы.
+ * «План на сегодня» — только свои задачи и план по дому.
+ *
+ * Задачи челленджа сюда не подмешиваются: челлендж — отдельная сущность, и
+ * живёт он в своей карточке. Раньше задачи дня челленджа попадали в чипы плана,
+ * из-за чего один и тот же пункт виделся в двух местах.
  */
-const upcomingTasks = computed(() => {
-  const challengeTasks = (currentDay.value?.tasks ?? [])
-    .filter((task) => !task.is_done)
-    .map((task) => ({ key: `challenge-${task.id}`, title: task.title }));
+const planTotal = computed(() => today.value?.summary.total_tasks ?? 0);
+const planDone = computed(() => today.value?.summary.completed_tasks ?? 0);
+const planMinutes = computed(() => today.value?.summary.total_estimated_time ?? 0);
 
-  const ownTasks = Object.values(today.value?.tasks ?? {})
+/** Ближайшие пункты плана: в карточке хватает трёх, остальное — на экране целиком. */
+const upcomingTasks = computed(() =>
+  Object.values(today.value?.tasks ?? {})
     .flat()
     .filter((task) => !task.is_completed)
-    .map((task) => ({ key: `own-${task.id}`, title: task.title }));
-
-  return [...challengeTasks, ...ownTasks].slice(0, 3);
-});
+    .map((task) => ({ key: `own-${task.id}`, title: task.title }))
+    .slice(0, 3),
+);
 
 const tasksWidgetValue = computed(
   () => today.value?.summary.total_tasks ?? checklistTasksTotal.value,
@@ -208,7 +183,7 @@ useStructuredData(() => ({
       <small>{{ t('state.errorHint') }}</small>
     </p>
 
-    <!-- Активный челлендж с прогрессом -->
+    <!-- Челлендж, который пользователь проходит: прогресс, полоса и текущий день -->
     <ChallengeCard
       v-if="active"
       :title="active.challenge.title"
@@ -219,15 +194,21 @@ useStructuredData(() => ({
       :to="localePath(`/challenges/${active.challenge.slug}`)"
     />
 
-    <!-- Ближайший челлендж -->
+    <!--
+      Сезонный челлендж, который ещё не начат: кнопки «начать» нет — задачи
+      отмечаются сразу на экране челленджа, поэтому карточка просто ведёт туда.
+    -->
     <ChallengeCard
-      v-if="nextChallenge"
-      :title="nextChallenge.title"
-      :description="nextChallenge.description"
+      v-else-if="seasonChallenge"
+      :title="seasonChallenge.title"
+      :description="seasonChallenge.description"
       :badge-label="t('home.challenges')"
-      :cover-url="nextChallenge.cover_url"
-      :to="localePath(`/challenges/${nextChallenge.slug}`)"
+      :cover-url="seasonChallenge.cover_url"
+      :to="localePath(`/challenges/${seasonChallenge.slug}`)"
     />
+
+    <!-- Челлендж сезона закрыт: на главной остаётся только нейтральная строка -->
+    <p v-else-if="challengeCompleted" class="home__note">{{ t('home.challengeCompleted') }}</p>
 
     <div class="section-head">
       <h2 class="section-head__title">{{ t('home.readyToStart') }}</h2>
@@ -241,7 +222,7 @@ useStructuredData(() => ({
     <section class="plan card">
       <div class="plan__head">
         <AppBadge variant="accent">{{ t('home.planChip') }}</AppBadge>
-        <p v-if="dayMinutesLeft" class="plan__minutes">{{ dayMinutesLeft }} {{ t('home.minutes') }}</p>
+        <p v-if="planMinutes" class="plan__minutes">{{ planMinutes }} {{ t('home.minutes') }}</p>
       </div>
 
       <template v-if="auth.isAuthenticated">
@@ -250,13 +231,6 @@ useStructuredData(() => ({
 
           <div class="plan__aside">
             <p class="plan__hint">{{ t('home.planHint') }}</p>
-            <AppButton
-              v-if="active"
-              variant="accent"
-              :to="localePath(`/challenges/${active.challenge.slug}`)"
-            >
-              {{ t('home.openPlan') }}
-            </AppButton>
           </div>
         </div>
       </template>
@@ -473,6 +447,18 @@ useStructuredData(() => ({
 
 .card--warm {
   background: var(--c-surface-warm);
+}
+
+/*
+ * Нейтральная строка вместо карточки: челлендж сезона закрыт и до следующего
+ * сезона на главной не показывается (со слов заказчика).
+ */
+.home__note {
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--r-row);
+  background: var(--c-surface);
+  color: var(--c-text-muted);
+  font-size: var(--fs-caption);
 }
 
 .card--task {

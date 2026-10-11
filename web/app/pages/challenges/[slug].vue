@@ -1,13 +1,17 @@
 <script setup lang="ts">
 /**
- * Экран челленджа по макетам docs/design/mockups/02..08:
- * карточка прогресса, дни с задачами, отметки и завершение.
+ * Экран челленджа по макетам «осенний челлендж 1–6»:
+ * стрелка назад и название, карточка прогресса с флажком, дни с задачами,
+ * снизу закреплённая пара кнопок «Завершить испытание» и «Закрыть испытание».
+ *
+ * Кнопки «Начать» здесь нет: отметка ставится в один тап, а запись пользователя
+ * сервер создаёт сам при первой отметке (`PATCH /api/challenges/tasks/:taskId`).
  *
  * Гостю задачи видны, но отметки недоступны — для них нужна сессия
  * (httpOnly-cookie), поэтому показывается приглашение войти.
  */
 
-import type { ChallengeDetail, ChallengeTask } from '~/types/challenge';
+import type { ChallengeDay, ChallengeDetail, ChallengeTask } from '~/types/challenge';
 
 const { t, locale } = useI18n();
 const localePath = useLocalePath();
@@ -29,20 +33,92 @@ if (error.value || !detail.value) {
   throw createError({ statusCode: 404, statusMessage: t('challengesPage.empty'), fatal: true });
 }
 
-const { active, refreshActive } = await useChallenges();
+const { active, current, toggleTask: toggleChallengeTask, finish } = await useChallenges();
 const { show: showAchievements } = useAchievementToast();
 
-const isActive = computed(() => active.value?.challenge.slug === slug);
+/** Челлендж с открытой записью пользователя — независимо от сезона. */
+const running = computed(() => (active.value?.challenge.slug === slug ? active.value : null));
 
-/** Когда челлендж активен, показываем дни с отметками пользователя. */
-const days = computed(() => (isActive.value ? (active.value?.days ?? []) : (detail.value?.days ?? [])));
+/** Состояние сезонного челленджа, если открыт именно он. */
+const seasonState = computed(() => {
+  const state = current.value;
 
-const progress = computed(() =>
-  isActive.value && active.value ? active.value.progress : (detail.value?.progress ?? null),
+  return 'challenge' in state && state.challenge?.slug === slug ? state : null;
+});
+
+/**
+ * Закрытый челлендж: на главной его нет, отметки в нём больше не ставим.
+ * Слаг берём из `challengeSlug`, а если поле не пришло — из карточки челленджа.
+ */
+const completedState = computed(() => {
+  const state = current.value;
+
+  if (state.status !== 'completed') {
+    return null;
+  }
+
+  const completedSlug = state.challengeSlug ?? state.challenge?.slug ?? null;
+
+  return completedSlug === slug ? state : null;
+});
+
+const completed = computed(() => completedState.value !== null);
+
+/** Когда пользователь закрыл челлендж — по макету показываем дату завершения. */
+const finishedAt = computed(() => completedState.value?.finishedAt ?? null);
+
+const seasonDays = computed<ChallengeDay[]>(() => {
+  const state = current.value;
+
+  return 'days' in state ? (state.days ?? []) : [];
+});
+
+const seasonProgress = computed(() => {
+  const state = current.value;
+
+  return 'progress' in state ? (state.progress ?? null) : null;
+});
+
+/**
+ * Дни с отметками берём оттуда, где они есть:
+ * начатый челлендж → сезонный → закрытый (API их пока не отдаёт) → публичные
+ * дни без отметок для челленджа другого сезона.
+ */
+const days = computed<ChallengeDay[]>(() => {
+  if (running.value) {
+    return running.value.days;
+  }
+
+  if (seasonState.value || completed.value) {
+    return seasonDays.value;
+  }
+
+  return detail.value?.days ?? [];
+});
+
+const progress = computed(() => {
+  if (running.value) {
+    return running.value.progress;
+  }
+
+  if (seasonState.value || completed.value) {
+    return seasonProgress.value;
+  }
+
+  return detail.value?.progress ?? null;
+});
+
+/** Отметка доступна только там, где сервер её примет: свой челлендж, не закрытый. */
+const tickable = computed(
+  () => auth.isAuthenticated && !completed.value && Boolean(running.value || seasonState.value),
 );
 
 const title = computed(() => detail.value?.challenge.title ?? '');
-const busy = ref(false);
+
+const busy = ref<number | null>(null);
+const failed = ref(false);
+const finishing = ref(false);
+const finishFailed = ref(false);
 
 /** Сумма времени по дню и метка частоты для строки задачи. */
 const dayMinutes = (day: { tasks: ChallengeTask[] }) =>
@@ -51,51 +127,66 @@ const dayMinutes = (day: { tasks: ChallengeTask[] }) =>
 const frequencyLabel = (task: ChallengeTask) =>
   task.frequency && task.frequency !== 'once' ? t(`challenge.frequency.${task.frequency}`) : null;
 
-const toggleTask = async (task: ChallengeTask) => {
-  if (!isActive.value || busy.value) {
+/**
+ * Одна отметка в один тап: галочка и прогресс меняются сразу (оптимистично),
+ * при ошибке состояние откатывается, а строка сообщает о сбое.
+ */
+const onToggle = async (task: ChallengeTask) => {
+  if (!tickable.value || busy.value !== null) {
     return;
   }
 
-  busy.value = true;
-  try {
-    const response = await api.request<{ awarded?: string[] }>(`/api/challenges/tasks/${task.id}`, {
-      method: 'PATCH',
-      body: { isDone: !task.is_done },
-    });
+  busy.value = task.id;
+  failed.value = false;
 
-    await refreshActive();
+  try {
+    const { awarded } = await toggleChallengeTask(task);
 
     // Новая ачивка — показываем уведомление и обновляем прогресс достижений.
-    if (response.awarded?.length) {
-      await showAchievements(response.awarded);
+    if (awarded.length) {
+      await showAchievements(awarded);
       await refreshNuxtData('achievements-progress');
     }
+  } catch {
+    failed.value = true;
   } finally {
-    busy.value = false;
+    busy.value = null;
   }
 };
 
-const startChallenge = async () => {
-  busy.value = true;
+/** «Завершить испытание» — челлендж отмечается пройденным и уходит с главной. */
+const completeChallenge = async () => {
+  if (finishing.value) {
+    return;
+  }
+
+  finishing.value = true;
+  finishFailed.value = false;
+
   try {
-    await api.request(`/api/challenges/${slug}/start`, { method: 'POST' });
-    clearNuxtData(['active-challenge', 'challenges']);
-    await refreshActive();
+    await finish(slug);
+    await navigateTo(localePath('/'));
+  } catch {
+    // Серверу нечего завершать (например, отметок ещё нет) или сеть подвела.
+    finishFailed.value = true;
   } finally {
-    busy.value = false;
+    finishing.value = false;
   }
 };
 
-const finishChallenge = async () => {
-  busy.value = true;
-  try {
-    await api.request('/api/challenges/active/finish', { method: 'POST' });
-    clearNuxtData(['active-challenge', 'challenges']);
-    await refreshActive();
-  } finally {
-    busy.value = false;
-  }
+/** «Закрыть испытание» — просто вернуться на главную, отметки уже сохранены. */
+const closeChallenge = async () => {
+  await navigateTo(localePath('/'));
 };
+
+/** Дата завершения — в формате языка интерфейса, как на странице советов. */
+const finishedLabel = computed(() =>
+  finishedAt.value
+    ? new Intl.DateTimeFormat(locale.value, { day: 'numeric', month: 'long', year: 'numeric' }).format(
+        new Date(finishedAt.value),
+      )
+    : '',
+);
 
 useSeoMeta({
   title: () => title.value,
@@ -119,9 +210,9 @@ const totalMinutes = computed(() =>
  * шаг = день, текст шага = задачи этого дня.
  */
 useStructuredData(() => {
-  const current = detail.value;
+  const page = detail.value;
 
-  if (!current) {
+  if (!page) {
     return null;
   }
 
@@ -133,9 +224,9 @@ useStructuredData(() => {
       {
         '@type': 'HowTo',
         '@id': `${url}#howto`,
-        name: current.challenge.title,
-        description: current.challenge.description ?? '',
-        image: current.challenge.cover_url ?? undefined,
+        name: page.challenge.title,
+        description: page.challenge.description ?? '',
+        image: page.challenge.cover_url ?? undefined,
         totalTime: totalMinutes.value > 0 ? `PT${totalMinutes.value}M` : undefined,
         inLanguage: 'ru-RU',
         step: days.value.map((day) => ({
@@ -149,7 +240,7 @@ useStructuredData(() => {
         itemListElement: [
           { '@type': 'ListItem', position: 1, name: t('nav.today'), item: `${site.url}/` },
           { '@type': 'ListItem', position: 2, name: t('challengesPage.title'), item: `${site.url}/challenges` },
-          { '@type': 'ListItem', position: 3, name: current.challenge.title, item: url },
+          { '@type': 'ListItem', position: 3, name: page.challenge.title, item: url },
         ],
       },
     ],
@@ -165,24 +256,23 @@ useStructuredData(() => {
     </p>
 
     <template v-else>
-      <NuxtLink :to="localePath('/challenges')" class="back">
-        <i class="pi pi-arrow-left" aria-hidden="true" />
-        {{ t('challenge.back') }}
-      </NuxtLink>
+      <!-- Шапка макета: стрелка назад и название челленджа -->
+      <header class="head">
+        <NuxtLink :to="localePath('/challenges')" class="head__back" :aria-label="t('challenge.back')">
+          <i class="pi pi-arrow-left" aria-hidden="true" />
+        </NuxtLink>
+        <h1 class="head__title">{{ title }}</h1>
+      </header>
 
-      <img
-        v-if="detail?.challenge.cover_url"
-        class="hero"
-        :src="detail.challenge.cover_url"
-        :alt="title"
-      >
-
-      <section class="card progress-card">
+      <!-- Карточка прогресса: флажок в светлом круге, название, полоса и счётчик -->
+      <section class="progress-card">
         <span class="progress-card__icon" aria-hidden="true">⚑</span>
         <div class="progress-card__body">
           <strong>{{ title }}</strong>
-          <small v-if="progress">{{ progress.done }}/{{ progress.total }} · {{ progress.percent }}%</small>
-          <ProgressBar :value="progress?.percent ?? 0" />
+          <small v-if="progress">
+            {{ progress.done }}/{{ progress.total }} · {{ progress.percent }}%
+          </small>
+          <ProgressBar thin :value="progress?.percent ?? 0" />
         </div>
       </section>
 
@@ -191,21 +281,27 @@ useStructuredData(() => {
         <NuxtLink :to="localePath('/login')">{{ t('auth.login') }}</NuxtLink>
       </p>
 
-      <p
-        v-else-if="progress && progress.total > 0 && progress.done === progress.total"
-        class="notice notice--done"
-      >
+      <p v-else-if="completed" class="notice notice--done">
+        {{ t('challenge.finished') }}<template v-if="finishedLabel"> · {{ finishedLabel }}</template>
+      </p>
+
+      <p v-else-if="auth.isAuthenticated && progress && progress.total > 0 && progress.done === progress.total" class="notice notice--done">
         {{ t('challenge.allDone') }}
       </p>
 
+      <p v-else-if="auth.isAuthenticated && !tickable" class="notice">
+        {{ t('challenge.otherSeason') }}
+      </p>
+
+      <p v-if="failed" class="notice notice--error">{{ t('challenge.tickFailed') }}</p>
+
       <section v-for="day in days" :key="day.id" class="day">
-        <h2 class="day__title">
-          {{ t('challenge.day') }} {{ day.day_number }} — {{ day.title }}
-        </h2>
-        <p v-if="day.subtitle" class="day__subtitle">{{ day.subtitle }}</p>
-        <p class="day__total">
-          {{ t('challenge.totalTime', { time: formatMinutes(dayMinutes(day), locale) }) }}
+        <p class="day__meta">
+          {{ t('challenge.day') }} {{ day.day_number }} ·
+          {{ t('challenge.dayTime', { time: formatMinutes(dayMinutes(day), locale) }) }}
         </p>
+        <h2 class="day__title">{{ day.title }}</h2>
+        <p v-if="day.subtitle" class="day__subtitle">{{ day.subtitle }}</p>
 
         <ul class="tasks">
           <li v-for="task in day.tasks" :key="task.id">
@@ -214,33 +310,37 @@ useStructuredData(() => {
               :hint="task.hint"
               :badge="frequencyLabel(task)"
               :done="task.is_done"
-              :interactive="isActive"
-              :disabled="busy"
-              @toggle="toggleTask(task)"
+              :interactive="tickable"
+              :disabled="busy !== null"
+              tone="surface"
+              clamp-hint
+              @toggle="onToggle(task)"
             />
           </li>
         </ul>
       </section>
 
-      <div class="actions">
-        <AppButton
-          v-if="auth.isAuthenticated && !isActive"
-          variant="filled"
-          block
-          :disabled="busy"
-          @click="startChallenge"
-        >
-          {{ t('challenge.start') }}
-        </AppButton>
+      <!-- Панель завершения закреплена снизу, как в макетах -->
+      <p v-if="finishFailed" class="notice notice--error">{{ t('challenge.finishFailed') }}</p>
 
-        <AppButton
-          v-else-if="isActive"
-          variant="outline"
-          block
-          :disabled="busy"
-          @click="finishChallenge"
-        >
-          {{ t('challenge.finish') }}
+      <div class="actions">
+        <template v-if="tickable">
+          <!--
+            Главная кнопка завершает испытание: заказчик описывал это как
+            «завершить — тогда отмечается completed и больше не появляется на
+            главной». Вторая, контурная, просто возвращает на главную: прогресс
+            уже сохранён, закрывать челлендж при этом не нужно.
+          -->
+          <AppButton variant="filled" block :disabled="finishing" @click="completeChallenge">
+            {{ t('challenge.finishTrial') }}
+          </AppButton>
+          <AppButton variant="outline" block :disabled="finishing" @click="closeChallenge">
+            {{ t('challenge.closeTrial') }}
+          </AppButton>
+        </template>
+
+        <AppButton v-else-if="auth.isAuthenticated" variant="filled" block :to="localePath('/')">
+          {{ t('auth.toHome') }}
         </AppButton>
 
         <AppButton v-else variant="filled" block :to="localePath('/login')">
@@ -259,28 +359,35 @@ useStructuredData(() => {
   padding-bottom: var(--space-4);
 }
 
-.back {
-  display: inline-flex;
+/* ── Шапка ──────────────────────────────────────────────────────────── */
+.head {
+  display: flex;
   align-items: center;
-  gap: var(--space-2);
-  align-self: flex-start;
-  min-height: var(--tap-min);
+  gap: var(--space-3);
+}
+
+.head__back {
+  display: grid;
+  place-items: center;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  flex: 0 0 var(--tap-min);
+  margin-left: calc(var(--space-2) * -1);
   color: var(--c-text);
+  font-size: 1.25rem;
   text-decoration: none;
 }
 
-.back:hover {
+.head__back:hover {
   color: var(--c-brand);
 }
 
-.hero {
-  width: 100%;
-  height: 180px;
-  object-fit: cover;
-  border-radius: var(--r-card);
-  background: var(--c-surface-sunken);
+.head__title {
+  font-size: var(--fs-display);
+  line-height: var(--lh-tight);
 }
 
+/* ── Карточка прогресса ─────────────────────────────────────────────── */
 .progress-card {
   display: flex;
   align-items: center;
@@ -288,17 +395,19 @@ useStructuredData(() => {
   padding: var(--space-4);
   border-radius: var(--r-card);
   background: var(--c-surface);
+  box-shadow: var(--shadow-card);
 }
 
 .progress-card__icon {
   display: grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
-  flex: 0 0 44px;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
   border-radius: var(--r-pill);
   background: var(--c-surface-mint);
   color: var(--c-brand);
+  font-size: 1.25rem;
 }
 
 .progress-card__body {
@@ -309,10 +418,15 @@ useStructuredData(() => {
   min-width: 0;
 }
 
+.progress-card__body strong {
+  font-size: var(--fs-title);
+}
+
 .progress-card__body small {
   color: var(--c-text-muted);
 }
 
+/* ── Строки-пояснения ───────────────────────────────────────────────── */
 .notice {
   padding: var(--space-3) var(--space-4);
   border-radius: var(--r-row);
@@ -326,10 +440,23 @@ useStructuredData(() => {
   color: var(--c-brand);
 }
 
+.notice--error {
+  background: var(--c-surface-task);
+  color: var(--c-danger);
+}
+
+/* ── День ───────────────────────────────────────────────────────────── */
 .day {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+}
+
+.day__meta {
+  color: var(--c-text-muted);
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .day__title {
@@ -341,11 +468,6 @@ useStructuredData(() => {
   color: var(--c-text-muted);
 }
 
-.day__total {
-  color: var(--c-text-muted);
-  font-size: var(--fs-caption);
-}
-
 .tasks {
   margin: 0;
   padding: 0;
@@ -355,13 +477,28 @@ useStructuredData(() => {
   gap: var(--space-3);
 }
 
+/* ── Панель завершения ──────────────────────────────────────────────────
+ * В макетах кнопки закреплены снизу и контент прокручивается за ними.
+ * На мобильном поднимаем панель над нижней навигацией, на десктопе её нет.
+ */
 .actions {
+  position: sticky;
+  bottom: calc(76px + env(safe-area-inset-bottom));
+  z-index: 5;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
   margin-top: var(--space-2);
+  padding-top: var(--space-3);
 }
 
+@media (min-width: 768px) {
+  .actions {
+    bottom: var(--space-4);
+  }
+}
+
+/* ── Состояния ──────────────────────────────────────────────────────── */
 .state {
   color: var(--c-text-muted);
 }

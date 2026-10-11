@@ -24,7 +24,7 @@ const initials = computed(() => displayName.value.slice(0, 1).toUpperCase());
 
 const logout = async () => {
   await auth.logout();
-  clearNuxtData(['today-plan', 'achievements-earned', 'active-challenge', 'households']);
+  clearNuxtData(['today-plan', 'achievements-earned', 'active-challenge', 'challenges-active', 'households']);
   await navigateTo(localePath('/'));
 };
 </script>

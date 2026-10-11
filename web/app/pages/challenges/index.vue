@@ -1,8 +1,21 @@
 <script setup lang="ts">
-/** Список челленджей: активный и доступные к старту. */
+/**
+ * Список челленджей: челлендж текущего сезона (его и проходят) плюс программы
+ * других сезонов — их можно посмотреть заранее, отметки начнутся в свой сезон.
+ */
 const { t } = useI18n();
 const localePath = useLocalePath();
-const { list, active, available } = await useChallenges();
+const { list, active, current, seasonChallenge, available } = await useChallenges();
+
+/** Челлендж сезона закрыт: до следующего сезона показываем только пояснение. */
+const completed = computed(() => current.value.status === 'completed');
+
+/** Сезонный челлендж не дублируем, если он уже показан как «в процессе». */
+const seasonCard = computed(() =>
+  seasonChallenge.value && seasonChallenge.value.slug !== active.value?.challenge.slug
+    ? seasonChallenge.value
+    : null,
+);
 
 useSeoMeta({
   title: () => t('challengesPage.title'),
@@ -25,7 +38,20 @@ useSeoMeta({
       />
     </template>
 
-    <h2 class="section-title">{{ t('challengesPage.available') }}</h2>
+    <template v-if="seasonCard">
+      <h2 class="section-title">{{ t('challengesPage.season') }}</h2>
+      <ChallengeCard
+        :title="seasonCard.title"
+        :description="seasonCard.description"
+        :badge-label="`${seasonCard.days_count} ${t('challengesPage.days')} · ${seasonCard.tasks_count} ${t('challengesPage.tasks')}`"
+        :cover-url="seasonCard.cover_url"
+        :to="localePath(`/challenges/${seasonCard.slug}`)"
+      />
+    </template>
+
+    <p v-if="completed" class="state">{{ t('challengesPage.seasonCompleted') }}</p>
+
+    <h2 class="section-title">{{ t('challengesPage.otherSeasons') }}</h2>
 
     <p v-if="!list.length" class="state">{{ t('challengesPage.empty') }}</p>
 

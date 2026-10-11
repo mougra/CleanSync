@@ -13,8 +13,24 @@ withDefaults(
     done?: boolean;
     interactive?: boolean;
     disabled?: boolean;
+    /**
+     * task — розовая карточка задачи (чек-листы, план дня);
+     * surface — светлая карточка на экране челленджа по макетам «осенний челлендж».
+     */
+    tone?: 'task' | 'surface';
+    /** Обрезать подсказку до двух строк — так она выглядит в макетах челленджа. */
+    clampHint?: boolean;
   }>(),
-  { done: false, interactive: false, disabled: false, hint: null, imageUrl: null, badge: null },
+  {
+    done: false,
+    interactive: false,
+    disabled: false,
+    hint: null,
+    imageUrl: null,
+    badge: null,
+    tone: 'task',
+    clampHint: false,
+  },
 );
 
 const emit = defineEmits<{ toggle: [] }>();
@@ -25,7 +41,7 @@ const emit = defineEmits<{ toggle: [] }>();
     v-if="interactive"
     type="button"
     class="task"
-    :class="{ 'task--done': done }"
+    :class="[{ 'task--done': done }, { 'task--surface': tone === 'surface' }]"
     :aria-pressed="done"
     :disabled="disabled"
     @click="emit('toggle')"
@@ -38,12 +54,16 @@ const emit = defineEmits<{ toggle: [] }>();
         {{ title }}
         <span v-if="badge" class="task__badge">{{ badge }}</span>
       </span>
-      <small v-if="hint">{{ hint }}</small>
+      <small v-if="hint" :class="{ 'task__hint--clamp': clampHint }">{{ hint }}</small>
     </span>
     <img v-if="imageUrl" class="task__thumb" :src="imageUrl" :alt="title" >
   </button>
 
-  <div v-else class="task task--static" :class="{ 'task--done': done }">
+  <div
+    v-else
+    class="task task--static"
+    :class="[{ 'task--done': done }, { 'task--surface': tone === 'surface' }]"
+  >
     <span class="task__check" aria-hidden="true">
       <i v-if="done" class="pi pi-check" />
     </span>
@@ -52,7 +72,7 @@ const emit = defineEmits<{ toggle: [] }>();
         {{ title }}
         <span v-if="badge" class="task__badge">{{ badge }}</span>
       </span>
-      <small v-if="hint">{{ hint }}</small>
+      <small v-if="hint" :class="{ 'task__hint--clamp': clampHint }">{{ hint }}</small>
     </span>
     <img v-if="imageUrl" class="task__thumb" :src="imageUrl" :alt="title" >
   </div>
@@ -78,6 +98,15 @@ const emit = defineEmits<{ toggle: [] }>();
 
 .task--static {
   cursor: default;
+}
+
+/*
+ * Светлая карточка задачи: так выглядят строки на экране челленджа
+ * (макеты «осенний челлендж 1–6»), в отличие от розовых строк чек-листов.
+ */
+.task--surface {
+  background: var(--c-surface);
+  box-shadow: var(--shadow-card);
 }
 
 .task:disabled {
@@ -112,6 +141,15 @@ const emit = defineEmits<{ toggle: [] }>();
 
 .task__text small {
   color: var(--c-text-muted);
+}
+
+/* В макетах подсказка занимает не больше двух строк и обрывается многоточием */
+.task__hint--clamp {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
 .task__title {
