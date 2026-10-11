@@ -159,8 +159,28 @@ const { data: tip } = await useAsyncData('tip-of-the-day', () =>
 
 useSeoMeta({
   title: () => t('nav.today'),
-  description: () =>
-    'Челленджи уборки по дням, готовые чек-листы и советы — чтобы навести порядок дома без выгорания.',
+  description: () => t('home.metaDescription'),
+});
+
+const site = useSiteConfig();
+
+/**
+ * Приложение бесплатное и устанавливается на телефон, поэтому размечаем его
+ * как SoftwareApplication: в выдаче это даёт строку «Бесплатно».
+ */
+defineSoftwareApp({
+  name: 'Clean Planner',
+  applicationCategory: 'LifestyleApplication',
+  operatingSystem: 'Web',
+  description: t('home.metaDescription'),
+  url: site.url,
+  offers: { price: '0', priceCurrency: 'RUB' },
+  inLanguage: 'ru-RU',
+});
+
+defineWebPage({
+  name: t('nav.today'),
+  description: t('home.metaDescription'),
 });
 </script>
 

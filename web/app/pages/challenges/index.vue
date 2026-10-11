@@ -6,8 +6,7 @@ const { list, active, available } = await useChallenges();
 
 useSeoMeta({
   title: () => t('challengesPage.title'),
-  description: () =>
-    'Челленджи уборки по дням: выберите марафон и отмечайте шаги — дом становится чище без генеральной уборки за один день.',
+  description: () => t('challengesPage.metaDescription'),
 });
 </script>
 

@@ -57,8 +57,7 @@ const percent = (done: number, total: number) => (total === 0 ? 0 : Math.round((
 
 useSeoMeta({
   title: () => t('nav.checklists'),
-  description: () =>
-    'Чек-листы уборки по зонам: кухня, гостиная, ванная, спальня. Берите готовый список, отмечайте пункты и ведите свои задачи.',
+  description: () => t('checklistsPage.metaDescription'),
 });
 </script>
 

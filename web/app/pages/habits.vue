@@ -71,8 +71,7 @@ const rowMeta = (habit: Habit) =>
 
 useSeoMeta({
   title: () => t('habits.title'),
-  description: () =>
-    'Полезные привычки для дома: пять минут порядка, вечерний сброс, уход за растениями и питомцами. Отмечайте каждый день и следите за серией.',
+  description: () => t('habits.metaDescription'),
 });
 </script>
 

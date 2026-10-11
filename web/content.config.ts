@@ -24,6 +24,17 @@ export default defineContentConfig({
         minutes: z.number().int().positive().default(10),
         publishedAt: z.string(),
         order: z.number().int().default(100),
+        /** Дата обновления: нужна в разметке статьи (dateModified) и в карте сайта. */
+        updatedAt: z.string().optional(),
+        /** Ключевые фразы статьи: уходят в keywords и в разметку. */
+        keywords: z.array(z.string()).default([]),
+        /**
+         * Частые вопросы по теме статьи. Отдаём их в микроразметке FAQPage —
+         * это шанс попасть в блок «Люди также спрашивают».
+         */
+        faq: z
+          .array(z.object({ question: z.string(), answer: z.string() }))
+          .default([]),
       }),
     }),
 

@@ -32,6 +32,9 @@ const showCalendar = computed(() => !hideCalendarRoutes.some((path) => route.pat
         <slot />
       </main>
 
+      <!-- Подвал: внутренние ссылки на публичные разделы и справочные страницы -->
+      <AppFooter />
+
       <AppBottomNav />
       <AppFab />
 

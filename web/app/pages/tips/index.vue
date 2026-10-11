@@ -51,6 +51,33 @@ useSeoMeta({
   title: () => t('nav.tips'),
   description: () => t('tipsPage.lead'),
 });
+
+const site = useSiteConfig();
+
+/**
+ * Список статей отдаём как ItemList: поисковики видят структуру раздела
+ * и могут показать её как подборку, а не как одну страницу.
+ */
+defineItemList({
+  itemListElement: computed(() =>
+    (articles.value ?? []).map((article) => ({
+      name: article.title,
+      url: `${site.url}${article.path}`,
+    })),
+  ),
+});
+
+defineBreadcrumb({
+  itemListElement: computed(() => [
+    { name: t('nav.today'), item: '/' },
+    { name: t('nav.tips'), item: '/tips' },
+  ]),
+});
+
+defineWebPage({
+  name: t('nav.tips'),
+  description: t('tipsPage.lead'),
+});
 </script>
 
 <template>

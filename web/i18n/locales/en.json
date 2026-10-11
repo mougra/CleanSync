@@ -8,6 +8,7 @@
     "settings": "Settings"
   },
   "home": {
+    "metaDescription": "Day-by-day cleaning challenges, ready-made checklists by room and practical tips: a plan you can actually keep, and a tidy home without burnout.",
     "inProgress": "In progress",
     "challenges": "Challenges",
     "readyToStart": "Ready to start",
@@ -38,6 +39,7 @@
     "checklistsToday": "Checklists for today"
   },
   "challengesPage": {
+    "metaDescription": "Day-by-day cleaning challenges: pick a programme and tick the steps off — your home gets cleaner without one exhausting deep clean.",
     "title": "Challenges",
     "inProgress": "In progress",
     "available": "Ready to start",
@@ -263,6 +265,65 @@
     "optHardestTidiness": "Keeping things tidy",
     "optHardestNothing": "Nothing specific"
   },
+  "faqPage": {
+    "title": "Frequently asked questions",
+    "description": "The short version: whether you need an account, what it costs, how the cleaning plan is built and what happens to your data.",
+    "lead": "The questions we get most often. If yours is missing, write to us and we will add it.",
+    "moreTitle": "No answer found?",
+    "moreText": "Write to us:",
+    "q1": "Do I need to sign up?",
+    "a1": "No. Articles, checklists and challenges are open to everyone. An account keeps your progress: habits, streak, statistics and the family plan live there.",
+    "q2": "How much does it cost?",
+    "a2": "It is free and ad-free. There are no paid tiers right now; if they appear, the core sections stay free.",
+    "q3": "How is the cleaning plan built?",
+    "a3": "You answer twelve questions about your home and rhythm: the place, pets, how much time you can give and what feels hardest. From the answers we build a weekly plan and spread tasks across your days so a day never exceeds the time you chose.",
+    "q4": "Can I clean together with my family?",
+    "a4": "Yes. Create a home, send the invite code to your family and you get a shared plan: zones, tasks and who closed what. The home admin can hand out tasks, others take them.",
+    "q5": "What are the streak and the freeze?",
+    "a5": "A streak counts days in a row when at least one item was closed: a task, a habit or something from the plan. A freeze lets you skip a day without losing the streak, and you get two a month.",
+    "q6": "Where do the articles come from?",
+    "a6": "We write them ourselves: everyday scenarios we have tested in our own flats. No reprints and no ten miraculous hacks.",
+    "q7": "What happens to my data?",
+    "a7": "We keep only what is needed to work: your email, a password hash and your lists. The details are in the privacy policy. You can delete everything from the settings with the reset button.",
+    "q8": "Do reminders arrive?",
+    "a8": "Yes, if you turn notifications on in the settings. A reminder arrives when a habit is due, even with the app closed.",
+    "q9": "Does the app work offline?",
+    "a9": "The app installs on your phone and opens offline, but your data — progress and plans — is loaded from the network.",
+    "q10": "Which devices are supported?",
+    "a10": "Any modern browser: phone, tablet, desktop. On a phone it is handier to add the site to your home screen."
+  },
+  "aboutPage": {
+    "title": "About the project",
+    "description": "Why Clean Planner exists, what the advice is based on and how the service works.",
+    "lead": "Clean Planner is a small project about cleaning your home without burning out: short plans, clear steps and no guilt about dust.",
+    "whyTitle": "Why we built it",
+    "whyBody": "Most cleaning apps demand discipline people do not have. We went the other way: small tasks, an honest time estimate and a plan you can actually finish on a normal day.",
+    "howTitle": "How the service works",
+    "howBody": "Challenges give you a day-by-day programme, checklists are ready-made lists by room, and habits cover the little things like five minutes in the kitchen. There is also a wizard: twelve questions about your home, and a weekly plan is built from the answers. The family mode keeps one shared plan for several people.",
+    "principlesTitle": "Our principles",
+    "principlesBody": "No ads and no selling data. No photo reports and no surveillance: cleaning is your business, not a report. Anything that can be deleted goes away with a single button.",
+    "whoTitle": "Who makes it",
+    "whoBody": "A small team that cleans and uses the app itself. We read every question and answer by email."
+  },
+  "contactsPage": {
+    "title": "Contacts",
+    "description": "How to reach the Clean Planner team: email for questions, ideas and data requests.",
+    "lead": "Write to us directly — we answer ourselves, without bots or canned replies.",
+    "topicsTitle": "What to write about",
+    "supportTitle": "A problem or a question",
+    "supportBody": "Something is broken, or you cannot tell how a tick got into your statistics — add a link and a screenshot if you can.",
+    "ideasTitle": "Ideas and feedback",
+    "ideasBody": "What is missing, what gets in the way, which article topics you need — we read everything.",
+    "dataTitle": "Data and account",
+    "dataBody": "Deleting your account and personal data questions can be handled in the settings, but email works too.",
+    "note": "We usually reply within two working days."
+  },
+  "footer": {
+    "tagline": "A tidy home without burning out",
+    "sections": "Sections",
+    "project": "Project",
+    "legal": "Documents"
+  },
   "legal": {
     "updatedAt": "Updated",
     "operator": "Data controller",
@@ -343,7 +404,9 @@
       "planning": "Planning",
       "family": "Family",
       "pets": "Pets"
-    }
+    },
+    "faqTitle": "Frequently asked questions",
+    "nextTitle": "What to try next"
   },
   "habitCategory": {
     "all": "All",
@@ -371,6 +434,7 @@
     "close": "Close"
   },
   "habits": {
+    "metaDescription": "Useful home habits: five minutes of tidying, an evening reset, plant and pet care. Tick them daily and watch your streak grow.",
     "title": "Habits",
     "emptyTitle": "Start small today",
     "emptyText": "Turn useful actions into habits: five minutes of tidying, time for yourself or your family. Start with one or two and tick them off every time you do them.",
@@ -532,5 +596,9 @@
     "errorHint": "Make sure the database and API are running: docker compose up -d postgres and npm run dev:backend",
     "empty": "Nothing here yet",
     "save": "Save"
+  },
+  "checklistsPage": {
+    "title": "Checklists",
+    "metaDescription": "Cleaning checklists by zone: kitchen, living room, bathroom, bedroom, hallway and balcony. Take a ready-made list, tick items off and add your own tasks."
   }
 }

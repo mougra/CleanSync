@@ -92,6 +92,48 @@ const finishChallenge = async () => {
 useSeoMeta({
   title: () => title.value,
   description: () => detail.value?.challenge.description ?? undefined,
+  ogType: 'article',
+  ogImage: () => detail.value?.challenge.cover_url ?? undefined,
+});
+
+const site = useSiteConfig();
+
+/** Суммарное время челленджа — в формате ISO 8601, как ждёт HowTo. */
+const totalMinutes = computed(() =>
+  days.value.reduce(
+    (sum, day) => sum + day.tasks.reduce((inner, task) => inner + (task.estimated_minutes ?? 0), 0),
+    0,
+  ),
+);
+
+/**
+ * Челлендж — это готовая инструкция по дням, поэтому размечаем его как HowTo:
+ * шаг = день челленджа, текст шага = задачи этого дня. Массив передаём готовым:
+ * данные уже загружены на сервере, реактивность здесь не нужна.
+ */
+defineHowTo({
+  name: title.value,
+  description: detail.value?.challenge.description ?? '',
+  totalTime: totalMinutes.value > 0 ? `PT${totalMinutes.value}M` : undefined,
+  inLanguage: 'ru-RU',
+  image: detail.value?.challenge.cover_url ?? undefined,
+  step: days.value.map((day) => ({
+    name: String(day.title ?? ''),
+    text: day.tasks.map((task) => task.title).join(', '),
+  })),
+});
+
+defineBreadcrumb({
+  itemListElement: [
+    { name: t('nav.today'), item: '/' },
+    { name: t('challengesPage.title'), item: '/challenges' },
+    { name: title.value, item: `${site.url}/challenges/${slug}` },
+  ],
+});
+
+defineWebPage({
+  name: title.value,
+  description: detail.value?.challenge.description ?? '',
 });
 </script>
 

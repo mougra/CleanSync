@@ -104,9 +104,35 @@ export default defineNuxtConfig({
   },
 
   robots: {
-    // Служебное и личное закрываем. API не индексируется сам по себе (JSON без
-    // ссылок), а disallow на /api у nuxt-seo вызывает предупреждение.
-    disallow: ['/dev', '/settings'],
+    /**
+     * Служебное и личное закрываем: приватные страницы не должны попадать
+     * в выдачу, даже если на них когда-нибудь появится ссылка.
+     *
+     * `/api` не перечисляем: JSON не индексируется сам по себе, а disallow
+     * на него вызывает предупреждение nuxt-seo.
+     */
+    disallow: [
+      '/dev',
+      '/settings',
+      '/household',
+      '/analytics',
+      '/achievements',
+      '/guide',
+      '/login',
+      '/register',
+      '/confirm-email',
+      '/reset-password',
+      '/forgot-password',
+    ],
+    // Страницы с noindex перечислены выше вручную: автоматический режим
+    // (disallowNonIndexableRoutes) добавлял в robots.txt ещё и /_nuxt/**,
+    // а без своих скриптов и стилей поисковик не отрисует страницу.
+    /**
+     * Политику для AI-краулеров (Content-Signal из черновика IETF aipref) этот
+     * модуль принимает только внутри групп `groups`, а не на верхнем уровне.
+     * Пока политику выражаем честно в llms.txt: контент открыт для обучения
+     * и ответов — нам выгодно, чтобы статьи цитировали.
+     */
   },
 
   // Статьи и советы — MDX в git: web/content/**. Правятся как обычный контент,
@@ -197,10 +223,29 @@ export default defineNuxtConfig({
      */
     apiBase: 'http://localhost:5000',
     public: {
+      /**
+       * Публичный адрес сайта. Нужен серверным маршрутам (llms.txt, feed.xml,
+       * sitemap), чтобы собирать абсолютные ссылки; в проде приходит из
+       * NUXT_PUBLIC_SITE_URL.
+       */
+      siteUrl: process.env.NUXT_PUBLIC_SITE_URL || 'http://localhost:3000',
       // Пусто = мониторинг выключен (значения приходят из окружения:
       // NUXT_PUBLIC_SENTRY_DSN и NUXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE)
       sentryDsn: '',
       sentryTracesSampleRate: 0.1,
+    },
+  },
+
+  /**
+   * Данные об организации для микроразметки: узел Organization в @graph на всех
+   * страницах. Почта и логотип помогают поисковикам связать сайт с проектом.
+   */
+  schemaOrg: {
+    identity: {
+      type: 'Organization',
+      name: 'Clean Planner',
+      logo: '/icons/icon-512.png',
+      email: 'tidyflowup@gmail.com',
     },
   },
 
