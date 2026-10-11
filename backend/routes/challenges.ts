@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
 import pool from '../db';
-import { authMiddleware } from '../auth';
+import { authMiddleware, optionalAuthMiddleware } from '../auth';
 import { checkAndAwardAchievements } from '../services/achievementManager';
 import { Season, seasonForDate, seasonTitle } from '../services/seasons';
 
@@ -251,10 +251,17 @@ router.get('/active', authMiddleware, async (req: Request, res: Response) => {
 /**
  * Челлендж текущего сезона для главной.
  *
- * Одна из трёх форм ответа:
+ * Эндпоинт публичный: гостю он отдаёт карточку сезонного челленджа, чтобы тот
+ * мог пройти его без аккаунта (отметки гостя живут в браузере, а при
+ * регистрации или входе переносятся в аккаунт через `POST /:slug/sync`).
+ * Авторизация здесь опциональная — `optionalAuthMiddleware` разбирает токен,
+ * если он есть, но не требует его.
+ *
+ * Одна из четырёх форм ответа:
  *   { status: 'available', challenge, days, progress } — сезонный челлендж есть,
- *     но пользователь ещё ничего не отметил: фронт показывает карточку, отметки
- *     доступны сразу (отдельной кнопки «начать» больше нет);
+ *     но пользователь ещё ничего не отметил (в том числе гость без токена:
+ *     тогда у всех задач `is_done: false`, `progress.done = 0`, а полей с
+ *     пользовательскими данными в ответе нет вовсе);
  *   { status: 'active', challenge, days, progress } — отметки уже есть;
  *   { status: 'completed', finishedAt } — пользователь закрыл челлендж, до
  *     следующего сезона на главной его быть не должно;
@@ -263,7 +270,7 @@ router.get('/active', authMiddleware, async (req: Request, res: Response) => {
  * Дни и прогресс отдаются в той же форме, что `GET /api/challenges/:slug`
  * и `GET /api/challenges/active`, чтобы фронтенд переиспользовал типы.
  */
-router.get('/current', authMiddleware, async (req: Request, res: Response) => {
+router.get('/current', optionalAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const season = seasonForDate();
     const challenge = await findSeasonChallenge(season);
@@ -273,12 +280,28 @@ router.get('/current', authMiddleware, async (req: Request, res: Response) => {
       return;
     }
 
+    // Гость: ни запроса к user_challenges, ни пользовательских полей в ответе.
+    const userId = req.userId ?? null;
+
+    if (userId === null) {
+      const days = await loadDays(challenge.id, null);
+
+      res.json({
+        status: 'available',
+        season,
+        challenge: challengeCard(challenge),
+        progress: summarize(days),
+        days,
+      });
+      return;
+    }
+
     const userChallenge = await pool.query<UserChallengeRow>(
       `SELECT id, status, started_at, finished_at, completed_at
          FROM user_challenges
         WHERE user_id = $1 AND challenge_id = $2
         LIMIT 1`,
-      [req.userId, challenge.id]
+      [userId, challenge.id]
     );
 
     const row = userChallenge.rows[0];
@@ -513,6 +536,202 @@ router.patch('/tasks/:taskId', authMiddleware, async (req: Request, res: Respons
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to update task' });
+  } finally {
+    client.release();
+  }
+});
+
+/**
+ * Максимум отметок в одном запросе синхронизации. У сезонного челленджа
+ * 20–24 задачи, так что 200 — заведомо с запасом; ограничение защищает от
+ * запроса с массивом на сотни тысяч элементов.
+ */
+const SYNC_TASK_LIMIT = 200;
+
+/**
+ * Приводит тело запроса к списку целых id задач.
+ *
+ * Мусор отсекаем, а не отвергаем весь запрос: гость мог собрать отметки в
+ * разных версиях фронтенда, и одна испорченная запись не должна ронять
+ * перенос прогресса. Возврат `null` означает, что `taskIds` — не массив:
+ * это уже ошибка клиента (400).
+ */
+const parseTaskIds = (raw: unknown): number[] | null => {
+  if (raw === undefined || raw === null) {
+    return [];
+  }
+
+  if (!Array.isArray(raw)) {
+    return null;
+  }
+
+  const ids = new Set<number>();
+
+  for (const value of raw) {
+    const id = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+
+    if (!Number.isInteger(id) || id <= 0) {
+      continue;
+    }
+
+    ids.add(id);
+
+    if (ids.size >= SYNC_TASK_LIMIT) {
+      break;
+    }
+  }
+
+  return [...ids];
+};
+
+/**
+ * Перенос гостевого прогресса в аккаунт: `POST /api/challenges/:slug/sync`.
+ *
+ * Гость проходит челлендж без регистрации, отметки лежат в его браузере, а
+ * после регистрации или входа фронтенд присылает их сюда одним запросом.
+ *
+ * Правила:
+ *   • авторизация обязательна (без токена 401) — переносить прогресс некуда;
+ *   • принимаются только задачи этого челленджа; чужие id и мусор игнорируются
+ *     (это не ошибка), массив обрезается до `SYNC_TASK_LIMIT` элементов;
+ *   • отметки идемпотентны: повторный вызов не меняет прогресс, а `done_at`
+ *     остаётся временем первой отметки;
+ *   • запись `user_challenges` создаётся или возвращается в `active` — ровно
+ *     как в `PATCH /tasks/:taskId`, включая проверку сезона: у пользователя без
+ *     записи чужой сезон даёт 409;
+ *   • пустой массив (или массив без задач этого челленджа) — не ошибка:
+ *     отдаём текущее состояние, ничего не меняя и не создавая запись.
+ *
+ * Ответ — та же форма, что у `PATCH /tasks/:taskId`
+ * (`{ userChallengeId, status, progress, days, awarded }`), чтобы фронтенду не
+ * приходилось разбирать два разных ответа на одну и ту же операцию.
+ */
+router.post('/:slug/sync', authMiddleware, async (req: Request, res: Response) => {
+  const client = await pool.connect();
+
+  try {
+    const taskIds = parseTaskIds((req.body as { taskIds?: unknown } | undefined)?.taskIds);
+
+    if (taskIds === null) {
+      res.status(400).json({ error: 'taskIds must be an array of numbers' });
+      return;
+    }
+
+    const challenge = await client.query<{ id: number; season: string | null }>(
+      'SELECT id, season FROM challenges WHERE slug = $1 AND is_published = TRUE',
+      [req.params.slug]
+    );
+
+    if (challenge.rows.length === 0) {
+      res.status(404).json({ error: 'Challenge not found' });
+      return;
+    }
+
+    const { id: challengeId, season } = challenge.rows[0];
+
+    await client.query('BEGIN');
+
+    // Оставляем только задачи этого челленджа: чужие id — не ошибка, их просто
+    // не отмечаем. Список нужен ещё и для того, чтобы не создавать запись
+    // user_challenges ради запроса, в котором нечего отмечать.
+    const ownTasks =
+      taskIds.length > 0
+        ? await client.query<{ id: number }>(
+            `SELECT t.id
+               FROM challenge_tasks t
+               JOIN challenge_days d ON d.id = t.challenge_day_id
+              WHERE d.challenge_id = $1 AND t.id = ANY($2::int[])`,
+            [challengeId, taskIds]
+          )
+        : { rows: [] as Array<{ id: number }> };
+
+    const existing = await client.query<UserChallengeRow>(
+      `SELECT id, status, started_at, finished_at, completed_at
+         FROM user_challenges
+        WHERE user_id = $1 AND challenge_id = $2
+        LIMIT 1`,
+      [req.userId, challengeId]
+    );
+
+    let userChallengeId: number | null = existing.rows[0]?.id ?? null;
+    let userChallengeStatus = existing.rows[0]?.status ?? 'available';
+
+    if (ownTasks.rows.length > 0) {
+      if (userChallengeId === null) {
+        const currentSeason = seasonForDate();
+
+        if (season !== currentSeason) {
+          await client.query('ROLLBACK');
+          res.status(409).json({
+            error: 'Challenge is not available this season',
+            season: currentSeason,
+            challengeSeason: season,
+            message: `Этот челлендж относится к сезону «${season ? seasonTitle(season as Season) : 'без сезона'}», сейчас сезон «${seasonTitle(currentSeason)}»`,
+          });
+          return;
+        }
+
+        const created = await client.query<{ id: number }>(
+          `INSERT INTO user_challenges (user_id, challenge_id, status, started_at)
+           VALUES ($1, $2, 'active', CURRENT_TIMESTAMP)
+           ON CONFLICT (user_id, challenge_id)
+           DO UPDATE SET status = 'active', started_at = CURRENT_TIMESTAMP,
+                         finished_at = NULL, completed_at = NULL
+           RETURNING id`,
+          [req.userId, challengeId]
+        );
+
+        userChallengeId = created.rows[0].id;
+        userChallengeStatus = 'active';
+      } else if (userChallengeStatus !== 'active') {
+        // Челлендж был закрыт (или подвис) — перенос отметок снова делает его
+        // активным, историю прогресса не трогаем: как в PATCH /tasks/:taskId.
+        const reactivated = await client.query<{ id: number }>(
+          `UPDATE user_challenges
+              SET status = 'active', finished_at = NULL, completed_at = NULL
+            WHERE id = $1
+            RETURNING id`,
+          [userChallengeId]
+        );
+
+        userChallengeId = reactivated.rows[0].id;
+        userChallengeStatus = 'active';
+      }
+
+      // Один запрос на все отметки. `COALESCE` в DO UPDATE сохраняет время
+      // первой отметки: повторная синхронизация ничего не переписывает.
+      await client.query(
+        `INSERT INTO user_task_progress (user_challenge_id, challenge_task_id, is_done, done_at)
+         SELECT $1, t.id, TRUE, CURRENT_TIMESTAMP
+           FROM challenge_tasks t
+           JOIN challenge_days d ON d.id = t.challenge_day_id
+          WHERE d.challenge_id = $2 AND t.id = ANY($3::int[])
+         ON CONFLICT (user_challenge_id, challenge_task_id)
+         DO UPDATE SET is_done = TRUE,
+                       done_at = COALESCE(user_task_progress.done_at, EXCLUDED.done_at)`,
+        [userChallengeId, challengeId, ownTasks.rows.map((row) => row.id)]
+      );
+    }
+
+    await client.query('COMMIT');
+
+    const days = await loadDays(challengeId, userChallengeId);
+    const progress = summarize(days);
+
+    // Перенос отметок — такая же активность, как обычная отметка задачи.
+    const awarded = ownTasks.rows.length > 0 ? await checkAndAwardAchievements(String(req.userId)) : [];
+
+    res.json({
+      userChallengeId,
+      status: userChallengeStatus,
+      progress,
+      days,
+      awarded,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    console.error(err);
+    res.status(500).json({ error: 'Failed to sync challenge progress' });
   } finally {
     client.release();
   }

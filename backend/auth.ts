@@ -68,3 +68,28 @@ export const authMiddleware = (req: Request, res: Response, next: NextFunction) 
 
   next();
 };
+
+/**
+ * Мягкая проверка токена: тот же разбор, что и в `authMiddleware`, но без
+ * требования авторизации.
+ *
+ * Нужна публичным эндпоинтам, которые отдают больше данных вошедшему
+ * (`GET /api/challenges/current`: гостю — карточка сезонного челленджа с нулевым
+ * прогрессом, пользователю — его отметки). Токена нет или он просрочен/подделан —
+ * это не ошибка: `req.userId` просто остаётся пустым, и обработчик отдаёт
+ * гостевую форму ответа. Защиту остальных маршрутов это не меняет: там
+ * по-прежнему стоит строгий `authMiddleware`.
+ */
+export const optionalAuthMiddleware = (req: Request, _res: Response, next: NextFunction) => {
+  const token = readAccessToken(req);
+
+  if (token) {
+    const decoded = verifyAccessToken(token);
+
+    if (decoded) {
+      req.userId = decoded.userId;
+    }
+  }
+
+  next();
+};
