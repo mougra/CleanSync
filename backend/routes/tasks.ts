@@ -3,8 +3,20 @@ import pool from '../db';
 import { authMiddleware } from '../auth';
 import { checkAndAwardAchievements } from '../services/achievementManager';
 import { canAccessSchedule } from '../services/household';
+import { DEFAULT_TASK_SOURCE, normalizeTaskTitle } from '../services/defaultTasks';
+import { HOME_PLAN_SOURCE } from '../services/homePlan';
 
 const router = express.Router();
+
+/**
+ * Пометки источников, которые считаются сгенерированными сервером.
+ *
+ * `home_profile_defaults` — постоянный набор «Мои задачи», `home_plan` — задачи
+ * прежнего недельного плана (расписание больше не создаётся, но старые строки
+ * ещё живут до переноса). Только эти задачи попадают в память об отказах: своё
+ * человек удаляет без следа, потому что его никто и не воскрешал бы.
+ */
+const GENERATED_TASK_SOURCES: readonly string[] = [DEFAULT_TASK_SOURCE, HOME_PLAN_SOURCE];
 
 // Get checklists for a task
 router.get('/:id/checklists', authMiddleware, async (req: Request, res: Response) => {
@@ -16,7 +28,7 @@ router.get('/:id/checklists', authMiddleware, async (req: Request, res: Response
     if (taskResult.rows.length === 0) return res.status(404).json({ error: 'Task not found' });
 
     const scheduleResult = await pool.query('SELECT user_id FROM schedules WHERE id = $1', [taskResult.rows[0].schedule_id]);
-    if (scheduleResult.rows[0].user_id !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (String(scheduleResult.rows[0].user_id) !== String(req.userId)) return res.status(403).json({ error: 'Forbidden' });
 
     const result = await pool.query('SELECT * FROM task_checklists WHERE task_id = $1', [id]);
     res.json(result.rows);
@@ -178,7 +190,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
       [schedule_id]
     );
 
-    if (scheduleResult.rows.length === 0 || scheduleResult.rows[0].user_id !== req.userId) {
+    if (scheduleResult.rows.length === 0 || String(scheduleResult.rows[0].user_id) !== String(req.userId)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
@@ -270,27 +282,39 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
  * Свою — можно всегда. В общем плане дома участник удаляет только свою или
  * ничейную задачу, владелец — любую. Отдельного DELETE раньше не было вовсе,
  * поэтому кнопка удаления пункта в чек-листе упиралась в 404.
+ *
+ * Память об отказах. Если задача сгенерированная (`source` из
+ * GENERATED_TASK_SOURCES), её название запоминается в `dismissed_default_tasks`
+ * (миграция 0017): набор «Мои задачи» пересобирается идемпотентно по названиям, и
+ * без этой пометки удалённое дело возвращалось бы при следующей пересборке или
+ * повторном прохождении анкеты. Свою задачу человек удаляет без следа в списке
+ * отказов — её никто и не создавал заново.
  */
 router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
+  const client = await pool.connect();
+
   try {
     const { id } = req.params;
 
-    const taskResult = await pool.query<{ schedule_id: number; assignee_id: number | null }>(
-      'SELECT schedule_id, assignee_id FROM tasks WHERE id = $1',
-      [id]
-    );
+    const taskResult = await client.query<{
+      schedule_id: number;
+      assignee_id: number | null;
+      title: string;
+      source: string | null;
+    }>('SELECT schedule_id, assignee_id, title, source FROM tasks WHERE id = $1', [id]);
 
     if (taskResult.rows.length === 0) {
       return res.status(404).json({ error: 'Task not found' });
     }
 
-    const access = await canAccessSchedule(String(req.userId), taskResult.rows[0].schedule_id);
+    const task = taskResult.rows[0];
+    const access = await canAccessSchedule(String(req.userId), task.schedule_id);
 
     if (!access.allowed) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
-    const assigneeId = taskResult.rows[0].assignee_id;
+    const assigneeId = task.assignee_id;
 
     if (access.householdId !== null && assigneeId !== null && String(assigneeId) !== String(req.userId)) {
       // Роль смотрим в том же доме, к которому относится задача: владельцем
@@ -300,11 +324,33 @@ router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
       }
     }
 
-    await pool.query('DELETE FROM tasks WHERE id = $1', [id]);
-    res.json({ deleted: true, id: Number(id) });
+    await client.query('BEGIN');
+    await client.query('DELETE FROM tasks WHERE id = $1', [id]);
+
+    const generated = task.source !== null && GENERATED_TASK_SOURCES.includes(task.source);
+    let dismissed = false;
+
+    if (generated) {
+      // ON CONFLICT: повторное удаление того же названия ничего не меняет —
+      // идемпотентность важна и здесь, набор пересобирается часто.
+      await client.query(
+        `INSERT INTO dismissed_default_tasks (user_id, title)
+         VALUES ($1, $2)
+         ON CONFLICT (user_id, title) DO NOTHING`,
+        [req.userId, normalizeTaskTitle(task.title)]
+      );
+      dismissed = true;
+    }
+
+    await client.query('COMMIT');
+
+    res.json({ deleted: true, id: Number(id), dismissed });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => undefined);
     console.error(err);
     res.status(500).json({ error: 'Failed to delete task' });
+  } finally {
+    client.release();
   }
 });
 
@@ -321,7 +367,7 @@ router.post('/:id/checklists', authMiddleware, async (req: Request, res: Respons
     if (taskResult.rows.length === 0) return res.status(404).json({ error: 'Task not found' });
 
     const scheduleResult = await pool.query('SELECT user_id FROM schedules WHERE id = $1', [taskResult.rows[0].schedule_id]);
-    if (scheduleResult.rows[0].user_id !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (String(scheduleResult.rows[0].user_id) !== String(req.userId)) return res.status(403).json({ error: 'Forbidden' });
 
     const result = await pool.query(
       'INSERT INTO task_checklists (task_id, item) VALUES ($1, $2) RETURNING *',
@@ -349,7 +395,7 @@ router.patch('/checklists/:id', authMiddleware, async (req: Request, res: Respon
     if (checklistResult.rows.length === 0) return res.status(404).json({ error: 'Checklist item not found' });
 
     const scheduleResult = await pool.query('SELECT user_id FROM schedules WHERE id = $1', [checklistResult.rows[0].schedule_id]);
-    if (scheduleResult.rows[0].user_id !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (String(scheduleResult.rows[0].user_id) !== String(req.userId)) return res.status(403).json({ error: 'Forbidden' });
 
     const result = await pool.query(
       'UPDATE task_checklists SET is_completed = $1 WHERE id = $2 RETURNING *',
@@ -373,7 +419,7 @@ router.delete('/checklists/:id', authMiddleware, async (req: Request, res: Respo
     if (checklistResult.rows.length === 0) return res.status(404).json({ error: 'Checklist item not found' });
 
     const scheduleResult = await pool.query('SELECT user_id FROM schedules WHERE id = $1', [checklistResult.rows[0].schedule_id]);
-    if (scheduleResult.rows[0].user_id !== req.userId) return res.status(403).json({ error: 'Forbidden' });
+    if (String(scheduleResult.rows[0].user_id) !== String(req.userId)) return res.status(403).json({ error: 'Forbidden' });
 
     await pool.query('DELETE FROM task_checklists WHERE id = $1', [id]);
     res.json({ message: 'Checklist item deleted' });

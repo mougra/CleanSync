@@ -108,7 +108,7 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
       [id]
     );
 
-    if (ownerResult.rows.length === 0 || ownerResult.rows[0].user_id !== req.userId) {
+    if (ownerResult.rows.length === 0 || String(ownerResult.rows[0].user_id) !== String(req.userId)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
@@ -135,7 +135,7 @@ router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
       [id]
     );
 
-    if (ownerResult.rows.length === 0 || ownerResult.rows[0].user_id !== req.userId) {
+    if (ownerResult.rows.length === 0 || String(ownerResult.rows[0].user_id) !== String(req.userId)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
