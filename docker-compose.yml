@@ -63,14 +63,17 @@ services:
     build:
       context: ./web
       dockerfile: Dockerfile
+      # Публичный адрес передаём в сборку: от него зависят canonical, og:url,
+      # hreflang и адреса в карте сайта (в рантайме их не подменить).
+      args:
+        NUXT_PUBLIC_SITE_URL: ${SITE_URL:-http://localhost:3000}
     container_name: clean_planner_web
     restart: unless-stopped
     environment:
       NODE_ENV: production
       # Внутренний адрес API для серверного рендера (см. правило в CLAUDE.md)
       NUXT_API_BASE: http://backend:5000
-      # Публичный адрес: canonical, карта сайта, ссылки в письмах.
-      # Заменить на реальный домен!
+      # Тот же адрес в рантайме: llms.txt, RSS и запросы к своему origin
       NUXT_PUBLIC_SITE_URL: ${SITE_URL:-http://localhost:3000}
     ports:
       - '3000:3000'
