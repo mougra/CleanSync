@@ -236,9 +236,21 @@ useSeoMeta({
   margin: 0;
   padding: 0;
   list-style: none;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr;
   gap: var(--space-3);
+}
+
+@media (min-width: 768px) {
+  /* Десктоп: привычки в две колонки — список перестаёт быть простынёй */
+  .page {
+    gap: var(--space-5);
+  }
+
+  .list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4);
+  }
 }
 
 .pick-row {

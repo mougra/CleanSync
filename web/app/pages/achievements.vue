@@ -170,8 +170,8 @@ useSeoMeta({
   margin: 0;
   padding: 0;
   list-style: none;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr;
   gap: var(--space-3);
 }
 
@@ -184,6 +184,34 @@ useSeoMeta({
   border-radius: var(--r-card);
   background: var(--c-surface);
   opacity: 0.72;
+  transition:
+    transform var(--dur-base) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out),
+    opacity var(--dur-base) var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .achievement:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-soft);
+    opacity: 1;
+  }
+}
+
+@media (min-width: 768px) {
+  /* Десктоп: достижения в две колонки внутри каждой группы */
+  .list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .achievement,
+  .achievement:hover {
+    transform: none;
+    transition: none;
+  }
 }
 
 .achievement--earned {

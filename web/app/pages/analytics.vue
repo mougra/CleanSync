@@ -252,6 +252,28 @@ useSeoMeta({ title: () => t('analytics.title'), robots: 'noindex, nofollow' });
   padding-bottom: var(--space-5);
 }
 
+@media (min-width: 768px) {
+  /*
+   * Десктоп: сводка и история занимают всю ширину, а парные плитки и «самая
+   * долгая задача» встают в две колонки — на широком экране это читается
+   * быстрее, чем длинный столбик карточек.
+   */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-5);
+    align-items: start;
+  }
+
+  .segments,
+  .glance,
+  .stats > .card:not(.tile):not(.longest),
+  .stats__head,
+  .stats__hint {
+    grid-column: 1 / -1;
+  }
+}
+
 .stats__head {
   display: flex;
   align-items: center;
