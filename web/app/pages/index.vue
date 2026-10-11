@@ -311,6 +311,13 @@ useStructuredData(() => ({
       </article>
     </section>
 
+    <!--
+      Привычки и достижения стоят рядом: на десктопе это две колонки, на телефоне
+      привычный столбик. Гостю привычек не показываем, и тогда достижения
+      занимают всю ширину (см. `.home__pair:has(> :only-child)`).
+    -->
+    <div class="home__pair">
+
     <!-- Привычки на сегодня: отметить можно не уходя с главной -->
     <section v-if="auth.isAuthenticated" class="card card--mint habits">
       <header class="habits__head">
@@ -381,6 +388,8 @@ useStructuredData(() => ({
         </li>
       </ul>
     </section>
+
+    </div>
 
     <!-- Совет дня: первый материал из web/content/tips -->
     <NuxtLink v-if="tip" class="card card--task tip" :to="localePath(tip.path)">
@@ -811,6 +820,24 @@ useStructuredData(() => ({
 
   .tip__image {
     height: 220px;
+  }
+}
+
+/* ── Привычки и достижения рядом ────────────────────────────────────────
+ * Две карточки одинаковой природы: короткие списки с прогрессом. В две колонки
+ * они читаются лучше и не заставляют листать главную.
+ */
+@media (min-width: 1024px) {
+  .home__pair {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-5);
+    align-items: start;
+  }
+
+  /* Гость: привычек нет, значит достижения занимают всю ширину */
+  .home__pair:has(> :only-child) {
+    grid-template-columns: 1fr;
   }
 }
 </style>
