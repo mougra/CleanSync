@@ -13,13 +13,17 @@ const showCalendar = computed(() => !hideCalendarRoutes.some((path) => route.pat
 <template>
   <div class="shell">
     <!--
-      Декор фона: два мягких пятна в цветах бренда. Живут только на больших
-      экранах — на телефоне это лишняя краска и лишняя работа для GPU.
+      Декор фона: два мягких пятна в цветах бренда.
+      Живёт в <body> через Teleport и потому физически не может стать флекс-элементом
+      шелла и сдвинуть контент — независимо от того, как отработают медиазапросы.
+      На телефоне он просто скрыт: лишняя краска и лишняя работа для GPU.
     -->
-    <div class="shell__decor" aria-hidden="true">
-      <span class="shell__blob shell__blob--mint" />
-      <span class="shell__blob shell__blob--warm" />
-    </div>
+    <Teleport to="body">
+      <div class="shell__decor" aria-hidden="true">
+        <span class="shell__blob shell__blob--mint" />
+        <span class="shell__blob shell__blob--warm" />
+      </div>
+    </Teleport>
 
     <AppSidebar />
 
@@ -75,9 +79,17 @@ const showCalendar = computed(() => !hideCalendarRoutes.some((path) => route.pat
   isolation: isolate;
 }
 
-/* ── Декор фона ─────────────────────────────────────────────────────── */
+/* ── Декор фона ─────────────────────────────────────────────────────────
+ * Позиционирование задано в базовом правиле, а не только внутри медиазапроса:
+ * даже если правило видимости отработает иначе, слой остаётся вне потока.
+ */
 .shell__decor {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
   display: none;
+  overflow: hidden;
+  pointer-events: none;
 }
 
 .shell__main {
@@ -181,13 +193,9 @@ const showCalendar = computed(() => !hideCalendarRoutes.some((path) => route.pat
 }
 
 @media (min-width: 1024px) {
+  /* Видимость включаем только здесь: позиционирование уже задано выше */
   .shell__decor {
     display: block;
-    position: fixed;
-    inset: 0;
-    z-index: 0;
-    overflow: hidden;
-    pointer-events: none;
   }
 
   .shell__blob {
