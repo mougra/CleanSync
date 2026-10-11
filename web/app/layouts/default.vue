@@ -63,6 +63,12 @@ const showCalendar = computed(() => !hideCalendarRoutes.some((path) => route.pat
 .shell {
   position: relative;
   display: flex;
+  /*
+   * Центрируем пару «меню + контент» целиком, а не контент внутри остатка
+   * после меню: с `margin: 0 auto` у колонки контента на широком экране
+   * появлялся большой пустой столбец справа от меню и всё уезжало вправо.
+   */
+  justify-content: center;
   min-height: 100vh;
   background: var(--c-bg);
   /* Декор под контентом: без изоляции размытые пятна перекрывают карточки */
@@ -83,7 +89,6 @@ const showCalendar = computed(() => !hideCalendarRoutes.some((path) => route.pat
   flex-direction: column;
   padding: var(--space-3) var(--space-4) calc(88px + env(safe-area-inset-bottom));
   max-width: var(--content-max);
-  margin: 0 auto;
   width: 100%;
 }
 
