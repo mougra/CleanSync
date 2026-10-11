@@ -112,7 +112,7 @@ useStructuredData(() => ({
       </button>
     </div>
 
-    <p v-if="!filtered.length" class="notice">{{ t('tipsPage.nothingFound') }}</p>
+    <p v-if="!filtered.length" class="empty">{{ t('tipsPage.nothingFound') }}</p>
 
     <ul class="list">
       <li v-for="article in filtered" :key="article.path">

@@ -325,8 +325,7 @@
   "footer": {
     "tagline": "A tidy home without burning out",
     "sections": "Sections",
-    "project": "Project",
-    "legal": "Documents"
+    "project": "Project"
   },
   "legal": {
     "updatedAt": "Updated",

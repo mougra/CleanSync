@@ -166,7 +166,7 @@ useSeoMeta({
         </AppButton>
       </form>
 
-      <p v-if="!own.length" class="hint">{{ t('checklists.empty') }}</p>
+      <p v-if="!own.length" class="empty">{{ t('checklists.empty') }}</p>
 
       <ul v-else class="list">
         <li v-for="schedule in own" :key="schedule.id">

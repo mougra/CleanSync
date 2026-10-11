@@ -217,6 +217,8 @@ useSeoMeta({
 .achievement--earned {
   opacity: 1;
   background: var(--c-surface-mint);
+  /* Полученная награда «вспыхивает» один раз — импульс из decor.css */
+  animation: award-pop var(--dur-slow) var(--ease-out) both;
 }
 
 .achievement__icon {

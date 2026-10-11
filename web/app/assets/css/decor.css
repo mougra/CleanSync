@@ -1,0 +1,149 @@
+/*
+ * Декор интерфейса: то, что делает страницу живой, не неся смысла.
+ *
+ * Здесь только украшение — смысловые стили остаются в компонентах. Всё
+ * построено на токенах (светлая и тёмная тема) и уважает prefers-reduced-motion:
+ * при просьбе «меньше движения» остаются статичные акценты без анимации.
+ */
+
+/* ── 1. Градиентный акцент у заголовков разделов ─────────────────────────
+ * Короткая градиентная черта под заголовком: даёт странице точку опоры и
+ * повторяет знак бренда (кольцо с галочкой) в другой форме.
+ */
+.page__title,
+.section-head__title,
+.stats__title {
+  position: relative;
+}
+
+.page__title::after,
+.section-head__title::after,
+.stats__title::after {
+  content: '';
+  display: block;
+  width: 52px;
+  height: 4px;
+  margin-top: var(--space-2);
+  border-radius: var(--r-pill);
+  background: var(--grad-brand);
+}
+
+/* ── 2. Мягкий разделитель между блоками ─────────────────────────────────
+ * Используется как <hr class="divider">: смысловой разрыв, а не декоративная
+ * линия во всю ширину.
+ */
+.divider {
+  height: 2px;
+  margin: var(--space-2) 0;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: linear-gradient(90deg, transparent, var(--c-brand-soft) 15%, var(--c-brand-soft) 85%, transparent);
+  opacity: 0.9;
+}
+
+/* ── 3. Пятна в пустых состояниях ────────────────────────────────────────
+ * Пустой экран не должен выглядеть сломанным: за текстом два мягких пятна
+ * в цветах бренда.
+ */
+.empty {
+  position: relative;
+  overflow: hidden;
+  padding: var(--space-6) var(--space-4);
+  border-radius: var(--r-card);
+  background: var(--grad-mint);
+  color: var(--c-text-muted);
+  text-align: center;
+}
+
+.empty::before,
+.empty::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.empty::before {
+  top: -70px;
+  right: -50px;
+  width: 200px;
+  height: 200px;
+  background: radial-gradient(circle, var(--c-surface-mint) 0%, transparent 70%);
+}
+
+.empty::after {
+  bottom: -80px;
+  left: -60px;
+  width: 180px;
+  height: 180px;
+  background: radial-gradient(circle, var(--c-accent-soft) 0%, transparent 70%);
+}
+
+/* ── 4. Скелетоны загрузки ───────────────────────────────────────────────
+ * Пока данных нет, показываем мягко мерцающий блок той же формы, что и
+ * контент: переход не выглядит рывком.
+ */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--r-row);
+  background: var(--c-surface-sunken);
+}
+
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 40%), transparent);
+  transform: translateX(-100%);
+  animation: shimmer 1.5s var(--ease-out) infinite;
+}
+
+.dark .skeleton::after {
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 6%), transparent);
+}
+
+.skeleton--line {
+  height: 14px;
+}
+
+.skeleton--title {
+  height: 22px;
+  width: 60%;
+}
+
+.skeleton--card {
+  height: 132px;
+}
+
+@keyframes shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* ── 5. Оживление полученной награды ─────────────────────────────────────
+ * Короткий импульс: карточка «вспыхивает» один раз, когда достижение открыто.
+ */
+@keyframes award-pop {
+  0% {
+    transform: scale(0.97);
+    box-shadow: 0 0 0 0 rgb(216 102 78 / 35%);
+  }
+
+  60% {
+    transform: scale(1.01);
+    box-shadow: 0 0 0 10px rgb(216 102 78 / 0%);
+  }
+
+  100% {
+    transform: none;
+    box-shadow: 0 0 0 0 rgb(216 102 78 / 0%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after {
+    animation: none;
+  }
+}

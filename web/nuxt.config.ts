@@ -181,7 +181,12 @@ export default defineNuxtConfig({
     },
   },
 
-  css: ['primeicons/primeicons.css', '~/assets/css/tokens.css', '~/assets/css/prose.css'],
+  css: [
+    'primeicons/primeicons.css',
+    '~/assets/css/tokens.css',
+    '~/assets/css/decor.css',
+    '~/assets/css/prose.css',
+  ],
 
   // Прокси на Express: относительные /api/... работают так же, как в прежнем SPA.
   // В продакшене тот же путь обслуживает реверс-прокси (см. Caddyfile).

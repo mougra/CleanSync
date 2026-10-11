@@ -325,8 +325,7 @@
   "footer": {
     "tagline": "Порядок дома без выгорания",
     "sections": "Разделы",
-    "project": "Проект",
-    "legal": "Документы"
+    "project": "Проект"
   },
   "legal": {
     "updatedAt": "Обновлено",
