@@ -25,6 +25,12 @@ export interface TodayPlanTask {
   room: string | null;
   is_completed: boolean;
   schedule_title: string;
+  /**
+   * Шаг периодичности из пары «частота + интервал» (миграция 0012): 1 — «каждую
+   * неделю», 3 — «раз в 3 недели». Сервер отдаёт колонку как есть (`SELECT t.*`),
+   * поэтому подпись в плане дня считается без дополнительных запросов.
+   */
+  interval_count: number | null;
 }
 
 /**

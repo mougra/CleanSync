@@ -42,6 +42,28 @@
     "available": "Ready to start",
     "checklistsToday": "Checklists for today"
   },
+  "plan": {
+    "empty": "Nothing planned for today",
+    "emptyHint": "Add a task or run home setup — the household plan builds itself.",
+    "addTask": "Add a task",
+    "setupLink": "Home setup",
+    "markFailed": "Could not save the mark — please try again.",
+    "minutes": "≈ {minutes} min",
+    "repeatOnce": "once",
+    "repeatDay": "every day",
+    "repeatWeek": "once a week",
+    "repeatMonth": "once a month",
+    "repeatN": "once every {count} {unit}",
+    "unitDayOne": "day",
+    "unitDayFew": "days",
+    "unitDayMany": "days",
+    "unitWeekOne": "week",
+    "unitWeekFew": "weeks",
+    "unitWeekMany": "weeks",
+    "unitMonthOne": "month",
+    "unitMonthFew": "months",
+    "unitMonthMany": "months"
+  },
   "challengesPage": {
     "metaDescription": "Day-by-day cleaning challenges: pick a programme and tick the steps off — your home gets cleaner without one exhausting deep clean.",
     "title": "Challenges",

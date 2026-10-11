@@ -42,6 +42,28 @@
     "available": "Можно начать",
     "checklistsToday": "Чек-листы на день"
   },
+  "plan": {
+    "empty": "На сегодня ничего не запланировано",
+    "emptyHint": "Добавьте задачу или пройдите настройку по дому — план по дому соберётся сам.",
+    "addTask": "Добавить задачу",
+    "setupLink": "Настройка по дому",
+    "markFailed": "Не удалось сохранить отметку — попробуйте ещё раз.",
+    "minutes": "≈ {minutes} мин",
+    "repeatOnce": "один раз",
+    "repeatDay": "каждый день",
+    "repeatWeek": "раз в неделю",
+    "repeatMonth": "раз в месяц",
+    "repeatN": "раз в {count} {unit}",
+    "unitDayOne": "день",
+    "unitDayFew": "дня",
+    "unitDayMany": "дней",
+    "unitWeekOne": "неделю",
+    "unitWeekFew": "недели",
+    "unitWeekMany": "недель",
+    "unitMonthOne": "месяц",
+    "unitMonthFew": "месяца",
+    "unitMonthMany": "месяцев"
+  },
   "challengesPage": {
     "metaDescription": "Челленджи уборки по дням: выберите программу и отмечайте шаги — дом становится чище без генеральной уборки за один день.",
     "title": "Челленджи",

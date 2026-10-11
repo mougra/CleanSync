@@ -9,7 +9,7 @@
 
 import type { AchievementProgress } from '~/types/achievement';
 import type { StatsPeriod } from '~/types/stats';
-import type { TodayPlan } from '~/types/task';
+import type { TodayPlan, TodayPlanTask } from '~/types/task';
 
 interface SeasonalTemplate {
   title: string;
@@ -27,10 +27,16 @@ interface TemplatesResponse {
   checklist: ChecklistTemplate[];
 }
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const localePath = useLocalePath();
 const auth = useAuthStore();
 const api = useApi();
+
+/** Шторка «Добавить задачу» — та же, что открывает круглая кнопка в углу. */
+const { openSheet: openTaskSheet } = useTaskSheet();
+
+/** Анкета «Настройка по дому»: пока она не пройдена, пустой план предлагает её пройти. */
+const { completed: homeProfileDone } = await useHomeProfile();
 
 const { active, current, seasonChallenge, seasonGuestProgress, guestCompletedSlug } =
   await useChallenges();
@@ -120,14 +126,163 @@ const planTotal = computed(() => today.value?.summary.total_tasks ?? 0);
 const planDone = computed(() => today.value?.summary.completed_tasks ?? 0);
 const planMinutes = computed(() => today.value?.summary.total_estimated_time ?? 0);
 
-/** Ближайшие пункты плана: в карточке хватает трёх, остальное — на экране целиком. */
-const upcomingTasks = computed(() =>
+/**
+ * Локальные отметки: их видно сразу, ещё до ответа сервера.
+ *
+ * Ключ — id задачи, значение — новое состояние. Накладываются поверх ответа
+ * `GET /api/tasks/today`, поэтому отметка не зависит от того, обновился ли уже
+ * кэш `useAsyncData`; после успешного обновления накладка снимается, и на экране
+ * остаётся состояние сервера.
+ */
+const planMarks = ref<Record<number, boolean>>({});
+
+/** Задачи, по которым прямо сейчас идёт запрос: повторный тап по ним не проходит. */
+const planBusy = ref<number[]>([]);
+
+/** Понятная строка ошибки вместо молчаливого отката. */
+const planError = ref('');
+
+/** Периодичность из пары «частота + интервал»: «раз в неделю», «раз в 3 месяца». */
+const frequencyLabel = (task: TodayPlanTask): string | null => {
+  const frequency = task.frequency;
+
+  if (!frequency) {
+    return null;
+  }
+
+  if (frequency === 'once') {
+    return t('plan.repeatOnce');
+  }
+
+  const count = task.interval_count ?? 1;
+
+  if (count <= 1) {
+    return frequency === 'daily'
+      ? t('plan.repeatDay')
+      : frequency === 'weekly'
+        ? t('plan.repeatWeek')
+        : t('plan.repeatMonth');
+  }
+
+  const forms =
+    frequency === 'daily'
+      ? [t('plan.unitDayOne'), t('plan.unitDayFew'), t('plan.unitDayMany')]
+      : frequency === 'weekly'
+        ? [t('plan.unitWeekOne'), t('plan.unitWeekFew'), t('plan.unitWeekMany')]
+        : [t('plan.unitMonthOne'), t('plan.unitMonthFew'), t('plan.unitMonthMany')];
+
+  // Склонения — как везде в проекте: русские формы через `pluralRu`, английские через `pluralEn`.
+  const unit =
+    locale.value === 'ru'
+      ? pluralRu(count, forms[0]!, forms[1]!, forms[2]!)
+      : pluralEn(count, forms[0]!, forms[2]!);
+
+  return t('plan.repeatN', { count, unit });
+};
+
+/** Подпись строки: зона, источник (расписание), периодичность и время. */
+const taskHint = (task: TodayPlanTask): string =>
+  [
+    task.room,
+    task.schedule_title,
+    frequencyLabel(task),
+    task.estimated_minutes ? t('plan.minutes', { minutes: task.estimated_minutes }) : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+/**
+ * Пункты плана на сегодня.
+ *
+ * Сервер отдаёт словарь «зона → задачи», поэтому значения разворачиваем в один
+ * список и сохраняем порядок сервера: отметка не должна переставлять строки.
+ * Завершённые задачи остаются в списке зачёркнутыми — человек видит результат
+ * своей отметки, а не пустеющий блок.
+ */
+const planTasks = computed(() =>
   Object.values(today.value?.tasks ?? {})
     .flat()
-    .filter((task) => !task.is_completed)
-    .map((task) => ({ key: `own-${task.id}`, title: task.title }))
-    .slice(0, 3),
+    .map((task) => ({
+      id: task.id,
+      title: task.title,
+      hint: taskHint(task),
+      done: planMarks.value[task.id] ?? task.is_completed,
+    })),
 );
+
+/** Снять локальную накладку: дальше показываем состояние сервера. */
+const clearPlanMark = (id: number) => {
+  const rest: Record<number, boolean> = {};
+
+  for (const [key, value] of Object.entries(planMarks.value)) {
+    const taskId = Number(key);
+
+    if (taskId !== id) {
+      rest[taskId] = value;
+    }
+  }
+
+  planMarks.value = rest;
+};
+
+/** Ответил ли сервер тем же состоянием отметки, что мы отправили. */
+const serverHasMark = (id: number, value: boolean): boolean =>
+  Object.values(today.value?.tasks ?? {})
+    .flat()
+    .some((task) => task.id === id && task.is_completed === value);
+
+/**
+ * Отметка задачи в один тап.
+ *
+ * Оптимистично: строка перечёркивается сразу, затем уходит `PUT /api/tasks/:id`
+ * (он же считает серию и достижения). Кольцо, счётчики и минуты обновляем
+ * отдельным запросом — они считаются на сервере. Если запрос не прошёл,
+ * отметку откатываем и говорим об этом строкой, а не молчанием.
+ */
+const togglePlanTask = async (task: { id: number; done: boolean }) => {
+  if (planBusy.value.includes(task.id)) {
+    return;
+  }
+
+  const next = !task.done;
+
+  planMarks.value = { ...planMarks.value, [task.id]: next };
+  planBusy.value = [...planBusy.value, task.id];
+  planError.value = '';
+
+  let awarded: string[] = [];
+
+  try {
+    const response = await api.request<{ awarded?: string[] }>(`/api/tasks/${task.id}`, {
+      method: 'PUT',
+      body: { is_completed: next },
+    });
+
+    awarded = response.awarded ?? [];
+  } catch {
+    clearPlanMark(task.id);
+    planError.value = t('plan.markFailed');
+    return;
+  } finally {
+    planBusy.value = planBusy.value.filter((id) => id !== task.id);
+  }
+
+  try {
+    // Отметка сохранена: подтягиваем план, серию и достижения, чтобы числа
+    // на экране совпали с сервером.
+    await refreshNuxtData(['today-plan', 'streak', 'achievements-progress']);
+  } catch {
+    // Обновление не прошло — отметку ниже оставим: она уже верна.
+  }
+
+  // Накладку снимаем, только если сервер вернул тот же ответ: иначе на экране
+  // осталось бы старое состояние, хотя запись уже прошла.
+  if (serverHasMark(task.id, next)) {
+    clearPlanMark(task.id);
+  }
+
+  await showAchievements(awarded);
+};
 
 const tasksWidgetValue = computed(
   () => today.value?.summary.total_tasks ?? checklistTasksTotal.value,
@@ -276,23 +431,51 @@ useStructuredData(() => ({
             <p class="plan__hint">{{ t('home.planHint') }}</p>
           </div>
         </div>
+
+        <!--
+          Пункты плана отмечаются в один тап. Завершённые строки остаются на
+          месте зачёркнутыми: так виден результат отметки, а кольцо, счётчики
+          и минуты обновляются тем же действием.
+        -->
+        <ul v-if="planTasks.length" class="plan__list">
+          <li v-for="task in planTasks" :key="task.id">
+            <TaskRow
+              interactive
+              :title="task.title"
+              :hint="task.hint"
+              :done="task.done"
+              :disabled="planBusy.includes(task.id)"
+              @toggle="togglePlanTask(task)"
+            />
+          </li>
+        </ul>
+
+        <!-- Пустой план: добавляем задачу или проходим настройку по дому -->
+        <div v-else class="plan__empty">
+          <p class="plan__empty-title">{{ t('plan.empty') }}</p>
+          <p class="plan__empty-hint">{{ t('plan.emptyHint') }}</p>
+
+          <div class="plan__empty-actions">
+            <button type="button" class="plan__add" @click="openTaskSheet">
+              <i class="pi pi-plus" aria-hidden="true" />
+              {{ t('plan.addTask') }}
+            </button>
+
+            <NuxtLink v-if="!homeProfileDone" :to="localePath('/settings')" class="plan__setup">
+              {{ t('plan.setupLink') }}
+              <i class="pi pi-chevron-right" aria-hidden="true" />
+            </NuxtLink>
+          </div>
+        </div>
+
+        <!-- Ошибка отметки: строка, а не молчаливый откат -->
+        <p v-if="planError" class="plan__error" role="alert">{{ planError }}</p>
       </template>
 
       <template v-else>
         <p class="plan__guest">{{ t('auth.guestHint') }}</p>
         <AppButton variant="accent" :to="localePath('/login')">{{ t('auth.login') }}</AppButton>
       </template>
-
-      <ul v-if="upcomingTasks.length" class="plan__list">
-        <li v-for="task in upcomingTasks" :key="task.key">
-          {{ task.title }}
-        </li>
-      </ul>
-      <ul v-else-if="checklists.length" class="plan__list">
-        <li v-for="checklist in checklists" :key="checklist.title">
-          {{ checklist.title }} — {{ checklist.items.length }}
-        </li>
-      </ul>
     </section>
 
     <!-- Серия и недельная цель: день засчитывается за любой закрытый пункт -->
@@ -618,23 +801,91 @@ useStructuredData(() => ({
   color: var(--c-text-muted);
 }
 
-/* Ближайшие пункты — чипами: видно, что делать дальше, и не занимает пол-экрана */
+/* Пункты плана — интерактивные строки в столбик: по ним же и отмечаем */
 .plan__list {
   margin: 0;
   padding: 0;
   list-style: none;
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: var(--space-2);
+}
+
+/* Пустой план: короткое объяснение и два выхода — добавить задачу или настроить дом */
+.plan__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-radius: var(--r-row);
+  background: var(--c-surface);
+  text-align: center;
+}
+
+.plan__empty-title {
+  font-weight: 600;
+}
+
+.plan__empty-hint {
+  max-width: 36ch;
   color: var(--c-text-muted);
   font-size: var(--fs-caption);
 }
 
-.plan__list li {
-  padding: 6px 12px;
+.plan__empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.plan__add {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-min);
+  padding: 0 var(--space-4);
+  border: none;
   border-radius: var(--r-pill);
-  background: var(--c-surface);
-  box-shadow: var(--shadow-soft);
+  background: var(--c-brand);
+  color: var(--c-onbrand);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+
+.plan__add:hover {
+  background: var(--c-brand-hover);
+}
+
+.plan__setup {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--tap-min);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-pill);
+  color: var(--c-brand);
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+/* Отметка не сохранилась: причина остаётся на экране, а не пропадает молча */
+.plan__error {
+  color: var(--c-danger);
+  font-size: var(--fs-caption);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plan__add {
+    transition: none;
+  }
 }
 
 /* ── Виджеты ────────────────────────────────────────────────────────── */

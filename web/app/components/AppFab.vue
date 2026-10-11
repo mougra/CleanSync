@@ -3,26 +3,16 @@
  * Круглая кнопка «+» из макетов: открывает лист «Добавить задачу».
  *
  * Гостю форма недоступна — его отправляем на вход, поэтому шторка живёт здесь
- * же: кнопка и лист всегда ходят парой.
+ * же: кнопка и лист всегда ходят парой. Состояние открытия общее с пустым
+ * планом дня на главной (`useTaskSheet`), иначе «+» в плане пришлось бы
+ * заводить вторую такую же шторку.
  */
 const { t } = useI18n();
-const localePath = useLocalePath();
-const auth = useAuthStore();
-
-const open = ref(false);
-
-const onClick = async () => {
-  if (!auth.isAuthenticated) {
-    await navigateTo(localePath('/login'));
-    return;
-  }
-
-  open.value = true;
-};
+const { open, openSheet, closeSheet } = useTaskSheet();
 
 /** После создания задачи обновляем план дня на главной — он в кэше под ключом 'today-plan'. */
 const afterCreated = async () => {
-  open.value = false;
+  closeSheet();
   await refreshNuxtData('today-plan');
 };
 </script>
@@ -34,12 +24,12 @@ const afterCreated = async () => {
       class="fab__button"
       :aria-expanded="open"
       :aria-label="t('tasks.openSheet')"
-      @click="onClick"
+      @click="openSheet"
     >
       <i class="pi pi-plus" aria-hidden="true" />
     </button>
 
-    <TaskCreateSheet :open="open" @close="open = false" @created="afterCreated" />
+    <TaskCreateSheet :open="open" @close="closeSheet" @created="afterCreated" />
   </div>
 </template>
 
