@@ -1,7 +1,30 @@
 <script setup lang="ts">
-/** Круглая кнопка «+» из макетов: быстрые действия (задача, чек-лист, челлендж). */
+/**
+ * Круглая кнопка «+» из макетов: открывает лист «Добавить задачу».
+ *
+ * Гостю форма недоступна — его отправляем на вход, поэтому шторка живёт здесь
+ * же: кнопка и лист всегда ходят парой.
+ */
 const { t } = useI18n();
+const localePath = useLocalePath();
+const auth = useAuthStore();
+
 const open = ref(false);
+
+const onClick = async () => {
+  if (!auth.isAuthenticated) {
+    await navigateTo(localePath('/login'));
+    return;
+  }
+
+  open.value = true;
+};
+
+/** После создания задачи обновляем план дня на главной — он в кэше под ключом 'today-plan'. */
+const afterCreated = async () => {
+  open.value = false;
+  await refreshNuxtData('today-plan');
+};
 </script>
 
 <template>
@@ -10,11 +33,13 @@ const open = ref(false);
       type="button"
       class="fab__button"
       :aria-expanded="open"
-      :aria-label="t('home.openPlan')"
-      @click="open = !open"
+      :aria-label="t('tasks.openSheet')"
+      @click="onClick"
     >
-      <i :class="['pi', open ? 'pi-times' : 'pi-plus']" aria-hidden="true" />
+      <i class="pi pi-plus" aria-hidden="true" />
     </button>
+
+    <TaskCreateSheet :open="open" @close="open = false" @created="afterCreated" />
   </div>
 </template>
 
@@ -39,8 +64,8 @@ const open = ref(false);
   cursor: pointer;
   box-shadow: var(--shadow-fab);
   transition:
-    background-color 0.15s ease,
-    transform 0.15s ease;
+    background-color var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
 }
 
 .fab__button:hover {
@@ -49,6 +74,16 @@ const open = ref(false);
 
 .fab__button:active {
   transform: scale(0.96);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fab__button {
+    transition: none;
+  }
+
+  .fab__button:active {
+    transform: none;
+  }
 }
 
 @media (min-width: 768px) {

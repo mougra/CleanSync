@@ -10,6 +10,7 @@
 import type { ChallengeSummary } from '~/types/challenge';
 import type { AchievementProgress } from '~/types/achievement';
 import type { StatsPeriod } from '~/types/stats';
+import type { TodayPlan } from '~/types/task';
 
 interface SeasonalTemplate {
   title: string;
@@ -25,16 +26,6 @@ interface ChecklistTemplate {
 interface TemplatesResponse {
   seasonal: SeasonalTemplate[];
   checklist: ChecklistTemplate[];
-}
-
-interface TodayPlan {
-  summary: {
-    total_tasks: number;
-    completed_tasks: number;
-    progress: number;
-    total_estimated_time: number;
-    remaining_time: number;
-  };
 }
 
 const { t } = useI18n();
@@ -104,8 +95,25 @@ const dayMinutesLeft = computed(() => {
 const planTotal = computed(() => today.value?.summary.total_tasks ?? dayTaskCount.value);
 const planDone = computed(() => today.value?.summary.completed_tasks ?? 0);
 
-/** В карточке плана хватает трёх ближайших пунктов — остальное внутри челленджа. */
-const upcomingTasks = computed(() => (currentDay.value?.tasks ?? []).filter((task) => !task.is_done).slice(0, 3));
+/**
+ * В карточке плана хватает трёх ближайших пунктов — остальное внутри челленджа.
+ * К задачам активного челленджа добавляем свои задачи на сегодня из
+ * `GET /api/tasks/today`: в ответе они приходят словарём «зона → задачи»,
+ * поэтому разворачиваем значения, а закрытые не показываем — они уже в кольце.
+ * Ключу нужен префикс: идентификаторы челленджа и своих задач — разные таблицы.
+ */
+const upcomingTasks = computed(() => {
+  const challengeTasks = (currentDay.value?.tasks ?? [])
+    .filter((task) => !task.is_done)
+    .map((task) => ({ key: `challenge-${task.id}`, title: task.title }));
+
+  const ownTasks = Object.values(today.value?.tasks ?? {})
+    .flat()
+    .filter((task) => !task.is_completed)
+    .map((task) => ({ key: `own-${task.id}`, title: task.title }));
+
+  return [...challengeTasks, ...ownTasks].slice(0, 3);
+});
 
 const tasksWidgetValue = computed(
   () => today.value?.summary.total_tasks ?? checklistTasksTotal.value,
@@ -259,7 +267,7 @@ useStructuredData(() => ({
       </template>
 
       <ul v-if="upcomingTasks.length" class="plan__list">
-        <li v-for="task in upcomingTasks" :key="task.id">
+        <li v-for="task in upcomingTasks" :key="task.key">
           {{ task.title }}
         </li>
       </ul>
