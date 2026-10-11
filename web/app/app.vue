@@ -9,6 +9,10 @@ await useAsyncData('auth-session', () => auth.fetchSession());
 const head = useLocaleHead();
 useHead(() => head.value);
 
+// Canonical и og:url: модуль nuxt-seo их в нашей связке не доносит до разметки
+// (см. комментарий в composables/useCanonical.ts).
+useCanonical();
+
 // Значения по умолчанию для соцсетей: без своей картинки страница
 // не покажет превью при шаринге. Страницы со своей обложкой перекрывают это.
 useSeoMeta({
