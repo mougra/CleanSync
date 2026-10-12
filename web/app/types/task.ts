@@ -26,6 +26,13 @@ export interface TodayPlanTask {
   is_completed: boolean;
   schedule_title: string;
   /**
+   * Пометка источника (`home_profile_defaults`, `home_plan` или null). Сервер
+   * отдаёт задачу целиком (`SELECT t.*`), а плану дня она нужна, чтобы выбрать
+   * текст действия: у сгенерированной задачи это отказ от предложения, у своей —
+   * обычное удаление.
+   */
+  source: string | null;
+  /**
    * Шаг периодичности из пары «частота + интервал» (миграция 0012): 1 — «каждую
    * неделю», 3 — «раз в 3 недели». Сервер отдаёт колонку как есть (`SELECT t.*`),
    * поэтому подпись в плане дня считается без дополнительных запросов.
@@ -49,6 +56,59 @@ export interface TodayPlan {
   };
   tasks: Record<string, TodayPlanTask[]>;
 }
+
+/**
+ * Копия задачи, которую отдаёт `DELETE /api/tasks/:id` полем `task`.
+ *
+ * Ровно это тело интерфейс показывает в уведомлении «Вернуть» и отправляет
+ * обратно в `POST /api/tasks/restore`, поэтому отдельного запроса задачи при
+ * удалении не нужно. `source` заполнен только у сгенерированных задач
+ * (`home_profile_defaults`, `home_plan`): по нему видно, что удаление — это отказ
+ * от предложения, а не удаление своего дела.
+ */
+export interface DeletedTaskPayload {
+  schedule_id: number;
+  title: string;
+  room: string | null;
+  frequency: TaskFrequency | null;
+  interval_count: number | null;
+  day_of_week: number | null;
+  day_of_month: number | null;
+  due_date: string | null;
+  time: string | null;
+  estimated_minutes: number | null;
+  source: string | null;
+  is_completed: boolean;
+  completed_at: string | null;
+}
+
+/** Ответ `DELETE /api/tasks/:id`: отметка удаления и сама удалённая задача. */
+export interface DeleteTaskResponse {
+  deleted: boolean;
+  id: number;
+  /** `true`, если задача сгенерированная и её название запомнено как отказ. */
+  dismissed: boolean;
+  task: DeletedTaskPayload;
+}
+
+/** Ответ `POST /api/tasks/restore`. */
+export interface RestoreTaskResponse {
+  restored: boolean;
+  /** `true`, если задача была в списке отказов и отказ снят этим запросом. */
+  restoredFromDismissal: boolean;
+  task: DeletedTaskPayload & { id: number };
+}
+
+/**
+ * Источники, которые считает сгенерированными сервер (`routes/tasks.ts`).
+ * Список повторён здесь только для подписи действия: решение об отказе
+ * принимает сервер, интерфейс лишь выбирает текст.
+ */
+export const GENERATED_TASK_SOURCES: readonly string[] = ['home_profile_defaults', 'home_plan'];
+
+/** Сгенерирована ли задача сервером, а не создана человеком. */
+export const isGeneratedTask = (source: string | null): boolean =>
+  source !== null && GENERATED_TASK_SOURCES.includes(source);
 
 /** Периодичность в терминах API: частота плюс интервал «раз в N». */
 export interface TaskRepeat {

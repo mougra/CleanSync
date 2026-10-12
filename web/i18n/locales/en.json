@@ -65,7 +65,17 @@
     "unitMonthMany": "months",
     "guestTitle": "The plan is built for your home",
     "guestText": "Rooms, pets and how much time you are ready to spend cleaning — all of it is taken into account.",
-    "guestRegister": "Create an account"
+    "guestRegister": "Create an account",
+    "actions": "Task actions",
+    "deleteTitle": "Delete this task?",
+    "deleteConfirm": "Delete",
+    "forgetTitle": "Remove from the plan?",
+    "forgetText": "This task came from your home answers. It will not appear again when the plan is rebuilt.",
+    "forgetConfirm": "Don't suggest again",
+    "deleteFailed": "Could not delete the task — please try again.",
+    "restoreFailed": "Could not restore the task — please try again.",
+    "deletedTitle": "Task deleted",
+    "undo": "Undo"
   },
   "calendar": {
     "prevWeek": "Previous week",

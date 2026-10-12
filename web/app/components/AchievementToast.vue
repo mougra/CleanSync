@@ -2,6 +2,10 @@
 /**
  * Всплывающая карточка «Новое достижение». Показывает очередь по одной,
  * каждая закрывается сама через несколько секунд или по нажатию.
+ *
+ * Место на экране задаёт не она, а общий контейнер (`FloatingNotifications`):
+ * там же живёт уведомление об удалённой задаче, и две карточки не должны
+ * перекрывать друг друга. Поэтому своих `position: fixed` и `bottom` здесь нет.
  */
 const { t } = useI18n();
 const { queue, dismiss } = useAchievementToast();
@@ -52,15 +56,11 @@ onUnmounted(() => {
 
 <style scoped>
 .toast {
-  position: fixed;
-  left: var(--space-4);
-  right: var(--space-4);
-  /* Над кнопкой «+», чтобы уведомление не ложилось на неё и не липло к низу */
-  bottom: calc(var(--nav-height) + var(--space-7) + env(safe-area-inset-bottom));
-  z-index: 60;
   display: flex;
   align-items: flex-start;
   gap: var(--space-3);
+  /* Ширину и место задаёт контейнер уведомлений */
+  width: 100%;
   padding: var(--space-3) var(--space-4);
   border-radius: var(--r-card);
   background: var(--c-surface-mint);
@@ -114,19 +114,6 @@ onUnmounted(() => {
   background: transparent;
   color: var(--c-text-muted);
   cursor: pointer;
-}
-
-@media (min-width: 768px) {
-  /*
-   * Правый нижний угол на десктопе занят кнопкой «+» (40px от края, высота 56px),
-   * поэтому уведомление встаёт над ней, а не поверх: иначе они перекрывались.
-   */
-  .toast {
-    left: auto;
-    right: var(--space-5);
-    bottom: calc(var(--space-7) + 56px + var(--space-4));
-    max-width: 380px;
-  }
 }
 
 .toast-enter-active,

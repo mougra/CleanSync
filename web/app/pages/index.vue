@@ -10,6 +10,7 @@
 import type { AchievementProgress } from '~/types/achievement';
 import type { StatsPeriod } from '~/types/stats';
 import type { TodayPlan, TodayPlanTask } from '~/types/task';
+import { isGeneratedTask } from '~/types/task';
 
 interface SeasonalTemplate {
   title: string;
@@ -204,6 +205,10 @@ const taskHint = (task: TodayPlanTask): string =>
  * список и сохраняем порядок сервера: отметка не должна переставлять строки.
  * Завершённые задачи остаются в списке зачёркнутыми — человек видит результат
  * своей отметки, а не пустеющий блок.
+ *
+ * `source` тянем наружу ради действия в строке: по нему видно, сгенерирована
+ * задача сервером (значит, удаление — это отказ от предложения) или создана
+ * человеком. Само решение об отказе принимает сервер, интерфейс лишь выбирает текст.
  */
 const planTasks = computed(() =>
   Object.values(today.value?.tasks ?? {})
@@ -213,8 +218,110 @@ const planTasks = computed(() =>
       title: task.title,
       hint: taskHint(task),
       done: planMarks.value[task.id] ?? task.is_completed,
+      generated: isGeneratedTask(task.source),
     })),
 );
+
+/**
+ * Строки, удалённые прямо сейчас, но ещё не подтверждённые обновлением данных.
+ *
+ * Сервер отдаёт план без удалённой задачи, однако между ответом на удаление и
+ * новым `today-plan` проходит запрос: без этой отметки строка на мгновение
+ * вернулась бы на экран. Снимается при возврате задачи и при обновлении данных.
+ */
+const planRemoved = ref<number[]>([]);
+
+/** Что видно в списке: план сервера без только что удалённых строк. */
+const visiblePlanTasks = computed(() =>
+  planTasks.value.filter((task) => !planRemoved.value.includes(task.id)),
+);
+
+/**
+ * Удаление и возврат задачи.
+ *
+ * Общее состояние (что именно можно вернуть) и оба запроса живут в `useTaskUndo`:
+ * кнопку «Вернуть» показывает уведомление в раскладке, а удаление запускает эта
+ * страница — это одно действие, и держать его в двух местах нельзя.
+ */
+const {
+  pending: pendingUndo,
+  error: taskError,
+  remove: removeTask,
+} = useTaskUndo();
+
+/** Понятная строка ошибки удаления: показывается в самом листе действий. */
+const taskSheetError = ref('');
+
+/** Лист действий открыт для этой строки: `null` — закрыт. */
+const actionTask = ref<{ id: number; title: string; generated: boolean } | null>(null);
+
+/** Задача, для которой прямо сейчас идёт удаление: повторное нажатие не проходит. */
+const actionBusy = ref(false);
+
+/**
+ * Открыть лист действий со строкой.
+ *
+ * Отметка и удаление разведены намеренно: по строке человек отмечает задачу одним
+ * тапом, а удаление живёт за отдельной кнопкой и подтверждается в листе — иначе
+ * удаление случалось бы от промаха по строке.
+ */
+const openTaskActions = (task: { id: number; title: string; generated: boolean }) => {
+  actionBusy.value = false;
+  taskSheetError.value = '';
+  actionTask.value = task;
+};
+
+const closeTaskActions = () => {
+  actionTask.value = null;
+  taskSheetError.value = '';
+};
+
+/**
+ * Удалить задачу из плана.
+ *
+ * Лист закрывается только после подтверждения сервера, а уведомление снизу
+ * показывает, что именно ушло, и даёт вернуть задачу на место. Текст ошибки
+ * хранится в `useTaskUndo`, потому что только там есть доступ к переводам.
+ */
+const confirmTaskDelete = async () => {
+  const task = actionTask.value;
+
+  if (!task || actionBusy.value) {
+    return;
+  }
+
+  actionBusy.value = true;
+  planRemoved.value = [...planRemoved.value, task.id];
+
+  const removed = await removeTask(task.id);
+
+  actionBusy.value = false;
+
+  if (!removed) {
+    // Удаление не прошло: строка возвращается на место, причина — в листе.
+    planRemoved.value = planRemoved.value.filter((id) => id !== task.id);
+    taskSheetError.value = taskError.value;
+    return;
+  }
+
+  closeTaskActions();
+};
+
+/**
+ * Уведомление закрылось — вернули задачу, истекли секунды или нажали крестик:
+ * локальная отметка об удалении больше не нужна. При возврате план уже перечитан
+ * и строка снова приходит с сервера, при отказе от возврата её просто нет — в
+ * обоих случаях список показывает ответ сервера, а не нашу накладку.
+ *
+ * Сам возврат запускает кнопка «Вернуть» в уведомлении (`TaskUndoToast`), и это
+ * правильно: она живёт в раскладке и видна на любой странице, а страница здесь
+ * только убирает свою локальную отметку.
+ */
+watch(pendingUndo, (value, previous) => {
+  if (!value && previous) {
+    planRemoved.value = [];
+  }
+});
 
 /** Снять локальную накладку: дальше показываем состояние сервера. */
 const clearPlanMark = (id: number) => {
@@ -452,9 +559,13 @@ useStructuredData(() => ({
           Пункты плана отмечаются в один тап. Завершённые строки остаются на
           месте зачёркнутыми: так виден результат отметки, а кольцо, счётчики
           и минуты обновляются тем же действием.
+
+          У каждой строки справа живёт компактное действие «⋯» (отдельная кнопка,
+          а не часть строки): по самой строке человек отмечает задачу, и удаление
+          не должно случаться от промаха по ней.
         -->
-        <ul v-if="planTasks.length" class="plan__list">
-          <li v-for="task in planTasks" :key="task.id">
+        <ul v-if="visiblePlanTasks.length" class="plan__list">
+          <li v-for="task in visiblePlanTasks" :key="task.id">
             <TaskRow
               interactive
               :title="task.title"
@@ -462,7 +573,17 @@ useStructuredData(() => ({
               :done="task.done"
               :disabled="planBusy.includes(task.id)"
               @toggle="togglePlanTask(task)"
-            />
+            >
+              <button
+                type="button"
+                class="plan__more"
+                :aria-label="t('plan.actions')"
+                :aria-haspopup="'dialog'"
+                @click="openTaskActions(task)"
+              >
+                <i class="pi pi-ellipsis-h" aria-hidden="true" />
+              </button>
+            </TaskRow>
           </li>
         </ul>
 
@@ -486,6 +607,21 @@ useStructuredData(() => ({
 
         <!-- Ошибка отметки: строка, а не молчаливый откат -->
         <p v-if="planError" class="plan__error" role="alert">{{ planError }}</p>
+
+        <!--
+          Лист действий со строкой: одно действие, текст зависит от источника
+          задачи. Шторка (AppSheet) та же, что на других экранах, и живёт здесь,
+          рядом с планом, который её открывает.
+        -->
+        <PlanTaskActionsSheet
+          :open="actionTask !== null"
+          :title="actionTask?.title ?? ''"
+          :generated="actionTask?.generated ?? false"
+          :pending="actionBusy"
+          :error="taskSheetError"
+          @close="closeTaskActions"
+          @confirm="confirmTaskDelete"
+        />
       </template>
 
       <!--
@@ -923,6 +1059,40 @@ useStructuredData(() => ({
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+}
+
+/*
+ * Компактное действие у строки: «⋯» открывает лист с удалением.
+ *
+ * Кнопка живёт рядом со строкой, а не внутри неё: строка — тоже кнопка, и
+ * вложенные кнопки недопустимы. Размер — не меньше области касания, поэтому
+ * промахнуться по ней нельзя, но и места она почти не занимает.
+ */
+.plan__more {
+  display: grid;
+  place-items: center;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  flex: 0 0 var(--tap-min);
+  border: none;
+  border-radius: var(--r-pill);
+  background: var(--c-surface);
+  color: var(--c-text-muted);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+.plan__more:hover {
+  background: var(--c-surface-sunken);
+  color: var(--c-text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plan__more {
+    transition: none;
+  }
 }
 
 /* Пустой план: короткое объяснение и два выхода — добавить задачу или настроить дом */

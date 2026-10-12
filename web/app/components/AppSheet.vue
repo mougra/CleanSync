@@ -2,6 +2,12 @@
 /**
  * Нижний лист (bottom sheet) из макетов: на мобильном выезжает снизу,
  * на десктопе показывается модальным окном по центру.
+ *
+ * Закрытый лист остаётся в разметке (`v-show`, а не `v-if`): так его содержимое
+ * попадает в серверный HTML, и страница знает про свои действия ещё до того, как
+ * клиент поднимет приложение. Заодно это снимает расхождение гидратации.
+ * Затемнение при этом монтируется только у открытого листа: в статичном HTML
+ * полупрозрачный слой поверх страницы был бы виден без всякого листа.
  */
 const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ close: [] }>();
@@ -35,8 +41,8 @@ onUnmounted(() => {
 
 <template>
   <Teleport to="body">
-    <div v-if="open" class="sheet" role="dialog" aria-modal="true">
-      <div class="sheet__backdrop" @click="emit('close')" />
+    <div v-show="open" class="sheet" role="dialog" aria-modal="true" :aria-hidden="!open">
+      <div v-if="open" class="sheet__backdrop" @click="emit('close')" />
 
       <div class="sheet__panel">
         <header class="sheet__header">

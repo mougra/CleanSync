@@ -383,6 +383,39 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
 });
 
 /**
+ * Набор колонок задачи, который уходит наружу при удалении и восстановлении.
+ *
+ * Нужен клиенту, чтобы показать «Вернуть» и отдать ровно то же тело в
+ * `POST /api/tasks/restore`: интерфейс не запрашивает задачу отдельно и не
+ * додумывает поля, а держит в руках её копию. `id` в списке обязателен: без него
+ * у возвращённой задачи нет адреса, и её нельзя ни отметить, ни удалить снова.
+ * Назначение (`assignee_id`) сюда не входит: возврат чужим назначением не
+ * занимается, и роль проверяется по строке, прочитанной до удаления отдельно.
+ * Порядок колонок — как в ответах `POST /api/tasks` и `PUT /api/tasks/:id`.
+ */
+const TASK_PAYLOAD_COLUMNS = `id, schedule_id, title, room, frequency, interval_count,
+  day_of_week, day_of_month, due_date, time, estimated_minutes, source, is_completed,
+  completed_at`;
+
+/** Строка задачи в объёме полей возврата: `time` уходит строкой `HH:MM:SS`. */
+interface TaskPayloadRow {
+  id: number;
+  schedule_id: number;
+  title: string;
+  room: string | null;
+  frequency: string | null;
+  interval_count: number;
+  day_of_week: number | null;
+  day_of_month: number | null;
+  due_date: string | null;
+  time: string | null;
+  estimated_minutes: number | null;
+  source: string | null;
+  is_completed: boolean;
+  completed_at: string | null;
+}
+
+/**
  * Удалить задачу.
  *
  * Свою — можно всегда. В общем плане дома участник удаляет только свою или
@@ -395,6 +428,11 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
  * без этой пометки удалённое дело возвращалось бы при следующей пересборке или
  * повторном прохождении анкеты. Свою задачу человек удаляет без следа в списке
  * отказов — её никто и не создавал заново.
+ *
+ * Ответ отдаёт и саму удалённую задачу полем `task`: пока показывается
+ * уведомление с кнопкой «Вернуть», клиент держит её копию и отправляет обратно в
+ * `POST /api/tasks/restore`. Прежние поля (`deleted`, `id`, `dismissed`) остаются
+ * на месте — форма ответа только дополнена.
  */
 router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
   const client = await pool.connect();
@@ -402,12 +440,17 @@ router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    const taskResult = await client.query<{
-      schedule_id: number;
-      assignee_id: number | null;
-      title: string;
-      source: string | null;
-    }>('SELECT schedule_id, assignee_id, title, source FROM tasks WHERE id = $1', [id]);
+    /**
+     * Всё, что нужно и для проверки прав, и для ответа: задача читается один раз
+     * до удаления, потому что после DELETE восстанавливать её поля неоткуда.
+     * `assignee_id` берём из строки только для проверки роли и в ответ не
+     * переносим: возврат задачи чужим назначением не занимается, и клиенту это
+     * поле не нужно (форма ответа зафиксирована тестом).
+     */
+    const taskResult = await client.query<TaskPayloadRow & { assignee_id: number | null }>(
+      `SELECT ${TASK_PAYLOAD_COLUMNS}, assignee_id FROM tasks WHERE id = $1`,
+      [id]
+    );
 
     if (taskResult.rows.length === 0) {
       return res.status(404).json({ error: 'Task not found' });
@@ -420,9 +463,7 @@ router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
-    const assigneeId = task.assignee_id;
-
-    if (access.householdId !== null && assigneeId !== null && String(assigneeId) !== String(req.userId)) {
+    if (access.householdId !== null && task.assignee_id !== null && String(task.assignee_id) !== String(req.userId)) {
       // Роль смотрим в том же доме, к которому относится задача: владельцем
       // человек может быть в одном доме и участником в другом.
       if (access.role !== 'owner') {
@@ -450,11 +491,181 @@ router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
 
     await client.query('COMMIT');
 
-    res.json({ deleted: true, id: Number(id), dismissed });
+    // Копия задачи для кнопки «Вернуть»: поля перечислены поимённо, чтобы
+    // служебное `assignee_id` в тело не просочилось.
+    const payload: TaskPayloadRow = {
+      id: task.id,
+      schedule_id: task.schedule_id,
+      title: task.title,
+      room: task.room,
+      frequency: task.frequency,
+      interval_count: task.interval_count,
+      day_of_week: task.day_of_week,
+      day_of_month: task.day_of_month,
+      due_date: task.due_date,
+      time: task.time,
+      estimated_minutes: task.estimated_minutes,
+      source: task.source,
+      is_completed: task.is_completed,
+      completed_at: task.completed_at,
+    };
+
+    res.json({ deleted: true, id: Number(id), dismissed, task: payload });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => undefined);
     console.error(err);
     res.status(500).json({ error: 'Failed to delete task' });
+  } finally {
+    client.release();
+  }
+});
+
+/** Необязательные поля задачи при восстановлении: приходят из ответа удаления. */
+interface RestoreBody {
+  schedule_id?: unknown;
+  title?: unknown;
+  room?: unknown;
+  frequency?: unknown;
+  interval_count?: unknown;
+  day_of_week?: unknown;
+  day_of_month?: unknown;
+  due_date?: unknown;
+  time?: unknown;
+  estimated_minutes?: unknown;
+  source?: unknown;
+  is_completed?: unknown;
+  completed_at?: unknown;
+}
+
+/** Целое из тела запроса или null: `0` (воскресенье, нулевой день месяца) — значение. */
+const restoreInt = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isInteger(value) ? value : null;
+
+/** Строка из тела запроса или null: пустая строка значением не считается. */
+const restoreText = (value: unknown): string | null =>
+  typeof value === 'string' && value.trim() !== '' ? value : null;
+
+/**
+ * Восстановить удалённую задачу: `POST /api/tasks/restore`.
+ *
+ * Задача возвращается в то же расписание и с теми же полями — тело запроса
+ * приходит из ответа `DELETE /api/tasks/:id` (`task`), поэтому клиенту не нужно
+ * ничего досочинять. Права проверяются ровно теми же правилами, что и удаление:
+ * доступ к расписанию (`canAccessSchedule`) и роль владельца, если задача в общем
+ * плане дома назначена другому участнику. Иначе «Вернуть» обходило бы запрет на
+ * удаление чужого назначения.
+ *
+ * Отказ снимается. Удаление сгенерированной задачи оставляет её название в
+ * `dismissed_default_tasks` (миграция 0017), и без этой чистки возвращённая задача
+ * снова пропала бы при следующей пересборке набора: строка «отказа» пережила бы
+ * своё действие. Поэтому при восстановлении такой задачи запись удаляется, а
+ * наружу уходит `restoredFromDismissal` — по нему видно, что отказ снят.
+ */
+router.post('/restore', authMiddleware, async (req: Request, res: Response) => {
+  const client = await pool.connect();
+
+  try {
+    const body = (req.body ?? {}) as RestoreBody;
+    const scheduleId = restoreInt(body.schedule_id);
+    const title = restoreText(body.title);
+
+    if (scheduleId === null || title === null) {
+      return res.status(400).json({ error: 'schedule_id and title required' });
+    }
+
+    // Расписание могло исчезнуть, пока уведомление висело на экране: тогда
+    // восстанавливать некуда, и это 404, а не молчаливая вставка в никуда.
+    const schedule = await client.query<{ id: number }>(
+      'SELECT id FROM schedules WHERE id = $1',
+      [scheduleId]
+    );
+
+    if (schedule.rows.length === 0) {
+      return res.status(404).json({ error: 'Schedule not found' });
+    }
+
+    const access = await canAccessSchedule(String(req.userId), scheduleId);
+
+    if (!access.allowed) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const source = restoreText(body.source);
+
+    /**
+     * Интервал меньше единицы невозможен (CHECK в миграции 0012): у старых задач
+     * и у мусора в теле он сводится к «раз в 1», как и при создании.
+     */
+    const intervalCount = restoreInt(body.interval_count);
+    const interval = intervalCount !== null && intervalCount > 0 ? intervalCount : 1;
+
+    const isCompleted = body.is_completed === true;
+
+    /**
+     * `completed_by` не приходит в теле удаления, но закрытая задача без автора
+     * не попала бы в личную серию и статистику дома. Тот, кто вернул задачу,
+     * и закрыл её — так же считает `PUT /api/tasks/:id`.
+     */
+    const completedAt =
+      isCompleted && typeof body.completed_at === 'string' && body.completed_at.trim() !== ''
+        ? body.completed_at
+        : isCompleted
+          ? new Date().toISOString()
+          : null;
+
+    await client.query('BEGIN');
+
+    const inserted = await client.query<TaskPayloadRow>(
+      `INSERT INTO tasks
+         (schedule_id, title, room, frequency, interval_count, day_of_week, day_of_month,
+          due_date, time, estimated_minutes, source, is_completed, completed_at, completed_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+       RETURNING ${TASK_PAYLOAD_COLUMNS}`,
+      [
+        scheduleId,
+        title,
+        restoreText(body.room),
+        restoreText(body.frequency),
+        interval,
+        restoreInt(body.day_of_week),
+        restoreInt(body.day_of_month),
+        restoreText(body.due_date),
+        restoreText(body.time),
+        restoreInt(body.estimated_minutes) ?? 0,
+        source,
+        isCompleted,
+        completedAt,
+        // Приведение к int обязательно: из JWT идентификатор приходит строкой
+        // (правило 25), и в CASE ... THEN $n вывод ушёл бы в text.
+        isCompleted ? req.userId : null,
+      ]
+    );
+
+    // Снятие отказа: название ищем нормализованным — ровно тем же ключом, что и
+    // сборка набора (`syncDefaultTasks`), иначе запись осталась бы «висеть».
+    const generated = source !== null && GENERATED_TASK_SOURCES.includes(source);
+    const dismissedTitle = normalizeTaskTitle(title);
+    let restoredFromDismissal = false;
+
+    if (generated) {
+      const cleared = await client.query(
+        'DELETE FROM dismissed_default_tasks WHERE user_id = $1 AND title = $2 RETURNING title',
+        [req.userId, dismissedTitle]
+      );
+      restoredFromDismissal = (cleared.rowCount ?? 0) > 0;
+    }
+
+    await client.query('COMMIT');
+
+    res.status(201).json({
+      restored: true,
+      restoredFromDismissal,
+      task: inserted.rows[0],
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    console.error(err);
+    res.status(500).json({ error: 'Failed to restore task' });
   } finally {
     client.release();
   }
