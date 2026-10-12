@@ -137,7 +137,6 @@ const steps: WizardStep[] = [
     options: [
       { value: 'under30', labelKey: 'optTimeUnder30' },
       { value: '30to60', labelKey: 'optTime30to60' },
-      { value: '1to2h', labelKey: 'optTime1to2h' },
       { value: 'depends', labelKey: 'optTimeDepends' },
     ],
   },
