@@ -325,15 +325,25 @@ router.put('/', authMiddleware, async (req: Request, res: Response) => {
        * описывают «типовой дом» (правило 28), поэтому по самим ответам отличить
        * пройденный мастер от пропущенного нельзя.
        */
-      await pool.query(
-        `UPDATE home_profiles
-            SET ${setters.join(', ')},
-                answered_fields = (
+      /**
+       * Полей может не быть вовсе: последний шаг разрешено пропустить, и тогда
+       * приходит только флаг завершения. Поэтому присвоения собираем списком:
+       * пустой `setters` давал `SET , answered_fields = …` — синтаксическую
+       * ошибку и 500 вместо 200 (найдено живым прогоном, закрыто тестом).
+       */
+      const assignments = [
+        ...setters,
+        `answered_fields = (
                   SELECT COALESCE(array_agg(DISTINCT name ORDER BY name), '{}')
                     FROM unnest(answered_fields || $${answeredIndex}::text[]) AS name
-                ),
-                completed_at = CASE WHEN $${completeIndex} THEN COALESCE(completed_at, CURRENT_TIMESTAMP) ELSE completed_at END,
-                updated_at = CURRENT_TIMESTAMP
+                )`,
+        `completed_at = CASE WHEN $${completeIndex} THEN COALESCE(completed_at, CURRENT_TIMESTAMP) ELSE completed_at END`,
+        'updated_at = CURRENT_TIMESTAMP',
+      ];
+
+      await pool.query(
+        `UPDATE home_profiles
+            SET ${assignments.join(',\n                ')}
           WHERE user_id = $${userIndex}`,
         [...values, fields, parsed.reachedEnd, userId]
       );

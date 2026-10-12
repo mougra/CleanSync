@@ -327,3 +327,27 @@ describe.skipIf(!fixture)('PUT /api/home-profile: завершение без п
     expect(res.body.answeredFields).toEqual([]);
   });
 });
+
+/**
+ * Завершение анкеты на **существующем** профиле без единого поля.
+ *
+ * Это путь UPDATE, а не INSERT: последний шаг разрешено пропустить, и тогда
+ * приходит только флаг завершения. Список присвоений оказывался пустым, и в
+ * запрос подставлялось `SET , answered_fields = …` — синтаксическая ошибка и
+ * 500 вместо 200. Проверка прибита гвоздями: именно на этом ломался повторный
+ * проход мастера, а первый проход (INSERT) работал и скрывал дефект.
+ */
+describe.skipIf(!fixture)('PUT /api/home-profile: завершение без полей на существующем профиле', () => {
+  itWithData('принимает { complete: true }, когда полей в теле нет', async (data) => {
+    await putProfile(data.token, { rooms: '3-4' }).expect(200);
+
+    const res = await putProfile(data.token, { complete: true });
+
+    expect(res.status).toBe(200);
+    expect(res.body.completed).toBe(true);
+    // Ранее присланное поле не потерялось, а шаг завершения к нему не добавился.
+    expect(res.body.profile.rooms).toBe('3-4');
+    expect(res.body.answeredFields).toContain('rooms');
+    expect(res.body.answeredFields).not.toContain('complete');
+  });
+});
