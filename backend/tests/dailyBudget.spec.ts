@@ -200,12 +200,23 @@ describe('defaultTasks: бюджет under30 — не больше 25 минут
     }
   });
 
-  it('ежедневный минимум 12-18 минут остаётся минимумом, а не лимитом', () => {
+  it('ежедневный блок: 1-2 дела в каждом дне, остальное разложено по дням уборки', () => {
     const set = buildDefaultTasks(UNDER30);
 
+    // Раньше здесь проверялось «12-18 минут каждый день»: генератор набирал
+    // ежедневный минимум целиком и повторял его изо дня в день — отсюда жалоба
+    // «на другие дни почти тот же список». Теперь в каждом дне остаются 1-2
+    // по-настоящему ежедневных дела, а остальные ушли в ротацию по дням уборки
+    // (tests/defaultTasksRotation.spec.ts держит это правило отдельно).
     expect(set.summary.dailyTasks).toBeGreaterThan(0);
-    expect(set.summary.dailyMinutes).toBeGreaterThanOrEqual(12);
+    expect(set.summary.dailyTasks).toBeLessThanOrEqual(2);
+    expect(set.summary.dailyMinutes).toBeGreaterThan(0);
     expect(set.summary.dailyMinutes).toBeLessThanOrEqual(18);
+
+    // Минуты ежедневного блока не потерялись: часть осталась в каждом дне,
+    // часть разложена по выбранным дням уборки.
+    expect(set.summary.rotatedTasks).toBeGreaterThan(0);
+    expect(set.summary.dailyMinutes + set.summary.rotatedMinutes).toBeGreaterThanOrEqual(12);
   });
 
   it('в каждом выбранном дне есть хотя бы одна задача', () => {
