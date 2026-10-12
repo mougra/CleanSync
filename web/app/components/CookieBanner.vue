@@ -73,10 +73,15 @@ const accept = () => {
 }
 
 @media (min-width: 768px) {
+  /*
+   * Правый нижний угол занят кнопкой «+», и там же висит уведомление о достижении,
+   * поэтому баннер уходит в левый нижний угол: три плавающих элемента перестают
+   * делить один и тот же пиксель.
+   */
   .banner {
-    left: auto;
-    right: var(--space-5);
-    bottom: var(--space-5);
+    left: var(--space-5);
+    right: auto;
+    bottom: var(--space-7);
     max-width: 420px;
   }
 }

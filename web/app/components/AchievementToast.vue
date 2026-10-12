@@ -117,10 +117,14 @@ onUnmounted(() => {
 }
 
 @media (min-width: 768px) {
+  /*
+   * Правый нижний угол на десктопе занят кнопкой «+» (40px от края, высота 56px),
+   * поэтому уведомление встаёт над ней, а не поверх: иначе они перекрывались.
+   */
   .toast {
     left: auto;
     right: var(--space-5);
-    bottom: var(--space-5);
+    bottom: calc(var(--space-7) + 56px + var(--space-4));
     max-width: 380px;
   }
 }
