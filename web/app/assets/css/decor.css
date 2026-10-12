@@ -198,3 +198,44 @@ body::before {
     animation: none;
   }
 }
+
+/*
+ * ── Полоса прокрутки ───────────────────────────────────────────────────────
+ *
+ * Системная полоса в тёмной теме остаётся светлой и выбивается из макетов, а в
+ * светлой выглядит грубо. Делаем свою: тонкую, скруглённую, в цвете приглушённого
+ * текста и с акцентом при наведении.
+ *
+ * Правила глобальные намеренно: прокручивается не только страница, но и шторки,
+ * списки, статьи и таблицы, поэтому стиль нужен всем прокручиваемым узлам, а не
+ * только `body`. Chromium и Safari читают псевдоэлементы, Firefox — `scrollbar-*`.
+ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--c-text-muted) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  /* Прозрачная рамка с `background-clip` делает полосу визуально тоньше дорожки */
+  border: 3px solid transparent;
+  border-radius: var(--r-pill);
+  background-color: var(--c-text-muted);
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: var(--c-accent);
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}

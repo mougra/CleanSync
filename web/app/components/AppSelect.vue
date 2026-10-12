@@ -187,7 +187,8 @@ onBeforeUnmount(() => {
         :style="{
           left: `${position.left}px`,
           top: `${position.top}px`,
-          width: `${position.width}px`,
+          minWidth: `${position.width}px`,
+          maxWidth: 'min(320px, calc(100vw - 1.5rem))',
           maxHeight: `${MAX_LIST_HEIGHT}px`,
           transform: position.openUp ? 'translateY(-100%)' : undefined,
         }"
@@ -272,6 +273,15 @@ onBeforeUnmount(() => {
 
 .select__trigger--open .select__chevron {
   transform: rotate(180deg);
+}
+
+.select--compact {
+  /*
+   * Компактный вид занимает место по содержимому, а не всю строку: у счётчика
+   * «дня в неделю» широкая кнопка во всю карточку выглядела пустой полосой.
+   */
+  width: auto;
+  max-width: 100%;
 }
 
 .select--compact .select__trigger {
