@@ -51,15 +51,14 @@ const pending = ref(false);
 const failed = ref(false);
 
 /**
- * Срок по умолчанию.
+ * Срок по умолчанию — сегодняшний день приложения.
  *
- * Сервер сравнивает срок с `toISOString()`, то есть с датой в UTC
- * (`GET /api/tasks/today`). Поэтому и подставляем дату UTC: иначе задача,
- * созданная поздним вечером в отрицательном поясе или ночью в положительном,
- * не попадёт в план на сегодня. Тот же день берётся и для дня недели.
+ * Сервер считает день в своём поясе (`APP_TIME_ZONE`, по умолчанию Москва),
+ * поэтому и здесь берём тот же день: иначе задача, созданная ночью, не попала бы
+ * в план на сегодня. Тот же день берётся и для дня недели.
  */
 function todayForApi(): string {
-  return new Date().toISOString().slice(0, 10);
+  return appToday(useRuntimeConfig().public.appTimeZone);
 }
 
 const unitLabel = (unit: TaskRepeatUnit): string =>

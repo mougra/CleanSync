@@ -274,6 +274,13 @@ export default defineNuxtConfig({
        * NUXT_PUBLIC_SITE_URL.
        */
       siteUrl: process.env.NUXT_PUBLIC_SITE_URL || 'http://localhost:3000',
+      /**
+       * Пояс приложения: им определяется, какой календарный день считается
+       * сегодняшним. Должен совпадать с `APP_TIME_ZONE` на бэкенде (по умолчанию
+       * Москва), иначе после местной полуночи экран и сервер разойдутся в дате,
+       * и отметка уйдёт не на тот день.
+       */
+      appTimeZone: process.env.APP_TIME_ZONE || 'Europe/Moscow',
       // Пусто = мониторинг выключен (значения приходят из окружения:
       // NUXT_PUBLIC_SENTRY_DSN и NUXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE)
       sentryDsn: '',

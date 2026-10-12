@@ -78,16 +78,19 @@ const { data: today } = await useAsyncData('today-plan', () =>
 const selectedDate = useState<string>('selected-date', () => toISODate(new Date()));
 
 /**
- * Сегодняшний день считаем по UTC — так же, как сервер в `tasksDueOn`.
+ * Сегодняшний день считаем в поясе приложения (`APP_TIME_ZONE`, по умолчанию
+ * Москва) — ровно так же, как сервер.
  *
- * Если сравнивать с локальной датой, в часовых поясах восточнее UTC поздним
- * вечером «сегодня» на экране и «сегодня» на сервере разошлись бы, и карточка
- * разрешила бы отметку дня, который сервер считает другим.
+ * Раньше здесь был UTC, и после местной полуночи «сегодня» на экране расходилось
+ * с серверным: вчерашний день выглядел сегодняшним, а отметка уходила на чужую
+ * дату. Пояс приходит из runtimeConfig, то есть один и тот же у клиента и
+ * сервера.
  */
-const todayUTC = () => new Date().toISOString().slice(0, 10);
+const { appTimeZone } = useRuntimeConfig().public;
+const todayInAppZone = () => appToday(appTimeZone);
 
 /** Отмечать можно только сегодня: прошлое и будущее — только просмотр. */
-const isToday = computed(() => selectedDate.value === todayUTC());
+const isToday = computed(() => selectedDate.value === todayInAppZone());
 
 /** День не загрузился: показываем строку ошибки, а не пустой список. */
 const dayFailed = ref(false);
@@ -206,7 +209,7 @@ const dayTitle = computed(() => {
     return t('calendar.today');
   }
 
-  const start = todayUTC();
+  const start = todayInAppZone();
 
   if (target === toISODate(addDays(fromISODate(start), -1))) {
     return t('calendar.yesterday');
@@ -253,7 +256,7 @@ const doneLabel = computed(() => {
  * Будущий день: отметок ещё не было по определению, поэтому «выполнено» и «факт»
  * не показываем вовсе — иначе строка «выполнено 0» выглядела бы как результат.
  */
-const showFact = computed(() => selectedDate.value <= todayUTC());
+const showFact = computed(() => selectedDate.value <= todayInAppZone());
 
 /** «план 45 мин · факт 30 мин»: остаток показываем, только когда он ненулевой. */
 const minutesLabel = computed(() => {

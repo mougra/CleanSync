@@ -1,5 +1,6 @@
 import express, { Request, Response } from 'express';
 import pool from '../db';
+import { appDay, appToday, parseAppDay } from '../services/appTime';
 import { authMiddleware } from '../auth';
 import { checkAndAwardAchievements } from '../services/achievementManager';
 import { canAccessSchedule } from '../services/household';
@@ -46,20 +47,15 @@ router.get('/:id/checklists', authMiddleware, async (req: Request, res: Response
  */
 const RECURRING_FREQUENCIES: readonly string[] = ['daily', 'weekly', 'monthly'];
 
-/** Сегодняшний день в UTC — тот же, которым считает `tasksDueOn`. */
-const todayIso = (): string => new Date().toISOString().slice(0, 10);
-
 /**
- * День отметки (UTC) по отметке времени: `2025-10-05T21:00:00.000Z` → `2025-10-05`.
- *
- * Нужен возврату удалённой задачи (`POST /api/tasks/restore`): там отметка дня
- * восстанавливается по прежнему `completed_at`, а не ставится на сегодня.
- * Неразобранная дата сводится к сегодняшней — выдумывать день нельзя.
+ * Сегодняшний день и день отметки считаются в поясе приложения, а не в UTC:
+ * после местной полуночи вчерашний план иначе выглядел бы сегодняшним, а
+ * отметка уходила бы на чужую дату (см. services/appTime.ts).
  */
 const isoDayOf = (timestamp: string): string => {
   const parsed = new Date(timestamp);
 
-  return Number.isNaN(parsed.getTime()) ? todayIso() : parsed.toISOString().slice(0, 10);
+  return Number.isNaN(parsed.getTime()) ? appToday() : appDay(parsed);
 };
 
 /**
@@ -155,7 +151,7 @@ const tasksDueOn = async (userId: string, date: Date) => {
 router.get('/today', authMiddleware, async (req: Request, res: Response) => {
 
   try {
-    const tasks = await tasksDueOn(req.userId as string, new Date());
+    const tasks = await tasksDueOn(req.userId as string, parseAppDay(appToday()) as Date);
     const totalTasks = tasks.length;
     const completedTasks = tasks.filter(t => t.is_completed).length;
     const totalMinutes = tasks.reduce((acc, t) => acc + (t.estimated_minutes || 0), 0);
@@ -198,7 +194,7 @@ router.get('/upcoming', authMiddleware, async (req: Request, res: Response) => {
     const days = Number.isFinite(requested) ? Math.min(Math.max(requested, 1), 14) : 3;
 
     const userId = req.userId as string;
-    const start = new Date();
+    const start = parseAppDay(appToday()) as Date;
 
     const result = [];
 
@@ -419,7 +415,7 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
     }
 
     /** Сегодняшний день в UTC: отметка ставится именно на него. */
-    const completedOn = todayIso();
+    const completedOn = appToday();
 
     await client.query('BEGIN');
 
@@ -783,7 +779,7 @@ router.post('/restore', authMiddleware, async (req: Request, res: Response) => {
      * так же считает `PUT /api/tasks/:id`.
      */
     if (isCompleted) {
-      const completedOn = completedAt === null ? todayIso() : isoDayOf(completedAt);
+      const completedOn = completedAt === null ? appToday() : isoDayOf(completedAt);
 
       await client.query(
         `INSERT INTO task_completions (task_id, completed_on, completed_by, completed_at)
