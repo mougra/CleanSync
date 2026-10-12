@@ -63,31 +63,34 @@ const generatedMinutesByWeekday = (input: PartialHomeAnswers): number[] => {
 };
 
 describe('дневной бюджет по ответу анкеты', () => {
-  it('таблица ответов: under30 → 25, 30to60 → 40, 1to2h → 40, depends → 30', () => {
+  it('таблица ответов: under30 → 25, 30to60 → 55, 1to2h → 55, depends → 35', () => {
+    // Числа согласованы с вариантами ответа: «30-60 минут» и значит до часа.
+    // Раньше таблица упиралась в потолок 40, и человек, выбравший больший вариант,
+    // получал те же сорок минут — заказчик описал это как «выбрал больше, а мало».
     expect(DAY_BUDGET_MINUTES.under30).toBe(25);
-    expect(DAY_BUDGET_MINUTES['30to60']).toBe(40);
-    expect(DAY_BUDGET_MINUTES['1to2h']).toBe(40);
-    expect(DAY_BUDGET_MINUTES.depends).toBe(30);
+    expect(DAY_BUDGET_MINUTES['30to60']).toBe(55);
+    expect(DAY_BUDGET_MINUTES['1to2h']).toBe(55);
+    expect(DAY_BUDGET_MINUTES.depends).toBe(35);
   });
 
   it('dayBudget отдаёт бюджет по ответу', () => {
     expect(dayBudget({ dailyMinutes: 'under30' })).toBe(25);
-    expect(dayBudget({ dailyMinutes: '30to60' })).toBe(40);
-    expect(dayBudget({ dailyMinutes: '1to2h' })).toBe(40);
-    expect(dayBudget({ dailyMinutes: 'depends' })).toBe(30);
+    expect(dayBudget({ dailyMinutes: '30to60' })).toBe(55);
+    expect(dayBudget({ dailyMinutes: '1to2h' })).toBe(55);
+    expect(dayBudget({ dailyMinutes: 'depends' })).toBe(35);
   });
 
   it('ответа нет — бюджет значения по умолчанию (30-60 минут в день)', () => {
     expect(dayBudget({})).toBe(dayBudget({ dailyMinutes: '30to60' }));
   });
 
-  it('бюджет никогда не выше абсолютного потолка 40 минут', () => {
+  it('бюджет никогда не выше абсолютного потолка 60 минут', () => {
     for (const option of ['under30', '30to60', '1to2h', 'depends'] as const) {
       expect(dayBudget({ dailyMinutes: option })).toBeLessThanOrEqual(MAX_DAILY_MINUTES);
     }
 
     // Потолок объявлен один раз: реэкспорт из генератора набора — то же число.
-    expect(MAX_DAILY_MINUTES).toBe(40);
+    expect(MAX_DAILY_MINUTES).toBe(60);
     expect(MAX_DAILY_MINUTES_FROM_DEFAULT_TASKS).toBe(MAX_DAILY_MINUTES);
   });
 

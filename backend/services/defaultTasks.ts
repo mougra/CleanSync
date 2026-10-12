@@ -474,8 +474,18 @@ const matchesDrying = (task: CatalogTask, answers: HomeAnswers): boolean => {
   return answers.drying === 'air' ? wantsAir : wantsMachine;
 };
 
-/** Подходит ли задача ответам анкеты: уровень уборки, контекст и способ сушки. */
+/**
+ * Подходит ли задача ответам анкеты: уровень уборки, контекст и способ сушки.
+ *
+ * Гараж исключён жёстко, а не по ответу анкеты. Заказчик попросил убрать вопрос
+ * про гараж и не ставить задачи на гараж вовсе — а ответ у существующих профилей
+ * уже сохранён, поэтому одной правки анкеты мало: набор продолжал бы предлагать
+ * «подмести пол в гараже». Каталог гаражные дела сохраняет (они пригодятся, если
+ * гараж когда-нибудь вернётся отдельной функцией), но в набор не попадают.
+ */
 const isRelevant = (task: CatalogTask, answers: HomeAnswers, declared: TaskTag[]): boolean => {
+  if (task.room === 'Гараж' || task.tags.includes('garage')) return false;
+
   if (!allowedLevels(answers.cleaningLevel).includes(task.level)) return false;
 
   const needs = task.tags.filter((tag) => CONTEXT_TAGS.includes(tag));

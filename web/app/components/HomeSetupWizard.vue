@@ -196,7 +196,6 @@ const currentField = computed<HomeSetupField>(() => currentFields.value[0] ?? 'h
 /** Подписи подвопросов «да/нет»: ключи i18n к полям из общего util. */
 const EXTRA_LABEL_KEYS: Partial<Record<HomeSetupField, string>> = {
   hasKidsRoom: 'extraKidsRoom',
-  hasGarage: 'extraGarage',
   worksFromHome: 'extraOffice',
 };
 
