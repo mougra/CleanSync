@@ -377,8 +377,16 @@ router.put('/', authMiddleware, async (req: Request, res: Response) => {
     /**
      * Анкета пройдена — сразу собираем постоянный набор «Мои задачи», не
      * дожидаясь кнопки «собрать план»: готовый список дел должен появляться
-     * сам. Повторные вызовы безопасны: набор идемпотентен, а `removeStale`
-     * здесь выключен, чтобы правки пользователя не улетали при каждом шаге.
+     * сам.
+     *
+     * `removeStale` здесь **включён**. Раньше он был выключен, «чтобы правки не
+     * улетали при каждом шаге», и это оказалось ошибкой: человек проходил анкету
+     * заново, а прежние сгенерированные задачи оставались в расписании — ровно
+     * на это и жаловался заказчик («перепрошёл опросник, а задачи прежние»).
+     * Завершение анкеты и есть явная пересборка плана, поэтому устаревшие
+     * сгенерированные задачи (с пометкой источника, незакрытые и отсутствующие в
+     * новом наборе) удаляются. Задачи, созданные человеком, не трогаются никогда:
+     * у них нет пометки источника, и под условие удаления они не попадают.
      *
      * Перед пересборкой прежний недельный план переносится в набор
      * (services/mergePlanIntoTasks.ts): второй источник задач больше не
@@ -392,7 +400,7 @@ router.put('/', authMiddleware, async (req: Request, res: Response) => {
         const answers = answersFromStoredRow(updated);
         const defaultSet = buildDefaultTasks(answers);
         const merged = await mergePlanIntoTasks(userId);
-        const myTasks = await syncDefaultTasks(userId, defaultSet, { removeStale: false });
+        const myTasks = await syncDefaultTasks(userId, defaultSet, { removeStale: true });
 
         res.json({
           ...toProfileResponse(updated),

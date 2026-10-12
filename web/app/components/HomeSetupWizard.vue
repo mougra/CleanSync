@@ -359,9 +359,12 @@ const close = () => emit('close');
             </li>
           </ol>
 
-          <ul v-if="plan.summary.notes.length" class="notes">
-            <li v-for="note in plan.summary.notes" :key="note">{{ note }}</li>
-          </ul>
+          <!--
+            Примечания генератора («недельных дел больше, чем помещается»,
+            «полы масштабированы по числу комнат») на экран не выводим: это
+            служебная информация для проверок, а человеку она ничего не объясняет
+            и только пугает цифрами. Данные остаются в ответе API.
+          -->
 
           <AppButton variant="filled" block :to="localePath('/')" @click="close">
             {{ t('homeSetup.openPlan') }}
@@ -759,16 +762,6 @@ const close = () => emit('close');
 
 .days__value {
   color: var(--c-text-muted);
-}
-
-.notes {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  margin: 0;
-  padding-left: var(--space-4);
-  color: var(--c-text-muted);
-  font-size: var(--fs-caption);
 }
 
 .wizard__error {
