@@ -617,9 +617,36 @@ const syncDefaultTasks = async (
       title: string;
       is_completed: boolean;
       source: string | null;
-    }>('SELECT id, title, is_completed, source FROM tasks WHERE schedule_id = $1', [scheduleId]);
+      room: string | null;
+      estimated_minutes: number | null;
+      frequency: string | null;
+      interval_count: number | null;
+      day_of_week: number | null;
+      day_of_month: number | null;
+    }>(
+      `SELECT id, title, is_completed, source, room, estimated_minutes, frequency,
+              interval_count, day_of_week, day_of_month
+         FROM tasks WHERE schedule_id = $1
+        ORDER BY id`,
+      [scheduleId]
+    );
 
-    const byTitle = new Map(current.rows.map((row) => [row.title, row]));
+    /**
+     * Строки по названию — списком, а не одной записью.
+     *
+     * Раньше здесь лежала одна строка на название, и вторая копия того же дела
+     * просто терялась из виду: дубли (`«Вымыть миски питомца»` дважды, разные
+     * числа месяца) оставались в расписании навсегда. Теперь лишние копии видно
+     * и можно убрать.
+     */
+    const byTitle = new Map<string, typeof current.rows>();
+
+    for (const row of current.rows) {
+      const rows = byTitle.get(row.title) ?? [];
+      rows.push(row);
+      byTitle.set(row.title, rows);
+    }
+
     const wanted = new Set(set.tasks.map((task) => task.title));
 
     /**
@@ -636,9 +663,63 @@ const syncDefaultTasks = async (
     let created = 0;
     let existing = 0;
     let skipped = 0;
+    let updated = 0;
+    let deduplicated = 0;
 
     for (const task of set.tasks) {
-      if (byTitle.has(task.title)) {
+      const rows = byTitle.get(task.title);
+
+      if (rows && rows.length > 0) {
+        const [keeper, ...extra] = rows;
+
+        /**
+         * Расписание существующей сгенерированной задачи **обновляем** под новый
+         * набор: периодичность, день, зона и минуты.
+         *
+         * Без этого перепрохождение анкеты ничего не меняло у тех, у кого задачи
+         * уже были: раковина оставалась «каждый день» (в новом каталоге она раз в
+         * две недели), гараж продолжал висеть в четверг, а старые частоты жили
+         * своей жизнью — ровно на это и жаловался заказчик. Задачи, созданные
+         * человеком (`source IS NULL`), не трогаем: это его собственные дела.
+         */
+        if (keeper.source === DEFAULT_TASK_SOURCE) {
+          await client.query(
+            `UPDATE tasks
+                SET room = $2,
+                    estimated_minutes = $3,
+                    frequency = $4,
+                    interval_count = $5,
+                    day_of_week = $6,
+                    day_of_month = $7,
+                    due_date = $8
+              WHERE id = $1`,
+            [
+              keeper.id,
+              task.room,
+              task.minutes,
+              task.frequency,
+              task.intervalCount,
+              task.dayOfWeek,
+              task.dayOfMonth,
+              task.dueDate,
+            ]
+          );
+
+          updated += 1;
+        }
+
+        // Дубли одного названия: лишние сгенерированные копии убираем, чужие
+        // (созданные человеком) оставляем.
+        const duplicates = extra.filter((row) => row.source === DEFAULT_TASK_SOURCE);
+
+        if (duplicates.length > 0) {
+          await client.query('DELETE FROM tasks WHERE id = ANY($1::int[])', [
+            duplicates.map((row) => row.id),
+          ]);
+
+          deduplicated += duplicates.length;
+        }
+
         existing += 1;
         continue;
       }
@@ -698,6 +779,8 @@ const syncDefaultTasks = async (
       scheduleId,
       created,
       existing,
+      updated,
+      deduplicated,
       removed,
       dismissed: skipped,
       total: total.rows[0].total,
@@ -715,6 +798,10 @@ interface SyncResult {
   scheduleId: number;
   created: number;
   existing: number;
+  /** Сколько существующих сгенерированных задач обновлено под новый набор. */
+  updated: number;
+  /** Сколько лишних копий одного названия убрано. */
+  deduplicated: number;
   removed: number;
   /** Сколько недостающих дел не создано: их названия в списке отказов. */
   dismissed: number;
