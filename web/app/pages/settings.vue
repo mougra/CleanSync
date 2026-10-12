@@ -408,14 +408,27 @@ useSeoMeta({ title: () => t('nav.settings') });
         Повторное прохождение — явное действие: справа видно «Пройти заново»,
         статус рядом говорит, что уже есть. Клик открывает мастер с текущими
         ответами (см. HomeSetupWizard: он копирует сохранённый профиль).
+
+        Гостю строка не предлагает действие, а отправляет войти — как строка
+        «Дома и участники» выше: собирать план некуда, пока нет аккаунта, и
+        открывать мастер было бы тупиком.
       -->
       <SettingsRow
+        v-if="auth.isAuthenticated"
         icon="pi-sliders-h"
         :title="t('homeSetup.title')"
         :subtitle="t('settings.homeSetupHint')"
         :value="homeProfileValue"
         :action="t('homeSetup.restart')"
         @action="openWizard"
+      />
+
+      <SettingsRow
+        v-else
+        icon="pi-sliders-h"
+        :title="t('homeSetup.title')"
+        :subtitle="t('homeSetup.needAuth')"
+        :to="localePath('/login')"
       />
 
       <SettingsRow icon="pi-bell" :title="t('settings.notifications')" expandable>

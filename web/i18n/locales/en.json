@@ -228,6 +228,7 @@
   },
   "homeSetup": {
     "title": "Home setup",
+    "needAuth": "Sign in to build your cleaning plan",
     "restart": "Run again",
     "done": "done",
     "incomplete": "not done",
