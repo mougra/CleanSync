@@ -251,11 +251,11 @@ watch(
 
       <label class="field">
         <span class="field__label">{{ t('tasks.fieldZone') }}</span>
-        <select v-model="zone" class="field__input">
-          <option v-for="item in zones" :key="item" :value="item">
-            {{ t(`tasks.zone.${item}`) }}
-          </option>
-        </select>
+        <AppSelect
+          v-model="zone"
+          :options="zones.map((item) => ({ value: item, label: t(`tasks.zone.${item}`) }))"
+          :aria-label="t('tasks.fieldZone')"
+        />
       </label>
 
       <!-- Повтор: сегменты единицы и шаг «раз в N ...» -->

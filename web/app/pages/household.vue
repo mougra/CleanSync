@@ -260,11 +260,11 @@ useSeoMeta({ title: () => t('household.title'), robots: 'noindex, nofollow' });
       <!-- Переключатель: появляется, когда домов больше одного -->
       <label v-if="households.length > 1" class="switch">
         <span class="switch__label">{{ t('household.name') }}</span>
-        <select v-model="selectedHouseholdId" class="switch__select">
-          <option v-for="entry in households" :key="entry.household.id" :value="entry.household.id">
-            {{ entry.household.name }}
-          </option>
-        </select>
+        <AppSelect
+          v-model="selectedHouseholdId"
+          :options="households.map((entry) => ({ value: entry.household.id, label: entry.household.name }))"
+          :aria-label="t('household.name')"
+        />
       </label>
 
       <!-- Карточки домов -->
@@ -387,18 +387,18 @@ useSeoMeta({ title: () => t('household.title'), robots: 'noindex, nofollow' });
               </p>
 
               <div class="task__actions">
-                <select
+                <AppSelect
                   v-if="isOwner"
-                  class="task__assign"
-                  :value="task.assignee_id ?? ''"
+                  compact
+                  :model-value="task.assignee_id ?? ''"
+                  :options="[
+                    { value: '', label: t('household.unassigned') },
+                    ...members.map((member) => ({ value: member.id, label: displayName(member) })),
+                  ]"
                   :disabled="busy"
-                  @change="onAssign(task.id, ($event.target as HTMLSelectElement).value ? Number(($event.target as HTMLSelectElement).value) : null)"
-                >
-                  <option value="">{{ t('household.unassigned') }}</option>
-                  <option v-for="member in members" :key="member.id" :value="member.id">
-                    {{ displayName(member) }}
-                  </option>
-                </select>
+                  :aria-label="t('household.assignee')"
+                  @update:model-value="(value) => onAssign(task.id, value === '' ? null : Number(value))"
+                />
 
                 <AppButton
                   v-else-if="!task.assignee_id"
@@ -663,16 +663,6 @@ useSeoMeta({ title: () => t('household.title'), robots: 'noindex, nofollow' });
 .switch__label {
   color: var(--c-text-muted);
   font-size: var(--fs-caption);
-}
-
-.switch__select {
-  min-height: var(--tap-min);
-  padding: 0 var(--space-3);
-  border: 1px solid var(--c-border);
-  border-radius: var(--r-row);
-  background: var(--c-surface);
-  color: var(--c-text);
-  font: inherit;
 }
 
 /* Карточка дома */
@@ -948,17 +938,6 @@ useSeoMeta({ title: () => t('household.title'), robots: 'noindex, nofollow' });
   display: flex;
   align-items: center;
   gap: var(--space-2);
-}
-
-.task__assign {
-  min-height: var(--tap-min);
-  padding: 0 var(--space-2);
-  border: 1px solid var(--c-border);
-  border-radius: var(--r-row);
-  background: var(--c-surface);
-  color: var(--c-text);
-  font: inherit;
-  font-size: var(--fs-caption);
 }
 
 .add {

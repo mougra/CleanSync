@@ -55,8 +55,18 @@ const progress = computed(() => {
   return Math.min(100, Math.round((activeDays / Math.max(1, target)) * 100));
 });
 
-const changeTarget = async (event: Event) => {
-  const target = Number((event.target as HTMLSelectElement).value);
+/**
+ * Варианты недельной цели: «1 день в неделю» … «7 дней в неделю».
+ *
+ * Склонение считает `goalWord`, а рисует список наш AppSelect: нативный `<select>`
+ * в тёмной теме показывал светлый системный список с чужим шрифтом.
+ */
+const goalOptions = computed(() =>
+  Array.from({ length: 7 }, (_, index) => ({ value: index + 1, label: goalWord(index + 1) }))
+);
+
+const changeTarget = async (value: string | number) => {
+  const target = Number(value);
 
   if (!Number.isInteger(target)) {
     return;
@@ -133,11 +143,14 @@ const changeTarget = async (event: Event) => {
 
     <label class="streak__goal">
       <span class="streak__goal-label">{{ t('streak.goalLabel') }}</span>
-      <select class="streak__goal-select" :value="streak.week.target" :disabled="saving" @change="changeTarget">
-        <option v-for="value in 7" :key="value" :value="value">
-          {{ goalWord(value) }}
-        </option>
-      </select>
+      <AppSelect
+        compact
+        :model-value="streak.week.target"
+        :disabled="saving"
+        :options="goalOptions"
+        :aria-label="t('streak.goalLabel')"
+        @update:model-value="changeTarget"
+      />
     </label>
 
     <p v-if="streak.week.met" class="streak__done">
@@ -283,16 +296,6 @@ const changeTarget = async (event: Event) => {
 .streak__goal-label {
   color: var(--c-text-muted);
   font-size: var(--fs-caption);
-}
-
-.streak__goal-select {
-  min-height: var(--tap-min);
-  padding: 0 var(--space-3);
-  border: 1px solid var(--c-border);
-  border-radius: var(--r-row);
-  background: var(--c-surface);
-  color: var(--c-text);
-  font: inherit;
 }
 
 .streak__done {

@@ -171,6 +171,7 @@
   },
   "household": {
     "title": "Homes and members",
+    "assignee": "Task assignee",
     "needAuth": "Sign in to create a home and a shared plan.",
     "createTitle": "Create a home",
     "createHint": "A home is your family and a shared plan: zones, tasks and who does what.",
