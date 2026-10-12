@@ -134,7 +134,9 @@ const tasksDueOn = async (userId: string, date: Date) => {
                ) = 0) OR
          (t.due_date = $4)
        )
-     ORDER BY t.time ASC`,
+     -- При равном или пустом времени Postgres не обещает порядок, и строки
+     -- переставлялись после каждой отметки: идентификатор — устойчивый добор.
+     ORDER BY t.time ASC NULLS LAST, t.id ASC`,
     [userId, dayOfWeek, dayOfMonth, dayStr, RECURRING_FREQUENCIES]
   );
 
