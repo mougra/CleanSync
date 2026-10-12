@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import pool from '../db';
 import { authMiddleware } from '../auth';
+import { SQL_APP_TODAY } from '../services/appTime';
 import { generateInviteCode, listMemberships, type Membership } from '../services/household';
 import { sendPushToUser } from '../services/push';
 
@@ -88,14 +89,22 @@ const loadHousehold = async (householdId: number) => {
 
   const members = await pool.query(
     `SELECT u.id, u.email, u.username, u.avatar_url, m.role, m.joined_at::text AS joined_at,
-            (SELECT COUNT(*)::int FROM tasks t
+            -- Сделано участником: считаем по журналу отметок, а не по последней
+            -- отметке задачи. Дело дома закрыто, кто бы его ни взял, — в зачёт
+            -- идёт тот, кто закрыл (completed_by), а не владелец расписания и
+            -- не назначенный: так же считает личная серия (services/streak.ts).
+            -- Окно «за неделю» прежнее: семь суток назад и сегодня.
+            (SELECT COUNT(*)::int FROM task_completions c
+               JOIN tasks t ON t.id = c.task_id
                JOIN schedules s ON s.id = t.schedule_id
-              WHERE s.household_id = $1 AND t.completed_by = u.id
-                AND t.completed_at >= CURRENT_DATE - INTERVAL '7 days') AS week_done,
-            (SELECT COUNT(*)::int FROM tasks t
+              WHERE s.household_id = $1 AND c.completed_by = u.id
+                AND c.completed_on >= (${SQL_APP_TODAY} - INTERVAL '7 days')::date) AS week_done,
+            -- «Сегодня» — календарный день приложения, а не пояс сервера.
+            (SELECT COUNT(*)::int FROM task_completions c
+               JOIN tasks t ON t.id = c.task_id
                JOIN schedules s ON s.id = t.schedule_id
-              WHERE s.household_id = $1 AND t.completed_by = u.id
-                AND t.completed_at::date = CURRENT_DATE) AS today_done,
+              WHERE s.household_id = $1 AND c.completed_by = u.id
+                AND c.completed_on = ${SQL_APP_TODAY}) AS today_done,
             (SELECT COUNT(*)::int FROM tasks t
                JOIN schedules s ON s.id = t.schedule_id
               WHERE s.household_id = $1 AND t.assignee_id = u.id AND t.is_completed = FALSE) AS open_assigned

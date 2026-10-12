@@ -7,6 +7,12 @@ import pool from '../db';
  * не получено и чей порог уже пройден. Тип критерия и порог лежат в таблице
  * achievements, поэтому новую ачивку достаточно добавить в сид — код менять
  * не нужно, если метрика уже считается.
+ *
+ * «Сделано дел» считается по журналу отметок `task_completions`, а не по флагу
+ * задачи `tasks.is_completed`: строка журнала — это один закрытый пункт в один
+ * день, поэтому повторяющееся дело, закрытое пять дней подряд, даёт пять дел, а
+ * снятая сегодня галочка не стирает закрытые ранее дни. Владение прежнее — дела
+ * из личных расписаний пользователя (`schedules.user_id`), как и до журнала.
  */
 
 export interface Metrics {
@@ -50,9 +56,11 @@ const longestStreak = (dates: string[]): number => {
 export const collectMetrics = async (userId: string): Promise<Metrics> => {
   const totals = await pool.query(
     `SELECT
-       (SELECT COUNT(*) FROM tasks t
-          JOIN schedules s ON t.schedule_id = s.id
-         WHERE s.user_id = $1 AND t.is_completed = TRUE) AS own_tasks,
+       -- Строки журнала, а не задачи: см. пояснение в шапке файла.
+       (SELECT COUNT(*) FROM task_completions c
+          JOIN tasks t ON t.id = c.task_id
+          JOIN schedules s ON s.id = t.schedule_id
+         WHERE s.user_id = $1) AS own_tasks,
        (SELECT COUNT(*) FROM user_task_progress p
           JOIN user_challenges uc ON uc.id = p.user_challenge_id
          WHERE uc.user_id = $1 AND p.is_done = TRUE) AS challenge_tasks,

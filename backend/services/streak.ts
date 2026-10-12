@@ -1,11 +1,23 @@
 import pool from '../db';
+import { SQL_APP_TODAY, appToday, sqlAppDate } from './appTime';
 
 /**
  * Личная серия, заморозки и недельная цель.
  *
- * «День с уборкой» — любой закрытый пункт: своя задача, задача челленджа,
- * отметка привычки или задача семейного плана (тогда смотрим, кто именно
- * закрыл — `tasks.completed_by`).
+ * «День с уборкой» — любой закрытый пункт: отметка в журнале
+ * `task_completions` (своя задача или дело дома: считается тот, кто закрыл,
+ * `completed_by` — а не владелец расписания), закрытая задача челленджа или
+ * отметка привычки.
+ *
+ * Дни всех трёх источников приводятся к одному календарному дню в поясе
+ * приложения (services/appTime.ts): у задач дома день — это `completed_on`
+ * (дата), у челленджей момент `done_at` переводится помощником `sqlAppDate`,
+ * у привычек `completed_on` — уже дата. «Сегодня» берётся там же (`appToday`),
+ * потому что отметку ставит `PUT /api/tasks/:id` именно на этот день: с
+ * локальной датой сервера галочка после местной полуночи не попадала бы в серию.
+ *
+ * Журнал — источник истории по дням, поэтому снятие галочки убирает только
+ * сегодняшнюю отметку: закрытые ранее дни остаются закрытыми.
  *
  * Серия не хранится как счётчик: она вычисляется из активности, иначе любая
  * правка истории (снял галочку, удалил задачу) расходилась бы с базой.
@@ -23,8 +35,6 @@ const toIso = (date: Date): string => {
   return `${date.getFullYear()}-${month}-${day}`;
 };
 
-export const todayIso = (): string => toIso(new Date());
-
 const shift = (iso: string, delta: number): string => {
   const date = new Date(`${iso}T00:00:00`);
   date.setDate(date.getDate() + delta);
@@ -34,28 +44,37 @@ const shift = (iso: string, delta: number): string => {
 const diffDays = (from: string, to: string): number =>
   Math.round((new Date(`${to}T00:00:00`).getTime() - new Date(`${from}T00:00:00`).getTime()) / DAY_MS);
 
-/** Дни, когда пользователь что-то закрыл. */
+/**
+ * Дни, когда пользователь что-то закрыл.
+ *
+ * Задачи считаются по журналу отметок: `task_completions.completed_on` — это
+ * календарный день в поясе приложения, и в нём сохраняются все дни, а не только
+ * последний. Условие авторства прежнее: закрыл я (`completed_by`) либо закрыто
+ * без автора в моём личном расписании (старые отметки до появления колонки).
+ */
 const loadActivity = async (userId: string): Promise<Set<string>> => {
+  const window = `${SQL_APP_TODAY} - ($2 || ' days')::interval`;
+
   const result = await pool.query<{ day: string }>(
     `SELECT day::text AS day FROM (
-       SELECT DATE(t.completed_at) AS day
-         FROM tasks t
+       SELECT c.completed_on AS day
+         FROM task_completions c
+         JOIN tasks t ON t.id = c.task_id
          JOIN schedules s ON s.id = t.schedule_id
-        WHERE t.is_completed
-          AND (t.completed_by = $1 OR (t.completed_by IS NULL AND s.user_id = $1))
-          AND t.completed_at >= CURRENT_DATE - ($2 || ' days')::interval
+        WHERE (c.completed_by = $1 OR (c.completed_by IS NULL AND s.user_id = $1))
+          AND c.completed_on >= (${window})::date
        UNION
-       SELECT DATE(p.done_at) AS day
+       SELECT ${sqlAppDate('p.done_at')} AS day
          FROM user_task_progress p
          JOIN user_challenges uc ON uc.id = p.user_challenge_id
         WHERE uc.user_id = $1 AND p.is_done
-          AND p.done_at >= CURRENT_DATE - ($2 || ' days')::interval
+          AND ${sqlAppDate('p.done_at')} >= (${window})::date
        UNION
        SELECT c.completed_on AS day
          FROM habit_completions c
          JOIN user_habits h ON h.id = c.user_habit_id
         WHERE h.user_id = $1
-          AND c.completed_on >= CURRENT_DATE - ($2 || ' days')::interval
+          AND c.completed_on >= (${window})::date
      ) AS activity`,
     [userId, ACTIVITY_WINDOW_DAYS]
   );
@@ -214,7 +233,7 @@ export interface StreakState {
 }
 
 export const getStreakState = async (userId: string): Promise<StreakState> => {
-  const today = todayIso();
+  const today = appToday();
   const activity = await loadActivity(userId);
   const covered = await loadCovered(userId);
   const freezes = await ensureFreezes(userId, today);

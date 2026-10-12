@@ -1,5 +1,6 @@
 import express, { Request, Response } from 'express';
 import pool from '../db';
+import { SQL_APP_TODAY, sqlAppDate } from '../services/appTime';
 import { authMiddleware } from '../auth';
 
 const router = express.Router();
@@ -9,29 +10,41 @@ const router = express.Router();
  *
  * Сводим три источника — свои задачи, задачи челленджей и отметки привычек:
  * по отдельности они не дают картины, а вместе показывают реальную активность.
+ *
+ * Свои задачи считаются по журналу отметок `task_completions`, а не по флагу
+ * `tasks.is_completed`: у дня своя отметка, поэтому «сделано N дел» — это число
+ * строк журнала, и закрытое вчера дело не переезжает в сегодня. Окна дат считает
+ * Postgres в поясе приложения (`SQL_APP_TODAY`), а моменты челленджей переводит в
+ * календарный день помощник `sqlAppDate` — `CURRENT_DATE` и `DATE(…)` берут пояс
+ * сервера и расходятся с приложением. Форма ответов не менялась.
  */
 router.get('/summary', authMiddleware, async (req: Request, res: Response) => {
   try {
     const activity = await pool.query(
       `WITH days AS (
-         SELECT generate_series(CURRENT_DATE - INTERVAL '29 days', CURRENT_DATE, INTERVAL '1 day')::date AS day
+         SELECT generate_series(
+                  (${SQL_APP_TODAY} - INTERVAL '29 days')::date,
+                  ${SQL_APP_TODAY},
+                  INTERVAL '1 day'
+                )::date AS day
        ),
        own AS (
-         SELECT DATE(t.completed_at) AS day,
+         SELECT c.completed_on AS day,
                 COUNT(*)::int AS done,
                 COALESCE(SUM(t.estimated_minutes), 0)::int AS minutes
-           FROM tasks t
+           FROM task_completions c
+           JOIN tasks t ON t.id = c.task_id
            JOIN schedules s ON s.id = t.schedule_id
-          WHERE s.user_id = $1 AND t.is_completed
-            AND t.completed_at >= CURRENT_DATE - INTERVAL '29 days'
+          WHERE s.user_id = $1
+            AND c.completed_on >= (${SQL_APP_TODAY} - INTERVAL '29 days')::date
           GROUP BY 1
        ),
        challenge AS (
-         SELECT DATE(p.done_at) AS day, COUNT(*)::int AS done
+         SELECT ${sqlAppDate('p.done_at')} AS day, COUNT(*)::int AS done
            FROM user_task_progress p
            JOIN user_challenges uc ON uc.id = p.user_challenge_id
           WHERE uc.user_id = $1 AND p.is_done
-            AND p.done_at >= CURRENT_DATE - INTERVAL '29 days'
+            AND ${sqlAppDate('p.done_at')} >= (${SQL_APP_TODAY} - INTERVAL '29 days')::date
           GROUP BY 1
        ),
        habits AS (
@@ -39,7 +52,7 @@ router.get('/summary', authMiddleware, async (req: Request, res: Response) => {
            FROM habit_completions c
            JOIN user_habits h ON h.id = c.user_habit_id
           WHERE h.user_id = $1
-            AND c.completed_on >= CURRENT_DATE - INTERVAL '29 days'
+            AND c.completed_on >= (${SQL_APP_TODAY} - INTERVAL '29 days')::date
           GROUP BY 1
        )
        SELECT d.day::text AS date,
@@ -57,9 +70,10 @@ router.get('/summary', authMiddleware, async (req: Request, res: Response) => {
 
     const totals = await pool.query(
       `SELECT
-         (SELECT COUNT(*)::int FROM tasks t
+         (SELECT COUNT(*)::int FROM task_completions c
+            JOIN tasks t ON t.id = c.task_id
             JOIN schedules s ON s.id = t.schedule_id
-           WHERE s.user_id = $1 AND t.is_completed) AS own_tasks,
+           WHERE s.user_id = $1) AS own_tasks,
          (SELECT COUNT(*)::int FROM user_task_progress p
             JOIN user_challenges uc ON uc.id = p.user_challenge_id
            WHERE uc.user_id = $1 AND p.is_done) AS challenge_tasks,
@@ -68,9 +82,10 @@ router.get('/summary', authMiddleware, async (req: Request, res: Response) => {
            WHERE h.user_id = $1) AS habit_checkins,
          (SELECT COUNT(*)::int FROM user_habits
            WHERE user_id = $1 AND archived_at IS NULL) AS active_habits,
-         (SELECT COALESCE(SUM(t.estimated_minutes), 0)::int FROM tasks t
+         (SELECT COALESCE(SUM(t.estimated_minutes), 0)::int FROM task_completions c
+            JOIN tasks t ON t.id = c.task_id
             JOIN schedules s ON s.id = t.schedule_id
-           WHERE s.user_id = $1 AND t.is_completed) AS own_minutes,
+           WHERE s.user_id = $1) AS own_minutes,
          (SELECT COALESCE(SUM(ct.estimated_minutes), 0)::int FROM user_task_progress p
             JOIN challenge_tasks ct ON ct.id = p.challenge_task_id
             JOIN user_challenges uc ON uc.id = p.user_challenge_id
@@ -83,9 +98,10 @@ router.get('/summary', authMiddleware, async (req: Request, res: Response) => {
       `SELECT room, COUNT(*)::int AS done
          FROM (
            SELECT t.room
-             FROM tasks t
+             FROM task_completions c
+             JOIN tasks t ON t.id = c.task_id
              JOIN schedules s ON s.id = t.schedule_id
-            WHERE s.user_id = $1 AND t.is_completed AND t.room IS NOT NULL
+            WHERE s.user_id = $1 AND t.room IS NOT NULL
            UNION ALL
            SELECT ct.room
              FROM user_task_progress p
@@ -137,12 +153,13 @@ router.get('/summary', authMiddleware, async (req: Request, res: Response) => {
 router.get('/tasks', authMiddleware, async (req: Request, res: Response) => {
   try {
     const result = await pool.query(
-      `SELECT DATE(completed_at) as date, COUNT(*) as count
-       FROM tasks
-       JOIN schedules ON tasks.schedule_id = schedules.id
-       WHERE schedules.user_id = $1
-       AND completed_at >= CURRENT_DATE - INTERVAL '30 days'
-       GROUP BY DATE(completed_at)
+      `SELECT c.completed_on AS date, COUNT(*) AS count
+       FROM task_completions c
+       JOIN tasks t ON t.id = c.task_id
+       JOIN schedules s ON s.id = t.schedule_id
+       WHERE s.user_id = $1
+         AND c.completed_on >= (${SQL_APP_TODAY} - INTERVAL '30 days')::date
+       GROUP BY c.completed_on
        ORDER BY date ASC`,
       [req.userId]
     );
@@ -173,6 +190,11 @@ const isPeriod = (value: unknown): value is Period =>
  * я) и задачи челленджей: у них есть и название, и оценка времени, поэтому
  * история получается честной. Отметки привычек в историю не попадают: у них
  * нет длительности, а придумывать её нельзя.
+ *
+ * Свои задачи читаются из журнала `task_completions`: одна строка — один
+ * закрытый пункт в один день, поэтому история не теряется при снятии
+ * сегодняшней галочки. День — `completed_on` (уже дата в поясе приложения), у
+ * челленджей — `sqlAppDate(p.done_at)`; окна считает `SQL_APP_TODAY`.
  */
 router.get('/overview', authMiddleware, async (req: Request, res: Response) => {
   try {
@@ -181,19 +203,19 @@ router.get('/overview', authMiddleware, async (req: Request, res: Response) => {
 
     const items = `
       SELECT t.title,
-             DATE(t.completed_at) AS day,
-             t.completed_at,
+             c.completed_on AS day,
+             c.completed_at,
              COALESCE(t.estimated_minutes, 0)::int AS minutes,
              t.room,
              'task' AS kind
-        FROM tasks t
+        FROM task_completions c
+        JOIN tasks t ON t.id = c.task_id
         JOIN schedules s ON s.id = t.schedule_id
-       WHERE (s.user_id = $1 OR t.completed_by = $1)
-         AND t.is_completed
-         AND t.completed_at >= CURRENT_DATE - ($2 || ' days')::interval
+       WHERE (s.user_id = $1 OR c.completed_by = $1)
+         AND c.completed_on >= (${SQL_APP_TODAY} - ($2 || ' days')::interval)::date
       UNION ALL
       SELECT ct.title,
-             DATE(p.done_at) AS day,
+             ${sqlAppDate('p.done_at')} AS day,
              p.done_at AS completed_at,
              COALESCE(ct.estimated_minutes, 0)::int AS minutes,
              ct.room,
@@ -202,7 +224,7 @@ router.get('/overview', authMiddleware, async (req: Request, res: Response) => {
         JOIN challenge_tasks ct ON ct.id = p.challenge_task_id
         JOIN user_challenges uc ON uc.id = p.user_challenge_id
        WHERE uc.user_id = $1 AND p.is_done
-         AND p.done_at >= CURRENT_DATE - ($2 || ' days')::interval
+         AND ${sqlAppDate('p.done_at')} >= (${SQL_APP_TODAY} - ($2 || ' days')::interval)::date
     `;
 
     const totals = await pool.query(
@@ -219,7 +241,7 @@ router.get('/overview', authMiddleware, async (req: Request, res: Response) => {
       `WITH items AS (${items})
        SELECT COUNT(*)::int AS tasks, COALESCE(SUM(minutes), 0)::int AS minutes
          FROM items
-        WHERE day >= CURRENT_DATE - INTERVAL '6 days'`,
+        WHERE day >= (${SQL_APP_TODAY} - INTERVAL '6 days')::date`,
       [req.userId, since]
     );
 
@@ -238,7 +260,7 @@ router.get('/overview', authMiddleware, async (req: Request, res: Response) => {
        SELECT title, minutes, day::text AS date
          FROM items
         WHERE minutes > 0
-        ORDER BY minutes DESC, completed_at DESC
+        ORDER BY minutes DESC, completed_at DESC NULLS LAST
         LIMIT 1`,
       [req.userId, since]
     );
@@ -249,7 +271,7 @@ router.get('/overview', authMiddleware, async (req: Request, res: Response) => {
       `WITH items AS (${items})
        SELECT title, day::text AS date, minutes, room, kind
          FROM items
-        ORDER BY completed_at DESC
+        ORDER BY completed_at DESC NULLS LAST
         LIMIT 300`,
       [req.userId, since]
     );

@@ -3,15 +3,17 @@
  * Вынесено из роутов, потому что этим пользуется и планировщик напоминаний.
  */
 
+import { appToday } from './appTime';
+
 export const INTERVAL_UNITS = new Set(['once', 'day', 'week', 'month']);
 
-/** Локальная дата пользователя: важна именно она, а не UTC. */
-export const todayIso = (): string => {
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${now.getFullYear()}-${month}-${day}`;
-};
+/**
+ * Сегодняшний календарный день приложения — тот же, которым датируется отметка
+ * привычки (`habit_completions.completed_on`). Пояс сервера здесь не годится:
+ * серия (services/streak.ts) и напоминания считают дни в поясе приложения, и с
+ * локальной датой отметка после местной полуночи уходила бы на чужой день.
+ */
+export const todayIso = (): string => appToday();
 
 export const daysBetween = (fromIso: string, toIso: string): number =>
   Math.round((new Date(toIso).getTime() - new Date(fromIso).getTime()) / 86_400_000);
