@@ -200,23 +200,19 @@ describe('defaultTasks: бюджет under30 — не больше 25 минут
     }
   });
 
-  it('ежедневный блок: 1-2 дела в каждом дне, остальное разложено по дням уборки', () => {
+  it('ежедневного блока больше нет: дни формирует ротация по дням уборки', () => {
     const set = buildDefaultTasks(UNDER30);
 
-    // Раньше здесь проверялось «12-18 минут каждый день»: генератор набирал
-    // ежедневный минимум целиком и повторял его изо дня в день — отсюда жалоба
-    // «на другие дни почти тот же список». Теперь в каждом дне остаются 1-2
-    // по-настоящему ежедневных дела, а остальные ушли в ротацию по дням уборки
-    // (tests/defaultTasksRotation.spec.ts держит это правило отдельно).
-    expect(set.summary.dailyTasks).toBeGreaterThan(0);
-    expect(set.summary.dailyTasks).toBeLessThanOrEqual(2);
-    expect(set.summary.dailyMinutes).toBeGreaterThan(0);
-    expect(set.summary.dailyMinutes).toBeLessThanOrEqual(18);
-
-    // Минуты ежедневного блока не потерялись: часть осталась в каждом дне,
-    // часть разложена по выбранным дням уборки.
-    expect(set.summary.rotatedTasks).toBeGreaterThan(0);
-    expect(set.summary.dailyMinutes + set.summary.rotatedMinutes).toBeGreaterThanOrEqual(12);
+    // Раньше здесь проверялось «1-2 ежедневных дела в каждом дне». Ежедневный
+    // блок убран из каталога целиком: он состоял из бытовой рутины — убрать
+    // посуду, протереть обеденный стол после еды, заправить кровать, проветрить.
+    // Человек делает это и без плана, а в расписании оно выпадало на каждый день,
+    // из-за чего заказчик и жаловался, что дни не отличаются. Правила дней держит
+    // tests/defaultTasksRotation.spec.ts: выбранные дни не пусты, наборы разных
+    // дней различаются, зона не занимает день целиком.
+    expect(set.summary.dailyTasks).toBe(0);
+    expect(set.summary.dailyMinutes).toBe(0);
+    expect(set.tasks.filter((task) => task.frequency === 'daily')).toEqual([]);
   });
 
   it('в каждом выбранном дне есть хотя бы одна задача', () => {
@@ -261,7 +257,7 @@ describe('генераторы согласованы: сумма сгенери
   ];
 
   for (const [label, answers] of CASES) {
-    it(`${label}: ни один день недели не выше бюджета и не пустой`, () => {
+    it(`${label}: ни один день не выше бюджета, выбранные дни не пустые`, () => {
       const budget = dayBudget(answers);
       const byWeekday = generatedMinutesByWeekday(answers);
 
@@ -269,8 +265,14 @@ describe('генераторы согласованы: сумма сгенери
 
       for (const minutes of byWeekday) {
         expect(minutes, label).toBeLessThanOrEqual(budget);
-        // Ежедневный минимум лежит в каждом дне, поэтому пустых дней быть не может.
-        expect(minutes, label).toBeGreaterThan(0);
+      }
+
+      // В выбранные дни уборки план есть всегда — это то, что видит человек.
+      // Дни вне расписания пусты и должны быть пустыми: человек там не убирается,
+      // а ежедневного блока, который раньше заполнял каждый день недели, больше
+      // нет (каталог от него избавлен).
+      for (const weekday of withDefaultAnswers(answers).cleaningDays ?? []) {
+        expect(byWeekday[weekday], `${label}, день ${weekday}`).toBeGreaterThan(0);
       }
     });
   }

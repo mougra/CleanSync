@@ -5,24 +5,28 @@ import {
   type DefaultTaskSet,
 } from '../services/defaultTasks';
 import { dayBudget } from '../services/dailyBudget';
+import { getTaskCatalog } from '../services/taskCatalog';
 import { orderWeekDays, type PartialHomeAnswers } from '../services/homePlan';
 
 /**
- * Ротация ежедневного блока по дням уборки.
+ * Дни плана: ротация по дням уборки вместо ежедневного минимума.
  *
- * Заказчик жаловался на две вещи сразу: «закрытые сегодня задачи видны закрытыми
- * и в другие дни» (это лечит журнал отметок, миграция 0018) и «на другие дни
- * почти тот же список, и кухни всегда 3». Второе — про генератор: раньше
- * ежедневный минимум набирал 12-18 минут одними и теми же делами (в основном
- * кухонными) и повторял их в каждом дне.
+ * История правки. Сначала заказчик пожаловался, что «на другие дни почти тот же
+ * список, и кухни всегда 3», и ежедневный минимум разложили по дням уборки.
+ * Потом выяснилось, что сам ежедневный минимум был лишним: в каталоге он состоял
+ * из бытовой рутины — убрать посуду, протереть обеденный стол после еды,
+ * заправить кровать, проветрить. Человек делает это и без плана, а в расписании
+ * оно выглядело заданием и выпадало на каждый день.
  *
- * Проверки ниже держат три правила и не требуют базы: генератор — чистый модуль.
- *  1. По-настоящему ежедневных дел не больше двух (EVERY_DAY_TASK_LIMIT), и они
- *     лежат в каждом дне — «минимум» никуда не пропадает.
- *  2. Остальные дела ежедневного блока разложены по дням уборки как недельные,
- *     поэтому понедельник, среда и суббота отличаются друг от друга.
- *  3. В одном дне не больше MAX_ZONE_TASKS_PER_DAY задач одной зоны: кухня
- *     больше не занимает день целиком.
+ * Поэтому ежедневных дел в каталоге больше нет, а дни формирует ротация:
+ *  - в выбранные дни уборки задачи есть всегда, и наборы разных дней различаются;
+ *  - дни вне расписания пусты: человек там не убирается, и придумывать ему дело
+ *    на понедельник, когда он убирается по вторникам, четвергам и субботам, —
+ *    ровно та жалоба, из-за которой правка и делалась;
+ *  - одна зона не занимает день целиком (не больше MAX_ZONE_TASKS_PER_DAY);
+ *  - дневной бюджет по ответу анкеты не пробит.
+ *
+ * Проверки не требуют базы: генератор — чистый модуль.
  */
 
 /** Профиль из трёх дней уборки: понедельник, среда, суббота — как в анкете. */
@@ -67,21 +71,47 @@ const titlesOf = (set: DefaultTaskSet, dayOfWeek: number): Set<string> =>
 const differs = (left: Set<string>, right: Set<string>): boolean =>
   left.size !== right.size || [...left].some((title) => !right.has(title));
 
-describe('ротация ежедневного блока по дням уборки', () => {
-  it('по-настоящему ежедневных дел не больше двух, и они лежат в каждом дне', () => {
+describe('дни плана: ротация вместо ежедневного минимума', () => {
+  it('в каталоге не осталось ежедневных дел', () => {
+    const daily = getTaskCatalog().filter((task) => task.cadence === 'daily');
+
+    expect(daily.map((task) => task.task)).toEqual([]);
+  });
+
+  it('в каталоге нет бытовой рутины, которую человек делает и без плана', () => {
+    const titles = getTaskCatalog().map((task) => task.task);
+    const routine = /убрать посуду|обеденный стол после еды|заправить кровать|проветрить|вечерний проход по ванной|плиту после готовки|разложить вещи по местам/i;
+
+    expect(titles.filter((title) => routine.test(title))).toEqual([]);
+  });
+
+  it('набор не содержит задач с ежедневной периодичностью', () => {
     for (const answers of [THREE_DAYS, EVERY_DAY]) {
       const set = buildDefaultTasks(answers);
-      const daily = set.tasks.filter((task) => task.frequency === 'daily');
 
-      expect(set.summary.dailyTasks).toBe(daily.length);
-      expect(daily.length).toBeGreaterThan(0);
-      expect(daily.length).toBeLessThanOrEqual(2);
+      expect(set.tasks.filter((task) => task.frequency === 'daily')).toEqual([]);
+      expect(set.summary.dailyTasks).toBe(0);
+    }
+  });
 
-      for (const day of set.summary.days) {
-        for (const task of daily) {
-          expect(day.tasks.map((item) => item.title), day.label).toContain(task.title);
-        }
-      }
+  it('каждый выбранный день уборки не пустой', () => {
+    const set = buildDefaultTasks(THREE_DAYS);
+
+    for (const dayOfWeek of THREE_DAYS.cleaningDays ?? []) {
+      const day = set.summary.days.find((entry) => entry.dayOfWeek === dayOfWeek);
+
+      expect(day?.tasks.length ?? 0, `день ${dayOfWeek}`).toBeGreaterThan(0);
+    }
+  });
+
+  it('дни вне расписания пусты: человек там не убирается', () => {
+    const set = buildDefaultTasks(THREE_DAYS);
+    const outside = [0, 2, 4, 5].filter((weekday) => !(THREE_DAYS.cleaningDays ?? []).includes(weekday));
+
+    for (const weekday of outside) {
+      const day = set.summary.days.find((entry) => entry.dayOfWeek === weekday);
+
+      expect(day?.tasks.length ?? 0, `день ${weekday}`).toBe(0);
     }
   });
 
@@ -96,38 +126,12 @@ describe('ротация ежедневного блока по дням убо�
     expect(differs(monday, saturday), 'Пн и Сб совпали').toBe(true);
     expect(differs(wednesday, saturday), 'Ср и Сб совпали').toBe(true);
 
-    // Разницу дают именно дела ежедневного блока, разложенные по дням: ротация
-    // не пустая, и её дела в расписании — недельные.
-    expect(set.summary.rotatedTasks).toBeGreaterThan(0);
-
+    // Недельные дела лежат только в выбранных днях: иначе «день уборки» теряет смысл.
     for (const task of set.tasks) {
       if (task.frequency !== 'weekly') continue;
 
-      expect(THREE_DAYS.cleaningDays).toContain(task.dayOfWeek);
+      expect(THREE_DAYS.cleaningDays, task.title).toContain(task.dayOfWeek);
     }
-  });
-
-  it('дело ежедневного блока не повторяется в каждом дне', () => {
-    const set = buildDefaultTasks(THREE_DAYS);
-    const dailyTitles = new Set(
-      set.tasks.filter((task) => task.frequency === 'daily').map((task) => task.title)
-    );
-
-    // «Ополоснуть раковину» и «протереть стол» раньше стояли в каждом дне;
-    // теперь это недельные дела, и в неделе каждое встречается один раз.
-    const weekly = set.tasks.filter((task) => task.frequency === 'weekly');
-    const counts = new Map<string, number>();
-
-    for (const task of weekly) {
-      counts.set(task.title, (counts.get(task.title) ?? 0) + 1);
-    }
-
-    for (const [title, count] of counts) {
-      expect(count, title).toBe(1);
-    }
-
-    // Хотя бы одно «бывшее ежедневное» дело ушло из каждого дне в свой день.
-    expect([...counts.keys()].some((title) => !dailyTitles.has(title))).toBe(true);
   });
 
   it('в дне не больше двух задач одной зоны', () => {
@@ -142,35 +146,9 @@ describe('ротация ежедневного блока по дням убо�
         }
 
         for (const [room, count] of byRoom) {
-          expect(count, `${day.label}, зона «${room}»`).toBeLessThanOrEqual(
-            MAX_ZONE_TASKS_PER_DAY
-          );
+          expect(count, `${day.label}, зона «${room}»`).toBeLessThanOrEqual(MAX_ZONE_TASKS_PER_DAY);
         }
       }
-    }
-  });
-
-  it('дни без уборки остаются с ежедневным минимумом, а дни уборки — с ротацией', () => {
-    const set = buildDefaultTasks(THREE_DAYS);
-    const dailyTitles = new Set(
-      set.tasks.filter((task) => task.frequency === 'daily').map((task) => task.title)
-    );
-
-    for (const day of set.summary.days) {
-      const extra = day.tasks.filter((task) => !dailyTitles.has(task.title));
-
-      if (day.selected) {
-        // В выбранном дне, кроме минимума, есть дела ротации или недельные.
-        expect(extra.length, day.label).toBeGreaterThan(0);
-      } else {
-        expect(extra, day.label).toHaveLength(0);
-        expect(day.tasks.length).toBe(dailyTitles.size);
-      }
-
-      // Пустых дней нет ни в одном случае: это же проверяет
-      // scripts/check-default-tasks.ts на 88 комбинациях ответов.
-      expect(day.tasks.length, day.label).toBeGreaterThan(0);
-      expect(day.minutes, day.label).toBeLessThanOrEqual(dayBudget(THREE_DAYS));
     }
   });
 
@@ -189,17 +167,10 @@ describe('ротация ежедневного блока по дням убо�
     expect(orderWeekDays(THREE_DAYS.cleaningDays ?? [])).toEqual([1, 3, 6]);
   });
 
-  it('на семи днях уборки ротация раскладывается по всем дням, а не липнет к одному', () => {
+  it('на семи днях уборки задачи есть в большинстве дней, а не в одном', () => {
     const set = buildDefaultTasks(EVERY_DAY);
-    const dailyTitles = new Set(
-      set.tasks.filter((task) => task.frequency === 'daily').map((task) => task.title)
-    );
-    const daysWithRotation = set.summary.days.filter((day) =>
-      day.tasks.some((task) => !dailyTitles.has(task.title))
-    );
+    const withTasks = set.summary.days.filter((day) => day.tasks.length > 0);
 
-    expect(daysWithRotation.length).toBeGreaterThan(1);
-    expect(set.summary.rotatedTasks).toBeGreaterThan(0);
-    expect(set.summary.rotatedMinutes).toBeGreaterThan(0);
+    expect(withTasks.length).toBeGreaterThanOrEqual(4);
   });
 });
