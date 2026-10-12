@@ -126,10 +126,15 @@ useSeoMeta({
 }
 
 @media (min-width: 1024px) {
-  /* Широкий экран: блоку хватает 550px, остальное оставляем воздуху */
+  /*
+   * Широкий экран: две колонки, а не один узкий столбик.
+   *
+   * Раньше здесь стояла одна колонка шириной 550px, и карточки шли друг под
+   * другом, оставляя пол-экрана пустым. Заказчик просил ставить их рядом по две.
+   */
   .list {
-    grid-template-columns: 1fr;
-    max-width: var(--content-narrow);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: var(--content-wide);
   }
 }
 </style>

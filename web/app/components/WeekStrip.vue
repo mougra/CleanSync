@@ -112,7 +112,14 @@ const selectDay = (iso: string) => {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  padding: var(--space-1) 0 0;
+  /*
+   * Календарь уже страницы и стоит по центру: семь чисел не нуждаются в полосе
+   * во всю ширину, а рядом с широкой карточкой плана он выглядел растянутым.
+   */
+  width: 100%;
+  max-width: var(--content-narrow);
+  margin-inline: auto;
+  padding: 0;
 }
 
 .week-strip__row {
