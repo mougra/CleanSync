@@ -28,7 +28,11 @@ const showCalendar = computed(() => !hideCalendarRoutes.some((path) => route.pat
         </div>
       </div>
 
+      <!-- Календарь недели: числа листают дни, клик открывает шторку с планом дня -->
       <WeekStrip v-if="showCalendar" />
+
+      <!-- Шторка дня живёт рядом с календарём: открывается кликом по числу -->
+      <PlanDaySheet />
 
       <main class="shell__content">
         <slot />

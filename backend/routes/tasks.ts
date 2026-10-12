@@ -174,6 +174,112 @@ router.get('/upcoming', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
+/** Дата в формате YYYY-MM-DD — ровно то, что приходит в query и уходит в ответ. */
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Разбирает дату из query и проверяет, что она настоящая.
+ *
+ * `new Date('2025-02-31')` молча переезжает на 3 марта, поэтому календарную дату
+ * сверяем с её же отпечатком: разошлись — значит такой даты не существует.
+ */
+const parseCalendarDate = (value: unknown): Date | null => {
+  if (typeof value !== 'string' || !ISO_DATE.test(value)) {
+    return null;
+  }
+
+  const date = new Date(`${value}T00:00:00.000Z`);
+
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
+    return null;
+  }
+
+  return date;
+};
+
+/** Сколько дней помещается в один запрос календаря: шесть недель — больше не нужно. */
+const CALENDAR_MAX_DAYS = 42;
+
+/** Длительность суток: диапазон календаря шагаем ровно на сутки, без часовых переходов. */
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Задачи по дням для календаря: `GET /api/tasks/calendar?from=…&to=…`.
+ *
+ * Правила периодичности не дублируются — каждый день считает тот же
+ * `tasksDueOn`, что и «План на сегодня»: недельная задача и «раз в 3 месяца»
+ * попадают ровно в свои дни, и расхождению между экранами взяться неоткуда.
+ *
+ * Даты трактуются как календарные (UTC-полночь), чтобы день в ответе совпадал с
+ * днём в запросе независимо от часового пояса сервера.
+ */
+router.get('/calendar', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const from = parseCalendarDate(req.query.from);
+    const to = parseCalendarDate(req.query.to);
+
+    if (!from || !to) {
+      return res.status(400).json({ error: 'from and to must be valid dates in YYYY-MM-DD format' });
+    }
+
+    if (from.getTime() > to.getTime()) {
+      return res.status(400).json({ error: 'from must not be later than to' });
+    }
+
+    const span = Math.round((to.getTime() - from.getTime()) / DAY_MS) + 1;
+
+    // Диапазон шире шести недель не обслуживаем осознанно: это ошибка клиента,
+    // а не тихая обрезка, иначе интерфейс молча получил бы не те дни.
+    if (span > CALENDAR_MAX_DAYS) {
+      return res.status(400).json({
+        error: `Range is too wide: at most ${CALENDAR_MAX_DAYS} days per request`,
+        max_days: CALENDAR_MAX_DAYS,
+      });
+    }
+
+    const userId = req.userId as string;
+    const days = [];
+
+    for (let offset = 0; offset < span; offset += 1) {
+      const date = new Date(from.getTime() + offset * DAY_MS);
+      const tasks = await tasksDueOn(userId, date);
+      const iso = date.toISOString().slice(0, 10);
+
+      // Итоги дня считает сервер: шторка дня показывает по ним сводку
+      // («запланировано 5 · закрыто 2 · факт 25 мин»), и числа обязаны совпадать
+      // с планом на сегодня, а не пересчитываться в интерфейсе по-своему.
+      const completed = tasks.filter((task) => task.is_completed);
+
+      days.push({
+        date: iso,
+        weekday: date.getUTCDay(),
+        total_tasks: tasks.length,
+        completed_tasks: completed.length,
+        total_minutes: tasks.reduce((sum, task) => sum + (task.estimated_minutes || 0), 0),
+        completed_minutes: completed.reduce((sum, task) => sum + (task.estimated_minutes || 0), 0),
+        tasks: tasks.map((task) => ({
+          id: task.id,
+          title: task.title,
+          room: task.room,
+          estimated_minutes: task.estimated_minutes,
+          is_completed: task.is_completed,
+          frequency: task.frequency,
+          interval_count: task.interval_count,
+        })),
+      });
+    }
+
+    res.json({
+      from: from.toISOString().slice(0, 10),
+      to: new Date(from.getTime() + (span - 1) * DAY_MS).toISOString().slice(0, 10),
+      days,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch calendar tasks' });
+  }
+});
+
 // Create task
 router.post('/', authMiddleware, async (req: Request, res: Response) => {
 

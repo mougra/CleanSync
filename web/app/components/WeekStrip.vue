@@ -1,12 +1,19 @@
 <script setup lang="ts">
 /**
- * Календарная полоса недели из макетов главной: месяц/год, 7 дней, активный день
- * обведён, выходные приглушены, стрелки листают недели.
+ * Компактная календарная полоса недели: месяц/год со стрелками листания и семь
+ * чисел, где сегодняшний день обведён кружком.
  *
- * Выбранная дата живёт в общем состоянии, чтобы страницы «Сегодня», «Привычки»
- * и чек-листы работали с одним и тем же днём.
+ * Календарь — это навигация по дням: клик по числу открывает шторку с планом
+ * этого дня (`PlanDaySheet`). Отметки при этом доступны только для сегодняшнего
+ * дня — решает это сама шторка, а не календарь.
+ *
+ * Высота намеренно небольшая: полоса стоит над содержимым на каждом «дневном»
+ * экране, поэтому из макета взяты только месяц, числа и кружок. Подписи дней
+ * недели остались сокращёнными — по ним видно, где выходные.
  */
-const { locale } = useI18n();
+const { t, locale } = useI18n();
+
+const { openSheet } = useDaySheet();
 
 const selectedDate = useState<string>('selected-date', () => toISODate(new Date()));
 const weekStart = useState<string>('week-start', () => toISODate(startOfWeek(new Date())));
@@ -29,17 +36,21 @@ const days = computed(() =>
 
 const todayISO = computed(() => toISODate(new Date()));
 
-const monthTitle = computed(() => {
-  const parts = new Intl.DateTimeFormat(locale.value, { month: 'long', year: 'numeric' }).formatToParts(
-    start.value,
-  );
-  const month = parts.find((part) => part.type === 'month')?.value ?? '';
-  const year = parts.find((part) => part.type === 'year')?.value ?? '';
-  return `${month} ${year}`.trim();
-});
+/** «октябрь 2025» — месяц и год одной строкой без предлога, как в макетах. */
+const monthTitle = computed(() =>
+  new Intl.DateTimeFormat(locale.value, { month: 'long', year: 'numeric' }).format(start.value),
+);
 
 const weekdayLabel = (date: Date) =>
   new Intl.DateTimeFormat(locale.value, { weekday: 'short' }).format(date).toUpperCase();
+
+/** Доступное имя числа: в озвучке «13» без дня недели не читается. */
+const dayLabel = (date: Date) =>
+  new Intl.DateTimeFormat(locale.value, {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  }).format(date);
 
 const shiftWeek = (delta: number) => {
   weekStart.value = toISODate(addDays(start.value, delta * 7));
@@ -47,46 +58,54 @@ const shiftWeek = (delta: number) => {
 
 const selectDay = (iso: string) => {
   selectedDate.value = iso;
+  openSheet(iso);
 };
 </script>
 
 <template>
   <header class="week-strip">
-    <h1 class="week-strip__title">{{ monthTitle }}</h1>
-
     <div class="week-strip__row">
       <button
         type="button"
         class="week-strip__arrow"
-        aria-label="Предыдущая неделя"
+        :aria-label="t('calendar.prevWeek')"
         @click="shiftWeek(-1)"
       >
         <i class="pi pi-chevron-left" aria-hidden="true" />
       </button>
 
-      <ul class="week-strip__days">
-        <li v-for="day in days" :key="day.iso">
-          <button
-            type="button"
-            class="week-strip__day"
-            :class="{
-              'week-strip__day--today': day.iso === todayISO,
-              'week-strip__day--selected': day.iso === selectedDate,
-              'week-strip__day--weekend': day.isWeekend,
-            }"
-            :aria-current="day.iso === selectedDate ? 'date' : undefined"
-            @click="selectDay(day.iso)"
-          >
-            <span class="week-strip__weekday">{{ weekdayLabel(day.date) }}</span>
-            <span class="week-strip__number">{{ day.dayNumber }}</span>
-          </button>
-        </li>
-      </ul>
+      <h1 class="week-strip__title">{{ monthTitle }}</h1>
 
-      <button type="button" class="week-strip__arrow" aria-label="Следующая неделя" @click="shiftWeek(1)">
+      <button
+        type="button"
+        class="week-strip__arrow"
+        :aria-label="t('calendar.nextWeek')"
+        @click="shiftWeek(1)"
+      >
         <i class="pi pi-chevron-right" aria-hidden="true" />
       </button>
     </div>
+
+    <ul class="week-strip__days">
+      <li v-for="day in days" :key="day.iso" class="week-strip__cell">
+        <button
+          type="button"
+          class="week-strip__day"
+          :class="{
+            'week-strip__day--today': day.iso === todayISO,
+            'week-strip__day--selected': day.iso === selectedDate,
+            'week-strip__day--weekend': day.isWeekend,
+          }"
+          :aria-current="day.iso === todayISO ? 'date' : undefined"
+          :aria-label="dayLabel(day.date)"
+          :aria-pressed="day.iso === selectedDate"
+          @click="selectDay(day.iso)"
+        >
+          <span class="week-strip__weekday" aria-hidden="true">{{ weekdayLabel(day.date) }}</span>
+          <span class="week-strip__number">{{ day.dayNumber }}</span>
+        </button>
+      </li>
+    </ul>
   </header>
 </template>
 
@@ -94,14 +113,8 @@ const selectDay = (iso: string) => {
 .week-strip {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-4) 0 var(--space-2);
-}
-
-.week-strip__title {
-  text-align: center;
-  font-size: var(--fs-title);
-  font-weight: 700;
+  gap: var(--space-1);
+  padding: var(--space-1) 0 0;
 }
 
 .week-strip__row {
@@ -110,6 +123,19 @@ const selectDay = (iso: string) => {
   gap: var(--space-2);
 }
 
+.week-strip__title {
+  flex: 1;
+  overflow: hidden;
+  margin: 0;
+  color: var(--c-text-muted);
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Стрелки — квадрат по минимальной зоне нажатия: полоса из-за них не растёт. */
 .week-strip__arrow {
   flex: 0 0 var(--tap-min);
   width: var(--tap-min);
@@ -119,60 +145,94 @@ const selectDay = (iso: string) => {
   border: none;
   border-radius: var(--r-pill);
   background: transparent;
-  color: var(--c-text);
+  color: var(--c-text-muted);
   cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out);
 }
 
 .week-strip__arrow:hover {
   background: var(--c-surface-sunken);
+  color: var(--c-text);
 }
 
 .week-strip__days {
-  flex: 1;
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: var(--space-1);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
+.week-strip__cell {
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+}
+
 .week-strip__day {
-  width: 100%;
-  min-height: var(--tap-min);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: 0;
+  /* Кружок не должен упираться в края ячейки на узком экране */
+  padding: 2px var(--space-1);
   border: 1.5px solid transparent;
   border-radius: var(--r-pill);
   background: transparent;
   color: var(--c-text);
   cursor: pointer;
-  padding: var(--space-1) 0;
+  font: inherit;
 }
 
 .week-strip__weekday {
-  font-size: 0.6875rem;
+  font-size: 0.625rem;
+  line-height: 1.2;
   color: var(--c-text-muted);
 }
 
 .week-strip__number {
-  font-size: 1rem;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-pill);
+  font-size: 0.9375rem;
   font-weight: 600;
+  line-height: 1;
 }
 
-.week-strip__day--weekend {
-  opacity: 0.55;
-}
-
-.week-strip__day--today .week-strip__number {
+.week-strip__day--weekend .week-strip__number {
   color: var(--c-accent);
 }
 
-.week-strip__day--selected {
-  border-color: var(--c-accent);
+/* Сегодня — кружок вокруг числа: заливка акцентом, ровные ширина и высота. */
+.week-strip__day--today .week-strip__number {
+  background: var(--c-accent);
+  color: var(--c-onbrand);
+}
+
+/* Выбранный день: обводка той же формы, что и кружок. */
+.week-strip__day--selected .week-strip__number {
+  border: 1.5px solid var(--c-accent);
   background: var(--c-surface);
+}
+
+/* Сегодня выбран — заливка важнее обводки, иначе кружок выглядел бы пустым. */
+.week-strip__day--today.week-strip__day--selected .week-strip__number {
+  background: var(--c-accent);
+  color: var(--c-onbrand);
+}
+
+.week-strip__day:focus-visible {
+  outline: 2px solid var(--c-brand);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .week-strip__arrow {
+    transition: none;
+  }
 }
 </style>

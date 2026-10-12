@@ -68,16 +68,41 @@ export interface TaskCreateInput extends TaskRepeat {
   interval_count?: number;
 }
 
-/** Один день в списке ближайших: ответ `GET /api/tasks/upcoming`. */
-export interface UpcomingPlanDay {
+/**
+ * Задача в ответе календаря: `GET /api/tasks/calendar`.
+ *
+ * Полей меньше, чем в `TodayPlanTask`: календарю и шторке дня нужны только
+ * название, зона, минуты, отметка и подпись периодичности. Всё остальное в
+ * панели дня всё равно не поместилось бы.
+ */
+export interface CalendarTask {
+  id: number;
+  title: string;
+  room: string | null;
+  estimated_minutes: number | null;
+  is_completed: boolean;
+  frequency: TaskFrequency | null;
+  /** Шаг периодичности из пары «частота + интервал»: 3 — «раз в 3 недели». */
+  interval_count: number | null;
+}
+
+/** Один день календаря: дата, день недели, итоги и краткий список задач. */
+export interface CalendarDay {
   date: string;
   /** 0-6, 0 — воскресенье (как `day_of_week` в API). */
   weekday: number;
   total_tasks: number;
+  /** Сколько задач дня уже закрыто: по этому числу шторка показывает сводку. */
+  completed_tasks: number;
   total_minutes: number;
-  tasks: TodayPlanTask[];
+  /** Минуты по факту — сумма оценки закрытых задач дня. */
+  completed_minutes: number;
+  tasks: CalendarTask[];
 }
 
-export interface UpcomingPlanResponse {
-  days: UpcomingPlanDay[];
+/** Ответ `GET /api/tasks/calendar?from=…&to=…`: границы диапазона и дни по порядку. */
+export interface CalendarResponse {
+  from: string;
+  to: string;
+  days: CalendarDay[];
 }
