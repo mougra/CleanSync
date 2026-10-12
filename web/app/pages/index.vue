@@ -8,8 +8,15 @@
  */
 
 import type { AchievementProgress } from '~/types/achievement';
+import type { TaskFrequency } from '~/types/checklist';
 import type { StatsPeriod } from '~/types/stats';
-import type { TodayPlan, TodayPlanTask } from '~/types/task';
+import type {
+  CalendarDay,
+  CalendarResponse,
+  CalendarTask,
+  TodayPlan,
+  TodayPlanTask,
+} from '~/types/task';
 import { isGeneratedTask } from '~/types/task';
 
 interface SeasonalTemplate {
@@ -65,10 +72,59 @@ const { data: today } = await useAsyncData('today-plan', () =>
 );
 
 /**
- * Задачи плана дня читаются только у «Сегодня»: остальные дни открываются
- * шторкой календаря (`PlanDaySheet`) и берут свой день из `GET /api/tasks/calendar`,
- * поэтому кэш «сегодня» с другими днями не смешивается.
+ * Выбранный в календаре день — тот же ключ состояния, что ставит `WeekStrip`
+ * в раскладке: клик по числу меняет его, а карточка плана перечитывает день.
  */
+const selectedDate = useState<string>('selected-date', () => toISODate(new Date()));
+
+/**
+ * Сегодняшний день считаем по UTC — так же, как сервер в `tasksDueOn`.
+ *
+ * Если сравнивать с локальной датой, в часовых поясах восточнее UTC поздним
+ * вечером «сегодня» на экране и «сегодня» на сервере разошлись бы, и карточка
+ * разрешила бы отметку дня, который сервер считает другим.
+ */
+const todayUTC = () => new Date().toISOString().slice(0, 10);
+
+/** Отмечать можно только сегодня: прошлое и будущее — только просмотр. */
+const isToday = computed(() => selectedDate.value === todayUTC());
+
+/** День не загрузился: показываем строку ошибки, а не пустой список. */
+const dayFailed = ref(false);
+
+/**
+ * План выбранного дня: `GET /api/tasks/calendar` отдаёт день с задачами и
+ * итогами. Ключ `calendar-day` общий с другими экранами (`AppFab`, `useTaskUndo`),
+ * поэтому после отметки или удаления задачи день перечитывается тем же вызовом.
+ *
+ * Данные берутся именно для выбранной даты, а не из кэша «сегодня»: иначе при
+ * переключении дня в карточке остались бы чужие числа.
+ */
+const { data: calendarDay } = await useAsyncData(
+  'calendar-day',
+  async () => {
+    if (!auth.isAuthenticated) {
+      return null;
+    }
+
+    dayFailed.value = false;
+
+    try {
+      const response = await api.request<CalendarResponse>(
+        `/api/tasks/calendar?from=${selectedDate.value}&to=${selectedDate.value}`,
+      );
+
+      return response.days?.[0] ?? null;
+    } catch {
+      dayFailed.value = true;
+      return null;
+    }
+  },
+  { watch: [selectedDate] },
+);
+
+/** День выбранной даты: у дня — задачи, итоги и распределение по зонам. */
+const day = computed<CalendarDay | null>(() => calendarDay.value ?? null);
 
 const checklists = computed(() => templates.value?.checklist ?? []);
 const checklistTasksTotal = computed(() =>
@@ -131,7 +187,110 @@ const seasonCardNote = computed(() => {
  */
 const planTotal = computed(() => today.value?.summary.total_tasks ?? 0);
 const planDone = computed(() => today.value?.summary.completed_tasks ?? 0);
-const planMinutes = computed(() => today.value?.summary.total_estimated_time ?? 0);
+
+/**
+ * Сводка выбранного дня — те же числа, что показывала шторка дня: сколько задач
+ * запланировано и закрыто, минуты по плану и по факту. Считает их сервер
+ * (`GET /api/tasks/calendar`), поэтому они совпадают с «Планом на сегодня».
+ */
+const plural = (count: number, forms: [string, string, string]): string =>
+  locale.value === 'ru'
+    ? pluralRu(count, forms[0], forms[1], forms[2])
+    : pluralEn(count, forms[0], forms[2]);
+
+/** Заголовок дня: «Сегодня», «Вчера», «Завтра» или «Пн, 12 октября». */
+const dayTitle = computed(() => {
+  const target = selectedDate.value;
+
+  if (isToday.value) {
+    return t('calendar.today');
+  }
+
+  const start = todayUTC();
+
+  if (target === toISODate(addDays(fromISODate(start), -1))) {
+    return t('calendar.yesterday');
+  }
+
+  if (target === toISODate(addDays(fromISODate(start), 1))) {
+    return t('calendar.tomorrow');
+  }
+
+  const label = new Intl.DateTimeFormat(locale.value, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'long',
+  }).format(fromISODate(target));
+
+  // «вт, 13 октября» — Intl отдаёт день недели со строчной буквы; заголовок
+  // карточки начинается с него, поэтому поднимаем первую букву вручную.
+  return label.charAt(0).toUpperCase() + label.slice(1);
+});
+
+/** «запланировано 5 задач» — число берём из итогов сервера, а не из длины списка. */
+const plannedLabel = computed(() => {
+  const count = day.value?.total_tasks ?? 0;
+
+  return plural(count, [
+    t('calendar.plannedOne', { count }),
+    t('calendar.plannedFew', { count }),
+    t('calendar.plannedMany', { count }),
+  ]);
+});
+
+/** «выполнено 2 задачи» — только там, где факт вообще может быть не нулевым. */
+const doneLabel = computed(() => {
+  const count = day.value?.completed_tasks ?? 0;
+
+  return plural(count, [
+    t('calendar.doneOne', { count }),
+    t('calendar.doneFew', { count }),
+    t('calendar.doneMany', { count }),
+  ]);
+});
+
+/**
+ * Будущий день: отметок ещё не было по определению, поэтому «выполнено» и «факт»
+ * не показываем вовсе — иначе строка «выполнено 0» выглядела бы как результат.
+ */
+const showFact = computed(() => selectedDate.value <= todayUTC());
+
+/** «план 45 мин · факт 30 мин»: остаток показываем, только когда он ненулевой. */
+const minutesLabel = computed(() => {
+  const total = day.value?.total_minutes ?? 0;
+  const parts = [t('calendar.planMinutes', { minutes: total })];
+
+  if (showFact.value) {
+    const done = day.value?.completed_minutes ?? 0;
+    parts.push(
+      done > 0
+        ? t('calendar.factMinutes', { minutes: done })
+        : t('calendar.leftMinutes', { minutes: total }),
+    );
+  }
+
+  return parts.join(' · ');
+});
+
+/**
+ * Распределение по зонам: «Кухня 3 · Ванная 2».
+ *
+ * Считается здесь же из списка задач дня: сервер отдаёт зону у каждой задачи,
+ * отдельного поля для разбивки нет и не нужно. Задачи без зоны собираются в
+ * «Без зоны», чтобы сумма по зонам совпадала с числом задач дня.
+ */
+const zones = computed(() => {
+  const counts = new Map<string, number>();
+
+  for (const task of day.value?.tasks ?? []) {
+    const zone = task.room?.trim() || t('calendar.noRoom');
+    counts.set(zone, (counts.get(zone) ?? 0) + 1);
+  }
+
+  return [...counts.entries()]
+    .map(([zone, count]) => ({ zone, count }))
+    .sort((left, right) => right.count - left.count || left.zone.localeCompare(right.zone));
+});
 
 /**
  * Локальные отметки: их видно сразу, ещё до ответа сервера.
@@ -150,7 +309,10 @@ const planBusy = ref<number[]>([]);
 const planError = ref('');
 
 /** Периодичность из пары «частота + интервал»: «раз в неделю», «раз в 3 месяца». */
-const frequencyLabel = (task: TodayPlanTask): string | null => {
+const frequencyLabel = (task: {
+  frequency: TaskFrequency | null;
+  interval_count: number | null;
+}): string | null => {
   const frequency = task.frequency;
 
   if (!frequency) {
@@ -187,7 +349,7 @@ const frequencyLabel = (task: TodayPlanTask): string | null => {
   return t('plan.repeatN', { count, unit });
 };
 
-/** Подпись строки: зона, источник (расписание), периодичность и время. */
+/** Подпись строки сегодняшнего дня: зона, источник (расписание), периодичность и время. */
 const taskHint = (task: TodayPlanTask): string =>
   [
     task.room,
@@ -197,6 +359,33 @@ const taskHint = (task: TodayPlanTask): string =>
   ]
     .filter(Boolean)
     .join(' · ');
+
+/**
+ * Подпись строки другого дня: зона, периодичность и минуты.
+ *
+ * Без названия расписания и длинных подсказок: список дня должен помещаться
+ * целиком, поэтому лишнее отброшено сознательно — как и было в шторке дня.
+ */
+const calendarTaskHint = (task: CalendarTask): string =>
+  [
+    task.room,
+    frequencyLabel(task),
+    task.estimated_minutes ? t('plan.minutes', { minutes: task.estimated_minutes }) : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+/**
+ * Строка списка задач дня: карточке нужны только название, подпись и отметка.
+ * `generated` заполнен у сегодняшних строк — от него зависит текст в листе действий.
+ */
+interface PlanDayRow {
+  id: number;
+  title: string;
+  hint: string;
+  done: boolean;
+  generated: boolean;
+}
 
 /**
  * Пункты плана на сегодня.
@@ -210,7 +399,7 @@ const taskHint = (task: TodayPlanTask): string =>
  * задача сервером (значит, удаление — это отказ от предложения) или создана
  * человеком. Само решение об отказе принимает сервер, интерфейс лишь выбирает текст.
  */
-const planTasks = computed(() =>
+const planTasks = computed<PlanDayRow[]>(() =>
   Object.values(today.value?.tasks ?? {})
     .flat()
     .map((task) => ({
@@ -234,6 +423,26 @@ const planRemoved = ref<number[]>([]);
 /** Что видно в списке: план сервера без только что удалённых строк. */
 const visiblePlanTasks = computed(() =>
   planTasks.value.filter((task) => !planRemoved.value.includes(task.id)),
+);
+
+/** Задачи другого дня: только название, зона и минуты — отметки в них нет. */
+const calendarRows = computed<PlanDayRow[]>(() =>
+  (day.value?.tasks ?? []).map((task) => ({
+    id: task.id,
+    title: task.title,
+    hint: calendarTaskHint(task),
+    done: task.is_completed,
+    generated: false,
+  })),
+);
+
+/**
+ * Список карточки: сегодня — строки «Плана на сегодня» (отметка, удаление и
+ * возврат), другой день — компактный просмотр дня из календаря. Дата и данные
+ * берутся из одного и того же выбора, поэтому чужой день сюда не подмешивается.
+ */
+const dayRows = computed<PlanDayRow[]>(() =>
+  isToday.value ? visiblePlanTasks.value : calendarRows.value,
 );
 
 /**
@@ -345,15 +554,18 @@ const serverHasMark = (id: number, value: boolean): boolean =>
     .some((task) => task.id === id && task.is_completed === value);
 
 /**
- * Отметка задачи в один тап.
+ * Отметка задачи в один тап — и только для сегодняшнего дня.
  *
  * Оптимистично: строка перечёркивается сразу, затем уходит `PUT /api/tasks/:id`
  * (он же считает серию и достижения). Кольцо, счётчики и минуты обновляем
  * отдельным запросом — они считаются на сервере. Если запрос не прошёл,
  * отметку откатываем и говорим об этом строкой, а не молчанием.
+ *
+ * Правило «только сегодня» стоит и здесь, а не только в разметке: строки чужих
+ * дней неинтерактивны, но решение о записи обязано жить на уровне действия.
  */
 const togglePlanTask = async (task: { id: number; done: boolean }) => {
-  if (planBusy.value.includes(task.id)) {
+  if (!isToday.value || planBusy.value.includes(task.id)) {
     return;
   }
 
@@ -381,8 +593,8 @@ const togglePlanTask = async (task: { id: number; done: boolean }) => {
   }
 
   try {
-    // Отметка сохранена: подтягиваем план, серию и достижения, чтобы числа
-    // на экране совпали с сервером.
+    // Отметка сохранена: подтягиваем план, день карточки, серию и достижения,
+    // чтобы числа на экране совпали с сервером.
     await refreshNuxtData(['today-plan', 'calendar-day', 'streak', 'achievements-progress']);
   } catch {
     // Обновление не прошло — отметку ниже оставим: она уже верна.
@@ -539,34 +751,73 @@ useStructuredData(() => ({
       </NuxtLink>
     </div>
 
-    <!-- План дня: доля закрытых задач в кольце, без «круга во весь экран» -->
+    <!--
+      План дня: карточка показывает выбранный в календаре день — его заголовок,
+      статистику и список задач. Отмечать можно только сегодня: прошлое и будущее
+      открываются на просмотр, без всплывающих панелей.
+    -->
     <section class="plan card">
       <div class="plan__head">
-        <AppBadge variant="accent">{{ t('home.planChip') }}</AppBadge>
-        <p v-if="planMinutes" class="plan__minutes">{{ planMinutes }} {{ t('home.minutes') }}</p>
+        <AppBadge variant="accent">{{ dayTitle }}</AppBadge>
       </div>
 
       <template v-if="auth.isAuthenticated">
+        <!--
+          Сводка дня: числа считает сервер (`GET /api/tasks/calendar`), поэтому они
+          совпадают с «Планом на сегодня». У будущего дня «выполнено» и «факт» не
+          показываем: факт там всегда нулевой, и строка выглядела бы результатом.
+          Пустой день сводку не показывает вовсе — вместо неё ниже стоит понятная
+          строка, а «запланировано 0 задач» читалось бы как отчёт.
+        -->
         <div class="plan__body">
-          <PlanRing :done="planDone" :total="planTotal" />
+          <!-- Кольцо — только у сегодняшнего дня: у остальных отмечать нечего -->
+          <PlanRing v-if="isToday" :done="planDone" :total="planTotal" />
 
           <div class="plan__aside">
-            <p class="plan__hint">{{ t('home.planHint') }}</p>
+            <section v-if="day && day.total_tasks > 0" class="summary" :aria-label="t('calendar.summaryTitle')">
+              <p class="summary__value">{{ plannedLabel }}</p>
+
+              <p class="summary__meta">
+                <span v-if="showFact">{{ doneLabel }}</span>
+                <span class="summary__minutes">{{ minutesLabel }}</span>
+              </p>
+
+              <!-- Распределение по зонам: «Кухня 3 · Ванная 2» -->
+              <p v-if="zones.length" class="summary__zones">
+                <span class="summary__zones-label">{{ t('calendar.zonesTitle') }}</span>
+                <span v-for="zone in zones" :key="zone.zone" class="summary__zone">
+                  {{ zone.zone }} {{ zone.count }}
+                </span>
+              </p>
+            </section>
+
+            <!-- Сегодня: как отмечать — подсказка та же, что была в карточке -->
+            <p v-if="isToday" class="plan__hint">{{ t('home.planHint') }}</p>
           </div>
         </div>
 
-        <!--
-          Пункты плана отмечаются в один тап. Завершённые строки остаются на
-          месте зачёркнутыми: так виден результат отметки, а кольцо, счётчики
-          и минуты обновляются тем же действием.
+        <!-- День не загрузился: причина на экране, а не пустой список -->
+        <p v-if="dayFailed" class="plan__error" role="alert">{{ t('state.error') }}</p>
 
-          У каждой строки справа живёт компактное действие «⋯» (отдельная кнопка,
-          а не часть строки): по самой строке человек отмечает задачу, и удаление
-          не должно случаться от промаха по ней.
+        <!--
+          Прошлое и будущее — только просмотр: об этом говорим прямо. Заголовок
+          дня уже показывает, что открыт не сегодняшний день.
         -->
-        <ul v-if="visiblePlanTasks.length" class="plan__list">
-          <li v-for="task in visiblePlanTasks" :key="task.id">
+        <p v-if="!isToday" class="plan__view-only">
+          <i class="pi pi-eye" aria-hidden="true" />
+          {{ t('calendar.viewOnly') }}
+        </p>
+
+        <!--
+          Пункты дня. Сегодня строки интерактивны: отметка в один тап, а справа —
+          компактное «⋯» с удалением и возвратом (отдельная кнопка, а не часть
+          строки: удаление не должно случаться от промаха по ней). У другого дня
+          строки только показывают название, зону и минуты.
+        -->
+        <ul v-if="dayRows.length" class="plan__list">
+          <li v-for="task in dayRows" :key="task.id">
             <TaskRow
+              v-if="isToday"
               interactive
               :title="task.title"
               :hint="task.hint"
@@ -584,11 +835,18 @@ useStructuredData(() => ({
                 <i class="pi pi-ellipsis-h" aria-hidden="true" />
               </button>
             </TaskRow>
+
+            <TaskRow
+              v-else
+              :title="task.title"
+              :hint="task.hint"
+              :done="task.done"
+            />
           </li>
         </ul>
 
-        <!-- Пустой план: добавляем задачу или проходим настройку по дому -->
-        <div v-else class="plan__empty">
+        <!-- Сегодня пусто: добавляем задачу или проходим настройку по дому -->
+        <div v-else-if="isToday" class="plan__empty">
           <p class="plan__empty-title">{{ t('plan.empty') }}</p>
           <p class="plan__empty-hint">{{ t('plan.emptyHint') }}</p>
 
@@ -604,6 +862,9 @@ useStructuredData(() => ({
             </NuxtLink>
           </div>
         </div>
+
+        <!-- Другой день пуст: это не ошибка, а факт — сообщаем коротко -->
+        <p v-else-if="!dayFailed" class="plan__empty-day">{{ t('calendar.emptyDay') }}</p>
 
         <!-- Ошибка отметки: строка, а не молчаливый откат -->
         <p v-if="planError" class="plan__error" role="alert">{{ planError }}</p>
@@ -910,10 +1171,10 @@ useStructuredData(() => ({
   color: var(--c-accent);
 }
 
-/* ── План дня ───────────────────────────────────────────────────────── */
 /* ── План дня ───────────────────────────────────────────────────────────
- * Раньше это был круг во всю ширину экрана: много места и мало смысла.
- * Теперь карточка с компактным кольцом, а на десктопе — две колонки.
+ * Карточка показывает выбранный день: заголовок-дата, статистику дня и список.
+ * Компактное кольцо живёт только у сегодняшнего дня, на десктопе они с
+ * статистикой стоят в две колонки.
  */
 .plan {
   display: flex;
@@ -941,6 +1202,7 @@ useStructuredData(() => ({
 
 .plan__aside {
   display: grid;
+  width: 100%;
   gap: var(--space-3);
   justify-items: center;
 }
@@ -951,10 +1213,76 @@ useStructuredData(() => ({
   color: var(--c-text-muted);
 }
 
-.plan__minutes {
+/* ── Сводка дня ───────────────────────────────────────────────────────── */
+.summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 100%;
+  padding: var(--space-3);
+  border-radius: var(--r-row);
+  background: var(--c-surface);
+  text-align: left;
+}
+
+.summary__value {
+  margin: 0;
+  font-weight: 600;
+}
+
+/* «выполнено 2 задачи» и минуты — одной строкой: в карточке они рядом по смыслу */
+.summary__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
   margin: 0;
   color: var(--c-text-muted);
   font-size: var(--fs-caption);
+}
+
+.summary__zones {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-1) 0 0;
+  font-size: var(--fs-caption);
+}
+
+.summary__zones-label {
+  color: var(--c-text-muted);
+}
+
+/* Зона — компактный чип: строка «Кухня 3 · Ванная 2» не должна расти в столбик */
+.summary__zone {
+  padding: 2px var(--space-2);
+  border-radius: var(--r-pill);
+  background: var(--c-surface-sunken);
+  color: var(--c-text);
+  white-space: nowrap;
+}
+
+/* Другой день — только просмотр: пометка стоит прямо над списком */
+.plan__view-only {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--r-chip);
+  background: var(--c-surface-sunken);
+  color: var(--c-text-muted);
+  font-size: var(--fs-caption);
+}
+
+/* Пустой чужой день: короткая строка вместо блока с кнопками */
+.plan__empty-day {
+  margin: 0;
+  padding: var(--space-4);
+  border-radius: var(--r-row);
+  background: var(--c-surface);
+  color: var(--c-text-muted);
+  text-align: center;
 }
 
 /*
@@ -1193,6 +1521,8 @@ useStructuredData(() => ({
   }
 
   .plan__aside {
+    flex: 1;
+    min-width: 0;
     justify-items: start;
   }
 }

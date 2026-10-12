@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * Мастер «Настройка по дому» — 12 шагов в модалке (макеты «настройка по дому*.jpg»).
+ * Мастер «Настройка по дому» — 11 шагов в модалке (макеты «настройка по дому*.jpg»).
  *
  * Ответы сохраняются на каждом шаге, поэтому закрытая на середине модалка
  * ничего не теряет. На последнем шаге сервер собирает план по ответам и
@@ -31,7 +31,7 @@ interface StepOption {
  * карточка на главной и строка настроек. Порядок шагов здесь и там совпадает.
  */
 interface WizardStep {
-  section: 'home' | 'rhythm' | 'prefs';
+  section: 'home' | 'rhythm';
   titleKey: string;
   hintKey: string;
   kind: StepKind;
@@ -159,19 +159,6 @@ const steps: WizardStep[] = [
     hintKey: 'q11Hint',
     kind: 'days',
   },
-  {
-    section: 'prefs',
-    titleKey: 'q12Title',
-    hintKey: 'q12Hint',
-    kind: 'single',
-    options: [
-      { value: 'kitchen', labelKey: 'optHardestKitchen' },
-      { value: 'bathroom', labelKey: 'optHardestBathroom' },
-      { value: 'floors', labelKey: 'optHardestFloors' },
-      { value: 'tidiness', labelKey: 'optHardestTidiness' },
-      { value: 'nothing', labelKey: 'optHardestNothing' },
-    ],
-  },
 ];
 
 /** Дни недели в порядке отображения: понедельник … воскресенье. */
@@ -197,7 +184,9 @@ const current = computed<WizardStep>(() => {
 });
 const total = steps.length;
 const progress = computed(() => (index.value + 1) / total);
-const sectionKey = computed(() => `section${current.value.section === 'home' ? 'Home' : current.value.section === 'rhythm' ? 'Rhythm' : 'Prefs'}`);
+const sectionKey = computed(() =>
+  current.value.section === 'home' ? 'sectionHome' : 'sectionRhythm',
+);
 
 /** Поля текущего шага: правило «шаг → поля» общее с карточкой и настройками. */
 const currentFields = computed<readonly HomeSetupField[]>(() => HOME_SETUP_STEP_FIELDS[index.value] ?? []);
@@ -360,10 +349,6 @@ const close = () => emit('close');
             <li><span>{{ t('homeSetup.planMinutes') }}</span><strong>{{ formatMinutes(plan.summary.totalMinutes, locale) }}</strong></li>
             <li><span>{{ t('homeSetup.planPerDay') }}</span><strong>{{ formatMinutes(plan.summary.minutesPerDay, locale) }}</strong></li>
           </ul>
-
-          <p v-if="plan.focusZone" class="wizard__hint">
-            {{ t('homeSetup.planFocus', { zone: plan.focusZone }) }}
-          </p>
 
           <ol class="days">
             <li v-for="day in planDays" :key="day.dayOfWeek" class="days__row">
