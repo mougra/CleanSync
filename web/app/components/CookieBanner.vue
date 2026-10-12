@@ -50,7 +50,8 @@ const accept = () => {
   position: fixed;
   left: var(--space-4);
   right: var(--space-4);
-  bottom: calc(var(--nav-height, 72px) + var(--space-4));
+  /* Между кнопкой «+» и уведомлениями: баннер показывается один раз, но не должен липнуть к низу */
+  bottom: calc(var(--nav-height) + var(--space-6) + env(safe-area-inset-bottom));
   z-index: 55;
   display: flex;
   flex-direction: column;

@@ -37,7 +37,8 @@ const afterCreated = async () => {
 .fab {
   position: fixed;
   right: var(--space-4);
-  bottom: calc(72px + env(safe-area-inset-bottom));
+  /* Выше нижней навигации с запасом: вплотную к ней кнопка выглядела прижатой */
+  bottom: calc(var(--nav-height) + var(--space-5) + env(safe-area-inset-bottom));
   z-index: 25;
 }
 

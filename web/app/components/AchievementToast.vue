@@ -55,7 +55,8 @@ onUnmounted(() => {
   position: fixed;
   left: var(--space-4);
   right: var(--space-4);
-  bottom: calc(var(--nav-height, 72px) + var(--space-4));
+  /* Над кнопкой «+», чтобы уведомление не ложилось на неё и не липло к низу */
+  bottom: calc(var(--nav-height) + var(--space-7) + env(safe-area-inset-bottom));
   z-index: 60;
   display: flex;
   align-items: flex-start;
