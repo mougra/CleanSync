@@ -39,6 +39,30 @@ router.get('/:id/checklists', authMiddleware, async (req: Request, res: Response
 });
 
 /**
+ * Повторяющиеся дела: у них результат считается по дню, а не по задаче.
+ *
+ * `once` (и любая другая частота, включая NULL) — разовое дело: сделанное
+ * однажды, оно остаётся сделанным, потому что второго дня у него нет.
+ */
+const RECURRING_FREQUENCIES: readonly string[] = ['daily', 'weekly', 'monthly'];
+
+/** Сегодняшний день в UTC — тот же, которым считает `tasksDueOn`. */
+const todayIso = (): string => new Date().toISOString().slice(0, 10);
+
+/**
+ * День отметки (UTC) по отметке времени: `2025-10-05T21:00:00.000Z` → `2025-10-05`.
+ *
+ * Нужен возврату удалённой задачи (`POST /api/tasks/restore`): там отметка дня
+ * восстанавливается по прежнему `completed_at`, а не ставится на сегодня.
+ * Неразобранная дата сводится к сегодняшней — выдумывать день нельзя.
+ */
+const isoDayOf = (timestamp: string): string => {
+  const parsed = new Date(timestamp);
+
+  return Number.isNaN(parsed.getTime()) ? todayIso() : parsed.toISOString().slice(0, 10);
+};
+
+/**
  * Задачи, попадающие на конкретный день.
  *
  * Условия периодичности живут в одном месте: «План на сегодня» и список
@@ -48,6 +72,16 @@ router.get('/:id/checklists', authMiddleware, async (req: Request, res: Response
  * Про интервал: при `interval_count = 1` всё как раньше (задача дня/недели/
  * месяца), при большем цикл считается от `due_date` — даты первой постановки,
  * поэтому «раз в 3 месяца» не всплывает каждый месяц.
+ *
+ * Про результат дня. `is_completed` в ответе — это результат **на запрошенный
+ * день**, а не текущий флаг задачи (миграция 0018, таблица `task_completions`):
+ *  - повторяющееся дело (daily/weekly/monthly) закрыто, только если на этот день
+ *    есть отметка. Вчерашняя галочка не переезжает на завтра;
+ *  - разовое дело (once/due_date) закрыто, если отметка есть на его дату или
+ *    стоит прежний флаг `tasks.is_completed`: сделанное однажды остаётся
+ *    сделанным, второго дня у такого дела нет.
+ * Правило целиком живёт в SQL (колонка `completed_for_day`), а не размазано по
+ * вызывающим: «Сегодня» и календарь читают один и тот же признак.
  */
 const tasksDueOn = async (userId: string, date: Date) => {
   const dayOfWeek = date.getUTCDay(); // 0-6, 0 — воскресенье
@@ -55,7 +89,19 @@ const tasksDueOn = async (userId: string, date: Date) => {
   const dayStr = date.toISOString().split('T')[0];
 
   const result = await pool.query(
-    `SELECT t.*, s.title as schedule_title
+    `SELECT t.*, s.title as schedule_title,
+            CASE
+              -- Повторяющееся дело: результат строго на этот день.
+              -- COALESCE: у задачи без частоты (NULL) условие дало бы NULL, и
+              -- разбор молча ушёл бы в ветку ELSE — лучше сказать это явно.
+              WHEN COALESCE(t.frequency, '') = ANY($5::text[])
+                THEN EXISTS (SELECT 1 FROM task_completions c
+                              WHERE c.task_id = t.id AND c.completed_on = $4::date)
+              -- Разовое: отметка на его дату или прежний флаг задачи.
+              ELSE t.is_completed
+                   OR EXISTS (SELECT 1 FROM task_completions c
+                               WHERE c.task_id = t.id AND c.completed_on = t.due_date)
+            END AS completed_for_day
      FROM tasks t
      JOIN schedules s ON t.schedule_id = s.id
      WHERE (
@@ -89,10 +135,18 @@ const tasksDueOn = async (userId: string, date: Date) => {
          (t.due_date = $4)
        )
      ORDER BY t.time ASC`,
-    [userId, dayOfWeek, dayOfMonth, dayStr]
+    [userId, dayOfWeek, dayOfMonth, dayStr, RECURRING_FREQUENCIES]
   );
 
-  return result.rows;
+  /**
+   * Наружу уходит `is_completed` на запрошенный день, а служебная колонка
+   * `completed_for_day` — нет: форма ответа «Сегодня» и календаря остаётся
+   * прежней, меняется только смысл признака.
+   */
+  return result.rows.map(({ completed_for_day, ...task }) => ({
+    ...task,
+    is_completed: completed_for_day === true,
+  }));
 };
 
 // Get today's tasks
@@ -318,8 +372,29 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
-// Update task
+/**
+ * Отметка задачи на сегодня и снятие отметки: `PUT /api/tasks/:id`.
+ *
+ * Отметка — это результат **дня**, а не задачи. Поэтому одной транзакцией
+ * делаются две вещи:
+ *  1. отметка в журнале `task_completions` на сегодняшнюю дату в UTC — тем же
+ *     днём считает выборка «Сегодня» (`tasksDueOn`), поэтому галочка сегодня не
+ *     видна вчера и завтра; при снятии удаляется отметка ровно сегодняшнего дня,
+ *     прежние дни остаются со своим результатом;
+ *  2. прежние колонки задачи (`is_completed`, `completed_at`, `completed_by`) —
+ *     они продолжают обновляться ровно как раньше. На них держатся серия
+ *     (services/streak.ts), достижения (services/achievementManager.ts),
+ *     статистика (routes/analytics.ts) и семейный режим (routes/household.ts):
+ *     эти модули читают последнюю отметку задачи, и эта задача их не переписывает
+ *     (перевод на журнал — следующий шаг).
+ *
+ * Две записи в одной транзакции нужны, чтобы не было состояния «флаг стоит, а
+ * отметки нет»: по такой паре задача выглядела бы закрытой в статистике дома и
+ * открытой в календаре.
+ */
 router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
+  const client = await pool.connect();
+
   try {
     const { id } = req.params;
     const { title, frequency, day_of_week, day_of_month, due_date, time, estimated_minutes, room, is_completed, interval_count } = req.body;
@@ -341,7 +416,12 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
-    const result = await pool.query(
+    /** Сегодняшний день в UTC: отметка ставится именно на него. */
+    const completedOn = todayIso();
+
+    await client.query('BEGIN');
+
+    const result = await client.query(
       `UPDATE tasks SET
         title = COALESCE($1, title),
         frequency = COALESCE($2, frequency),
@@ -369,6 +449,36 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
       [title ?? null, frequency ?? null, day_of_week ?? null, day_of_month ?? null, due_date ?? null, time ?? null, estimated_minutes ?? null, room ?? null, is_completed !== undefined ? is_completed : null, id, req.userId, Number.isInteger(interval_count) && interval_count > 0 ? interval_count : null]
     );
 
+    const taskId = result.rows[0]?.id;
+
+    /**
+     * Журнал дня. `ON CONFLICT` делает повторную отметку идемпотентной и
+     * обновляет автора: дело, закрытое утром одним участником дома и вечером
+     * другим, остаётся одной строкой журнала.
+     *
+     * Запрос выполняется, только если в теле был `is_completed`: PUT без него
+     * (правка названия, времени и т.п.) результат дня не трогает.
+     */
+    if (taskId !== undefined && is_completed === true) {
+      await client.query(
+        `INSERT INTO task_completions (task_id, completed_on, completed_by, completed_at)
+         VALUES ($1::int, $2::date, $3::int, CURRENT_TIMESTAMP)
+         ON CONFLICT (task_id, completed_on)
+         DO UPDATE SET completed_by = EXCLUDED.completed_by,
+                       completed_at = EXCLUDED.completed_at`,
+        [taskId, completedOn, req.userId]
+      );
+    }
+
+    if (taskId !== undefined && is_completed === false) {
+      await client.query(
+        'DELETE FROM task_completions WHERE task_id = $1::int AND completed_on = $2::date',
+        [taskId, completedOn]
+      );
+    }
+
+    await client.query('COMMIT');
+
     // Award achievements if task was completed
     let awarded: string[] = [];
     if (result.rows[0] && result.rows[0].is_completed) {
@@ -377,8 +487,11 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
 
     res.json({ ...result.rows[0], awarded });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => undefined);
     console.error(err);
     res.status(500).json({ error: 'Failed to update task' });
+  } finally {
+    client.release();
   }
 });
 
@@ -641,8 +754,10 @@ router.post('/restore', authMiddleware, async (req: Request, res: Response) => {
       ]
     );
 
-    // Снятие отказа: название ищем нормализованным — ровно тем же ключом, что и
-    // сборка набора (`syncDefaultTasks`), иначе запись осталась бы «висеть».
+    /**
+     * Снятие отказа: название ищем нормализованным — ровно тем же ключом, что и
+     * сборка набора (`syncDefaultTasks`), иначе запись осталась бы «висеть».
+     */
     const generated = source !== null && GENERATED_TASK_SOURCES.includes(source);
     const dismissedTitle = normalizeTaskTitle(title);
     let restoredFromDismissal = false;
@@ -653,6 +768,27 @@ router.post('/restore', authMiddleware, async (req: Request, res: Response) => {
         [req.userId, dismissedTitle]
       );
       restoredFromDismissal = (cleared.rowCount ?? 0) > 0;
+    }
+
+    /**
+     * Отметка дня для возвращённой закрытой задачи.
+     *
+     * Удаление задачи уносит её отметки каскадом (`ON DELETE CASCADE`), поэтому
+     * без этой вставки повторяющееся дело после «Вернуть» снова выглядело бы
+     * незакрытым в тот день, когда его закрыли: результат дня считается по
+     * журналу, а журнал вместе с задачей и пропал. День берётся из `completed_at`
+     * (или сегодняшний, если дата не разобралась), автор — тот, кто вернул задачу:
+     * так же считает `PUT /api/tasks/:id`.
+     */
+    if (isCompleted) {
+      const completedOn = completedAt === null ? todayIso() : isoDayOf(completedAt);
+
+      await client.query(
+        `INSERT INTO task_completions (task_id, completed_on, completed_by, completed_at)
+         VALUES ($1::int, $2::date, $3::int, COALESCE($4::timestamp, CURRENT_TIMESTAMP))
+         ON CONFLICT (task_id, completed_on) DO NOTHING`,
+        [inserted.rows[0].id, completedOn, req.userId, completedAt]
+      );
     }
 
     await client.query('COMMIT');

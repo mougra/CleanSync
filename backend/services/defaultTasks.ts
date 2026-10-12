@@ -39,10 +39,23 @@ import {
  *     → 25, 30to60 → 40, 1to2h → 40, depends → 30, сверху жёсткий потолок
  *     MAX_DAILY_MINUTES = 40) и применяется к **сумме** всех сгенерированных
  *     дел дня — этот набор делит его с недельным планом (services/homePlan.ts).
- *     Ежедневный минимум занимает 12-18 минут, недельные дела ложатся на
- *     выбранные дни (cleaningDays), а месячные и более редкие — на остальные
- *     числа месяца. Больше MAX_WEEKLY_DAYS дней в неделю недельные дела не
- *     занимают: иначе в остатке дня не было бы места делам «раз в месяц» и реже.
+ *     Ежедневный блок занимает 12-18 минут, недельные дела ложатся на выбранные
+ *     дни (cleaningDays), а месячные и более редкие — на остальные числа месяца.
+ *     Больше MAX_WEEKLY_DAYS дней в неделю недельные дела не занимают: иначе в
+ *     остатке дня не было бы места делам «раз в месяц» и реже.
+ *  3a. Ежедневный блок — не «одни и те же дела каждый день», а ротация.
+ *     Раньше генератор набирал ежедневными делами 12-18 минут и повторял их
+ *     изо дня в день: понедельник, среда и суббота отличались только недельными
+ *     делами, а кухня давала 3 задачи из 4. Поэтому теперь:
+ *       * в каждом дне остаются 1-2 по-настоящему ежедневных дела (не больше
+ *         EVERY_DAY_TASK_LIMIT и не больше EVERY_DAY_MINUTES_CAP минут) — те,
+ *         что и правда делаются каждый день: посуда, обеденный стол, раковина;
+ *       * остальные дела ежедневного блока (проветривание, плита, прихожая,
+ *         подушки) получают периодичность «раз в неделю» и раскладываются по
+ *         дням уборки по кругу — свои минуты они сохраняют, но повторяются не
+ *         каждый день, а в свой день;
+ *       * в одном дне не больше MAX_ZONE_TASKS_PER_DAY задач одной зоны (с учётом
+ *         ежедневных): «день кухни» из четырёх кухонных дел больше не собирается.
  *  4. Нагрузка месячных дел считается по числам месяца и «классам месяцев»
  *     (0-11): задача с интервалом N и опорой в месяце offset занимает только
  *     сравнимые с ним месяцы. Поэтому «раз в 3 месяца» не сталкивается с другой
@@ -85,13 +98,61 @@ export const normalizeTaskTitle = (title: string): string => title.trim().toLowe
  */
 export { MAX_DAILY_MINUTES };
 
-/** Сколько минут в день занимает ежедневный минимум — зависит от ответа анкеты. */
-const DAILY_MINUTES_CAP: Record<DailyMinutesOption, number> = {
+/**
+ * Сколько минут ежедневного блока остаётся в **каждом** дне — по ответу анкеты.
+ *
+ * Раньше этим лимитом генератор набирал весь ежедневный блок, и одни и те же
+ * 3-5 дел лежали в понедельнике, вторнике и субботе без единого отличия: отсюда
+ * жалоба «на другие дни почти тот же список». Теперь лимит ограничивает только
+ * те дела, которые и правда делаются каждый день (посуда, стол, раковина), —
+ * остальные дела блока сохраняют свои минуты, но раскладываются по выбранным
+ * дням уборки (`cleaningDays`) как недельные.
+ */
+const EVERY_DAY_MINUTES_CAP: Record<DailyMinutesOption, number> = {
   under30: 12,
   '30to60': 18,
   '1to2h': 18,
   depends: 15,
 };
+
+/**
+ * Сколько дел каталога действительно делаются каждый день: не больше двух.
+ *
+ * Одно-два ежедневных дела — это ежедневный минимум, а не список дел на день:
+ * всё, что делается реже, живёт в ротации по дням уборки.
+ */
+const EVERY_DAY_TASK_LIMIT = 2;
+
+/**
+ * Предел задач одной зоны в одном дне — вместе с ежедневными делами.
+ *
+ * Заказчик сформулировал так: «одна зона не должна доминировать». До правки в
+ * ежедневном блоке было 3 кухонных дела из 4, и любой день выглядел «днём
+ * кухни»; теперь планировщик не поставит в день третью задачу той же зоны, даже
+ * если она очень короткая.
+ *
+ * Экспортируется: тем же числом проверяется готовый набор
+ * (scripts/check-default-tasks.ts) и тесты — предел должен быть один на весь
+ * проект, иначе генератор и проверка разъедутся.
+ */
+export const MAX_ZONE_TASKS_PER_DAY = 2;
+
+/**
+ * Дела каталога, которые и правда делаются каждый день, в порядке приоритета.
+ *
+ * Порядок — от заказчика: посуда, стол, раковина. Список не обязательство, а
+ * подсказка: если названия в каталоге изменятся, ежедневный блок доберётся
+ * остальными делами с периодичностью `daily` (см. сборку `everyDayOrder`), а
+ * пустого дня в наборе всё равно не будет.
+ */
+const EVERY_DAY_TITLES: readonly string[] = [
+  'Убрать посуду в сушилку и на места',
+  'Протереть обеденный стол после еды',
+  'Ополоснуть раковину и смеситель на кухне',
+  'Протереть рабочие поверхности на кухне',
+  'Вечерний проход по ванной: раковина, зеркало, полотенца',
+  'Заправить кровать',
+];
 
 /** Предел минут на одно число месяца для месячных и более редких дел. */
 const MONTHLY_DAY_CAP = 25;
@@ -166,7 +227,12 @@ export interface DefaultTask {
   minutes: number;
   level: TaskLevel;
   tags: TaskTag[];
-  /** Исходная периодичность каталога: по ней строятся подписи в интерфейсе. */
+  /**
+   * Периодичность, с которой дело попадает в расписание, — её видят подписи в
+   * интерфейсе. У большинства задач совпадает с каталогом; у дел ежедневного
+   * блока, разложенных по дням уборки, здесь `weekly`: каждый день они больше не
+   * повторяются, а стоят в своём дне недели (см. правило 3a в шапке модуля).
+   */
   cadence: TaskCadence;
   frequency: DefaultTaskFrequency;
   intervalCount: number;
@@ -181,7 +247,7 @@ export interface DefaultTaskDay {
   dayOfWeek: number;
   label: string;
   selected: boolean;
-  /** Ежедневный минимум плюс недельные дела этого дня. */
+  /** Ежедневные дела плюс недельные дела этого дня (в том числе ротация). */
   tasks: DefaultTask[];
   minutes: number;
 }
@@ -192,15 +258,19 @@ export interface DefaultTaskSet {
   summary: {
     totalTasks: number;
     totalMinutes: number;
+    /** По-настоящему ежедневные дела: они лежат в каждом дне. */
     dailyTasks: number;
     dailyMinutes: number;
+    /** Дела ежедневного блока, разложенные по дням уборки (в базе — недельные). */
+    rotatedTasks: number;
+    rotatedMinutes: number;
     weeklyTasks: number;
     weeklyMinutes: number;
     monthlyTasks: number;
     monthlyMinutes: number;
     /** Сколько дел каталога не поместилось в дневной лимит и не попало в набор. */
     droppedTasks: number;
-    /** Худший день недели: ежедневный минимум плюс недельные дела. */
+    /** Худший день недели: ежедневные дела плюс недельные дела этого дня. */
     maxDailyMinutes: number;
     dailyLimit: number;
     rooms: string[];
@@ -448,17 +518,64 @@ export const buildDefaultTasks = (
    */
   const budget = dayBudget(answers);
 
-  // ── 1. Ежедневный минимум: 3-8 минут на пункт, суммарно до DAILY_MINUTES_CAP ─
-  const dailyLimit = DAILY_MINUTES_CAP[answers.dailyMinutes];
+  // ── 1. Ежедневный блок: 1-2 дела в каждом дне, остальное — в ротацию ──────
+  //
+  // Раньше здесь набирался весь ежедневный блок (3-5 дел на 12-18 минут), и он
+  // же повторялся в каждом дне недели — отсюда «на другие дни почти тот же
+  // список». Теперь в каждом дне остаются только по-настоящему ежедневные дела,
+  // а остальные уходят в ротацию по дням уборки (см. шаг 1a).
+  const dailyLimit = EVERY_DAY_MINUTES_CAP[answers.dailyMinutes];
+  const everyDayPool = pool.filter((item) => item.cadence === 'daily');
+
+  /**
+   * Порядок выбора ежедневных дел: сначала те, что заказчик назвал ежедневными
+   * (посуда, стол, раковина — список EVERY_DAY_TITLES), затем остальные дела
+   * ежедневного блока каталога. Благодаря добору набор не останется без
+   * ежедневных дел, даже если названия в каталоге когда-нибудь изменятся.
+   */
+  const everyDayOrder: CatalogTask[] = [
+    ...EVERY_DAY_TITLES.map((title) => everyDayPool.find((task) => task.task === title)).filter(
+      (task): task is CatalogTask => task !== undefined
+    ),
+    ...everyDayPool.filter((task) => !EVERY_DAY_TITLES.includes(task.task)),
+  ];
+
   const dailyTasks: CatalogTask[] = [];
   let dailyMinutes = 0;
+  const dailyZones = new Set<string>();
 
-  for (const task of pool.filter((item) => item.cadence === 'daily')) {
+  for (const task of everyDayOrder) {
+    if (dailyTasks.length >= EVERY_DAY_TASK_LIMIT) break;
     if (dailyMinutes + task.minutes > dailyLimit) continue;
+    // Второе ежедневное дело берём из другой зоны: если оба дела кухонные, то
+    // вместе с пределом зоны (MAX_ZONE_TASKS_PER_DAY) кухня займёт день целиком
+    // и ни одно кухонное дело ротации в него уже не поместится.
+    if (dailyZones.has(task.room)) continue;
 
     dailyTasks.push(task);
     dailyMinutes += task.minutes;
+    dailyZones.add(task.room);
   }
+
+  // ── 1a. Остальные дела ежедневного блока — в ротацию по дням уборки ───────
+  //
+  // Это и есть «каждый день — свой список»: посуда и вечерний проход по ванной
+  // остаются в каждом дне, а проветривание, плита, прихожая и подушки получают
+  // периодичность «раз в неделю» и встают в разные дни уборки. Минуты дел при
+  // этом не теряются — они просто перестают повторяться изо дня в день.
+  const rotatedPlaced = new Set<CatalogTask>();
+  const rotationPool = everyDayPool.filter((task) => !dailyTasks.includes(task));
+
+  /**
+   * Признак «это дело ежедневного блока, и оно ушло в ротацию».
+   *
+   * Именно по нему решается, что задача становится недельной. Признак ставится
+   * сразу на весь `rotationPool`, а не только на удачно разложенные дела:
+   * переполнившееся дело уходит в месячный круг, и без этого оно осталось бы с
+   * кадансом `daily` — то есть снова появлялось бы в каждом дне. Проверка
+   * scripts/check-default-tasks.ts ловит это переполнением дневного бюджета.
+   */
+  const rotationSet = new Set<CatalogTask>(rotationPool);
 
   // ── 2. Недельные дела по дням недели ──────────────────────────────────────
   const selectedDays = orderWeekDays(answers.cleaningDays);
@@ -493,13 +610,29 @@ export const buildDefaultTasks = (
     slot.minutes + task.minutes + RARE_CYCLE_RESERVE <= budget;
 
   /**
+   * Сколько задач этой зоны уже стоит в дне — вместе с ежедневными делами.
+   *
+   * Ежедневные дела лежат не в `slot.tasks`, а отдельно, но в дне они есть,
+   * поэтому предел зоны обязан их учитывать: иначе к двум кухонным ежедневным
+   * делам добавилось бы третье кухонное из недельных, и снова получился бы
+   * «день кухни», на который жаловался заказчик.
+   */
+  const zoneLoad = (slot: DaySlot, room: string): number =>
+    slot.tasks.filter((task) => task.room === room).length +
+    dailyTasks.filter((task) => task.room === room).length;
+
+  const zoneFits = (slot: DaySlot, task: CatalogTask): boolean =>
+    zoneLoad(slot, task.room) < MAX_ZONE_TASKS_PER_DAY;
+
+  /**
    * Ставит задачу в самый свободный из выбранных дней недели.
    *
    * Возвращает false, если неделя заполнена — тогда дело уходит в месячный круг.
    */
   const place = (task: CatalogTask): boolean => {
     const candidates = slots.filter(
-      (slot) => slot.selected && weeklyDays.has(slot.dayOfWeek) && fits(slot, task)
+      (slot) =>
+        slot.selected && weeklyDays.has(slot.dayOfWeek) && fits(slot, task) && zoneFits(slot, task)
     );
 
     if (candidates.length === 0) return false;
@@ -511,6 +644,39 @@ export const buildDefaultTasks = (
     placed.add(task);
 
     return true;
+  };
+
+  /**
+   * Ставит дело ежедневного блока в день уборки — по кругу, а не в самый
+   * свободный день.
+   *
+   * Круг важнее «свободного дня»: он и делает понедельник, среду и субботу
+   * разными (каждое дело уходит в свой следующий день), тогда как жадный выбор
+   * сваливал бы короткие ежедневные дела в один день, а остальные оставлял с
+   * одним минимумом. Если выбранный день не подходит по бюджету или по пределу
+   * зоны, дело пробует следующий день круга — и только потом уходит в месячный
+   * круг вместе с прочей переполнившейся неделей.
+   */
+  let rotationCursor = 0;
+  const placeRotated = (task: CatalogTask): boolean => {
+    for (let step = 0; step < selectedDays.length; step += 1) {
+      const dayOfWeek = selectedDays[(rotationCursor + step) % selectedDays.length];
+      const slot = slots.find((item) => item.dayOfWeek === dayOfWeek);
+
+      if (!slot || !weeklyDays.has(dayOfWeek) || !fits(slot, task) || !zoneFits(slot, task)) {
+        continue;
+      }
+
+      slot.tasks.push(task);
+      slot.minutes += task.minutes;
+      placed.add(task);
+      rotatedPlaced.add(task);
+      rotationCursor = (rotationCursor + step + 1) % selectedDays.length;
+
+      return true;
+    }
+
+    return false;
   };
 
   /**
@@ -549,6 +715,20 @@ export const buildDefaultTasks = (
     if (task.cadence === 'weekly' || task.cadence === 'biweekly') place(task);
   }
 
+  /**
+   * Ротация ежедневного блока — сразу после представителей заявленных тем и
+   * до доборной уборки: это «минимум» ухода за домом, и он должен попасть в
+   * набор раньше, чем задачи, которые можно отложить. Представители тем идут
+   * первыми не случайно: они представляют ответы анкеты (питомцы, гараж, офис),
+   * и без приоритета жадный отбор не оставил бы им места.
+   *
+   * Что не поместилось в дни уборки, уходит в общий `overflow` — дальше он
+   * разбирается месячным кругом, как и переполнившиеся недельные дела.
+   */
+  for (const task of rotationPool) {
+    if (!placeRotated(task)) overflow.push(task);
+  }
+
   // Полы и пыль масштабируются по числу комнат: в маленькой квартире нет
   // смысла в задачах «вымыть пол» для пяти разных зон.
   const quotas: Array<{ tag: TaskTag; limit: number; skipped: number }> = [
@@ -585,9 +765,21 @@ export const buildDefaultTasks = (
     if (!place(task)) overflow.push(task);
   }
 
+  /**
+   * Периодичность, с которой дело уходит в расписание.
+   *
+   * У дел ежедневного блока, разложенных по дням уборки, это `weekly`: каждый
+   * день они больше не повторяются. Правило одно на все три места, где каданс
+   * нужен: вставка в `tasks`, порядок разбора месячного круга и решение о том,
+   * что переполнившееся недельное дело становится месячным.
+   */
+  const scheduledCadence = (task: CatalogTask): TaskCadence =>
+    rotationSet.has(task) ? 'weekly' : task.cadence;
+
   for (const slot of slots) {
     for (const task of slot.tasks) {
-      const rule = CADENCE_RULES[task.cadence];
+      const cadence = scheduledCadence(task);
+      const rule = CADENCE_RULES[cadence];
 
       tasks.push({
         title: task.task,
@@ -595,7 +787,7 @@ export const buildDefaultTasks = (
         minutes: task.minutes,
         level: task.level,
         tags: task.tags,
-        cadence: task.cadence,
+        cadence,
         frequency: rule.frequency,
         intervalCount: rule.intervalCount,
         dayOfWeek: slot.dayOfWeek,
@@ -621,7 +813,7 @@ export const buildDefaultTasks = (
 
     if (byRepresentative !== 0) return byRepresentative;
 
-    const byCadence = CADENCE_RANK[left.cadence] - CADENCE_RANK[right.cadence];
+    const byCadence = CADENCE_RANK[scheduledCadence(left)] - CADENCE_RANK[scheduledCadence(right)];
 
     if (byCadence !== 0) return byCadence;
 
@@ -675,8 +867,10 @@ export const buildDefaultTasks = (
   };
 
   for (const task of monthlyPool) {
-    const demoted = WEEKLY_CADENCES.includes(task.cadence);
-    const cadence: TaskCadence = demoted ? 'monthly' : task.cadence;
+    // Переполнившиеся недельные дела (в том числе ротация ежедневного блока)
+    // становятся месячными: держать их «раз в неделю» негде — неделя занята.
+    const demoted = WEEKLY_CADENCES.includes(scheduledCadence(task));
+    const cadence: TaskCadence = demoted ? 'monthly' : scheduledCadence(task);
     const rule = CADENCE_RULES[cadence];
 
     /**
@@ -789,6 +983,16 @@ export const buildDefaultTasks = (
   const monthlyMinutes = monthTasks.reduce((sum, task) => sum + task.minutes, 0);
   const maxDailyMinutes = slots.reduce((max, slot) => Math.max(max, slot.minutes), 0);
 
+  /**
+   * Ротация ежедневного блока в том виде, в каком она попала в набор.
+   *
+   * В `rotatedPlaced` попадают только удачные раскладки: дело, которому не
+   * хватило места в днях уборки, ушло в месячный круг и в ежедневном блоке его
+   * больше нет — считать его ротацией было бы неправдой. Поэтому счёт берётся
+   * отсюда, а не из `rotationPool` (там и переполнившиеся дела).
+   */
+  const rotatedMinutes = [...rotatedPlaced].reduce((sum, task) => sum + task.minutes, 0);
+
   const days: DefaultTaskDay[] = slots.map((slot) => ({
     dayOfWeek: slot.dayOfWeek,
     label: slot.label,
@@ -800,7 +1004,9 @@ export const buildDefaultTasks = (
     minutes: slot.minutes,
   }));
 
-  notes.push(`Ежедневный минимум: ${dailyResult.length} дел на ${dailyMinutes} минут каждый день`);
+  notes.push(
+    `Каждый день: ${dailyResult.length} ежедневных дел (${dailyMinutes} мин). По дням уборки разложено ещё ${rotatedPlaced.size} дел ежедневного блока — дни отличаются друг от друга`
+  );
 
   if (overflow.length > 0) {
     notes.push(
@@ -828,6 +1034,8 @@ export const buildDefaultTasks = (
       totalMinutes: allTasks.reduce((sum, task) => sum + task.minutes, 0),
       dailyTasks: dailyResult.length,
       dailyMinutes,
+      rotatedTasks: rotatedPlaced.size,
+      rotatedMinutes,
       weeklyTasks: weeklyTasks.length,
       weeklyMinutes,
       monthlyTasks: monthTasks.length,

@@ -229,6 +229,45 @@ describe.skipIf(!dbReady)('POST /api/tasks/restore: задача возвращ�
     expect(await isDismissed(userId, 'Разобрать шкаф')).toBe(false);
   });
 
+  it('возвращённая закрытая задача сохраняет результат своего дня', async () => {
+    const userId = await createUser();
+    const scheduleId = await createSchedule(userId, 'Личные дела');
+    const taskId = await createTask(scheduleId, 'Вымыть пол в коридоре');
+    const token = generateTokens(String(userId)).accessToken;
+
+    const marked = await request(app)
+      .put(`/api/tasks/${taskId}`)
+      .set(auth(token))
+      .send({ is_completed: true });
+
+    expect(marked.status).toBe(200);
+
+    const removed = await deleteTask(token, taskId);
+    expect(removed.status).toBe(200);
+    expect(removed.body.task.is_completed).toBe(true);
+
+    // Отметки удалённой задачи уходят каскадом вместе с ней: возвращать их
+    // приходится заново, иначе закрытое дело после «Вернуть» снова открыто.
+    const afterDelete = await pool.query<{ total: number }>(
+      'SELECT COUNT(*)::int AS total FROM task_completions WHERE task_id = $1',
+      [taskId]
+    );
+    expect(afterDelete.rows[0].total).toBe(0);
+
+    const restored = await restoreTask(token, removed.body.task);
+    expect(restored.status).toBe(201);
+
+    const restoredId = restored.body.task.id as number;
+    const journal = await pool.query<{ completed_on: string; completed_by: number }>(
+      'SELECT completed_on::text AS completed_on, completed_by FROM task_completions WHERE task_id = $1',
+      [restoredId]
+    );
+
+    expect(journal.rows).toHaveLength(1);
+    expect(journal.rows[0].completed_on).toBe(new Date().toISOString().slice(0, 10));
+    expect(Number(journal.rows[0].completed_by)).toBe(userId);
+  });
+
   it('сгенерированная задача возвращается со снятием отказа и больше не пропускается набором', async () => {
     const userId = await createUser();
     const scheduleId = await createSchedule(userId, 'Мои задачи');
