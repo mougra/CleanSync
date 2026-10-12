@@ -190,6 +190,13 @@ const WEEKLY_CADENCES: readonly TaskCadence[] = ['weekly', 'biweekly'];
 const MONTHLY_CADENCES: readonly TaskCadence[] = ['monthly', 'quarterly', 'semiannual', 'yearly'];
 
 /**
+ * Лестница циклов для дел, которым не хватило места в неделе: от месяца к году.
+ * Порядок обхода вращается (см. `demotedOffset`), поэтому остаток распределяется
+ * по всему году, а не сбивается в один месяц.
+ */
+const DEMOTION_LADDER: readonly TaskCadence[] = ['monthly', 'quarterly', 'semiannual', 'yearly'];
+
+/**
  * Периодичность каталога в виде пары, которую понимает таблица tasks.
  *
  * Экспортируется: перенос задач недельного плана в набор «Мои задачи»
@@ -855,6 +862,9 @@ export const buildDefaultTasks = (
   const dropped: CatalogTask[] = [];
   let spent = 0;
 
+  /** Куда войти в лестницу циклов для следующего переполнения недели. */
+  let demotedOffset = 0;
+
   /** Месяцы цикла, в которые задача занимает своё число. */
   const activeMonths = (interval: number, offset: number): number[] => {
     const months: number[] = [];
@@ -867,93 +877,123 @@ export const buildDefaultTasks = (
   };
 
   for (const task of monthlyPool) {
-    // Переполнившиеся недельные дела (в том числе ротация ежедневного блока)
-    // становятся месячными: держать их «раз в неделю» негде — неделя занята.
-    const demoted = WEEKLY_CADENCES.includes(scheduledCadence(task));
-    const cadence: TaskCadence = demoted ? 'monthly' : scheduledCadence(task);
-    const rule = CADENCE_RULES[cadence];
+    const origin = scheduledCadence(task);
+    const demoted = WEEKLY_CADENCES.includes(origin);
 
     /**
-     * Амортизированная нагрузка: сколько минут числа занимает дело в пересчёте
-     * на месяц. «Раз в 3 месяца» по 15 минут — это 5 минут в месяц, поэтому
-     * редкие дела не съедают день целиком.
-     */
-    const weight = task.minutes / rule.intervalCount;
-
-    if (spent + weight > monthBudget) {
-      dropped.push(task);
-      continue;
-    }
-
-    const offset = (cycleOffset.get(cadence) ?? 0) % rule.intervalCount;
-    const months = activeMonths(rule.intervalCount, offset);
-
-    /**
-     * Сколько минут ещё влезает на это число в худшем из его месяцев.
+     * Переполнение недели не обязано становиться месячным.
      *
-     * Свободное время числа считается от бюджета по ответу за вычетом
-     * ежедневного минимума и недельных дел этого дня недели (freeByDate выше),
-     * поэтому месячное дело не пробивает дневной лимит ни на одном конкретном
-     * числе. Раньше здесь был жёсткий лимит 40 минут — из-за него дни
-     * «под завязку» складывались с недельным планом и выходили за бюджет.
+     * Раньше дело, которому не хватило места в днях уборки, жёстко получало
+     * «раз в месяц» — и в жёстких профилях («минимум» и три дня) выходило
+     * «ополоснуть раковину раз в месяц», хотя дело частое. Теперь у такого дела
+     * есть лестница циклов, и точка входа в неё вращается: первое переполнение
+     * идёт в месяц, второе в квартал, третье в полгода, четвёртое в год, пятое
+     * снова в месяц. Так остаток распределяется по всему году, а не сбивается в
+     * один месяц; если выпавший цикл не помещается, пробуются остальные.
+     *
+     * Дела с собственной периодичностью идут ровно своим циклом, как и раньше:
+     * лестница из одного шага ничего не меняет.
      */
-    const slack = (day: number): number => {
-      const loads = monthSlots.get(day) ?? [];
-      const limit = freeByDate.get(day) ?? 0;
+    const rotatedLadder = [...DEMOTION_LADDER.slice(demotedOffset), ...DEMOTION_LADDER.slice(0, demotedOffset)];
+    const ladder: TaskCadence[] = demoted ? rotatedLadder : [origin];
 
-      return months.reduce(
-        (worst, month) => Math.min(worst, limit - (loads[month] ?? 0) - task.minutes),
-        Number.POSITIVE_INFINITY
-      );
-    };
+    let placed = false;
 
-    const candidates = [...freeByDate.keys()].filter((day) => slack(day) >= 0);
+    for (const cadence of ladder) {
+      const rule = CADENCE_RULES[cadence];
 
-    if (candidates.length === 0) {
+      /**
+       * Амортизированная нагрузка: сколько минут числа занимает дело в пересчёте
+       * на месяц. «Раз в 3 месяца» по 15 минут — это 5 минут в месяц, поэтому
+       * редкие дела не съедают день целиком.
+       */
+      const weight = task.minutes / rule.intervalCount;
+
+      if (spent + weight > monthBudget) {
+        continue;
+      }
+
+      const offset = (cycleOffset.get(cadence) ?? 0) % rule.intervalCount;
+      const months = activeMonths(rule.intervalCount, offset);
+
+      /**
+       * Сколько минут ещё влезает на это число в худшем из его месяцев.
+       *
+       * Свободное время числа считается от бюджета по ответу за вычетом
+       * ежедневного минимума и недельных дел этого дня недели (freeByDate выше),
+       * поэтому месячное дело не пробивает дневной лимит ни на одном конкретном
+       * числе. Раньше здесь был жёсткий лимит 40 минут — из-за него дни
+       * «под завязку» складывались с недельным планом и выходили за бюджет.
+       */
+      const slack = (day: number): number => {
+        const loads = monthSlots.get(day) ?? [];
+        const limit = freeByDate.get(day) ?? 0;
+
+        return months.reduce(
+          (worst, month) => Math.min(worst, limit - (loads[month] ?? 0) - task.minutes),
+          Number.POSITIVE_INFINITY
+        );
+      };
+
+      const candidates = [...freeByDate.keys()].filter((day) => slack(day) >= 0);
+
+      if (candidates.length === 0) {
+        continue;
+      }
+
+      const target = candidates.sort((left, right) => {
+        const bySlack = slack(right) - slack(left);
+
+        if (Math.abs(bySlack) > 0.001) return bySlack;
+
+        // При равном запасе — сначала числа, свободные от недельной уборки.
+        const leftBusy = cleaningDays.has(weekdayOfMonthDay(today, left)) ? 1 : 0;
+        const rightBusy = cleaningDays.has(weekdayOfMonthDay(today, right)) ? 1 : 0;
+
+        if (leftBusy !== rightBusy) return leftBusy - rightBusy;
+
+        return left - right;
+      })[0];
+
+      const loads = monthSlots.get(target) ?? [];
+
+      for (const month of months) {
+        loads[month] = (loads[month] ?? 0) + task.minutes;
+      }
+
+      monthSlots.set(target, loads);
+      cycleOffset.set(cadence, (cycleOffset.get(cadence) ?? 0) + 1);
+      spent += weight;
+
+      if (demoted) {
+        demotedOffset = (demotedOffset + 1) % DEMOTION_LADDER.length;
+      }
+
+      monthTasks.push({
+        title: task.task,
+        room: task.room,
+        minutes: task.minutes,
+        level: task.level,
+        tags: task.tags,
+        cadence,
+        frequency: rule.frequency,
+        intervalCount: rule.intervalCount,
+        dayOfWeek: null,
+        dayOfMonth: target,
+        // Опорные даты циклов разводятся по месяцам: иначе все квартальные дела
+        // выпадали бы на один и тот же месяц и устраивали там «генеральную».
+        dueDate: rule.intervalCount > 1 ? shiftMonths(nextMonthDayDate(today, target), offset) : null,
+        source: DEFAULT_TASK_SOURCE,
+      });
+
+      placed = true;
+      break;
+    }
+
+    // Ни один цикл не поместился: дело уходит в отчёт, а не в перегруз дня.
+    if (!placed) {
       dropped.push(task);
-      continue;
     }
-
-    const target = candidates.sort((left, right) => {
-      const bySlack = slack(right) - slack(left);
-
-      if (Math.abs(bySlack) > 0.001) return bySlack;
-
-      // При равном запасе — сначала числа, свободные от недельной уборки.
-      const leftBusy = cleaningDays.has(weekdayOfMonthDay(today, left)) ? 1 : 0;
-      const rightBusy = cleaningDays.has(weekdayOfMonthDay(today, right)) ? 1 : 0;
-
-      if (leftBusy !== rightBusy) return leftBusy - rightBusy;
-
-      return left - right;
-    })[0];
-
-    const loads = monthSlots.get(target) ?? [];
-
-    for (const month of months) {
-      loads[month] = (loads[month] ?? 0) + task.minutes;
-    }
-
-    monthSlots.set(target, loads);
-    cycleOffset.set(cadence, (cycleOffset.get(cadence) ?? 0) + 1);
-    spent += weight;
-
-    monthTasks.push({
-      title: task.task,
-      room: task.room,
-      minutes: task.minutes,
-      level: task.level,
-      tags: task.tags,
-      cadence,
-      frequency: rule.frequency,
-      intervalCount: rule.intervalCount,
-      dayOfWeek: null,
-      dayOfMonth: target,
-      // Опорные даты циклов разводятся по месяцам: иначе все квартальные дела
-      // выпадали бы на один и тот же месяц и устраивали там «генеральную».
-      dueDate: rule.intervalCount > 1 ? shiftMonths(nextMonthDayDate(today, target), offset) : null,
-      source: DEFAULT_TASK_SOURCE,
-    });
   }
 
   // ── 4. Ежедневные и итоги ─────────────────────────────────────────────────
