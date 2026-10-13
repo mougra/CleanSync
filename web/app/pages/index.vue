@@ -142,8 +142,11 @@ const showcase = computed<AchievementProgress[]>(() =>
 
 /**
  * Челлендж сезона закрыт — до следующего сезона на главной его нет.
- * У вошедшего это состояние сервера, у гостя — отметка в localStorage:
- * `useChallenges` сводит оба случая к одному признаку.
+ *
+ * Отдельной строки «челлендж закрыт» больше нет: заказчик попросил в этом случае
+ * не писать ничего («просто ничего») — блок и так исчезает, а объяснять очевидное
+ * текстом не нужно. Признак оставлен: по нему скрывается карточка сезонного
+ * челленджа у гостя.
  */
 const challengeCompleted = computed(
   () => current.value.status === 'completed' || guestCompletedSlug.value !== null,
@@ -723,7 +726,7 @@ useStructuredData(() => ({
       браузере, карточка показывает его локальный прогресс.
     -->
     <ChallengeCard
-      v-else-if="seasonChallenge"
+      v-else-if="seasonChallenge && !challengeCompleted"
       :title="seasonChallenge.title"
       :description="seasonChallenge.description"
       :badge-label="t('home.challenges')"
@@ -732,9 +735,6 @@ useStructuredData(() => ({
       :cover-url="seasonChallenge.cover_url"
       :to="localePath(`/challenges/${seasonChallenge.slug}`)"
     />
-
-    <!-- Челлендж сезона закрыт: на главной остаётся только нейтральная строка -->
-    <p v-else-if="challengeCompleted" class="home__note">{{ t('home.challengeCompleted') }}</p>
 
     <!--
       Приглашение пройти анкету о доме: только вошедшему и только пока анкета
@@ -794,8 +794,11 @@ useStructuredData(() => ({
               </p>
             </section>
 
-            <!-- Сегодня: как отмечать — подсказка та же, что была в карточке -->
-            <p v-if="isToday" class="plan__hint">{{ t('home.planHint') }}</p>
+            <!--
+              Подсказки «отмечайте задачи по одной» здесь больше нет: кольцо и
+              счётчики сами показывают, что происходит, а текст только занимал
+              место (заказчик: «и так вроде всё очевидно»).
+            -->
           </div>
         </div>
 

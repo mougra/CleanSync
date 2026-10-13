@@ -445,6 +445,8 @@
   },
   "tipsPage": {
     "lead": "Practical advice on looking after your home so cleaning takes less time.",
+    "searchPlaceholder": "Search the tips",
+    "nothingFoundText": "Nothing matched your search",
     "minutes": "min",
     "all": "All tips",
     "allCategories": "All",

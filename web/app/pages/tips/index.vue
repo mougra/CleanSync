@@ -27,11 +27,27 @@ const categories = computed(() => {
     .sort((a, b) => a.code.localeCompare(b.code));
 });
 
-const filtered = computed(() =>
-  (articles.value ?? []).filter(
-    (article) => category.value === 'all' || article.category === category.value,
-  ),
-);
+/**
+ * Поиск по статьям.
+ *
+ * Заказчик попросил поле поиска в разделе: категорий немного, а статей десятки, и
+ * найти нужную глазами трудно. Ищем по названию и описанию, без учёта регистра;
+ * поиск складывается с выбранной категорией, а не спорит с ней.
+ */
+const search = ref('');
+
+const filtered = computed(() => {
+  const query = search.value.trim().toLowerCase();
+
+  return (articles.value ?? []).filter((article) => {
+    if (category.value !== 'all' && article.category !== category.value) return false;
+    if (!query) return true;
+
+    return [article.title, article.description].some((value) =>
+      (value ?? '').toLowerCase().includes(query),
+    );
+  });
+});
 
 const select = (code: string) => {
   category.value = code;
@@ -112,6 +128,17 @@ useStructuredData(() => ({
       </button>
     </div>
 
+    <label class="search">
+      <i class="pi pi-search search__icon" aria-hidden="true" />
+      <input
+        v-model="search"
+        type="search"
+        class="search__input"
+        :placeholder="t('tipsPage.searchPlaceholder')"
+        :aria-label="t('tipsPage.searchPlaceholder')"
+      >
+    </label>
+
     <p v-if="!filtered.length" class="empty">{{ t('tipsPage.nothingFound') }}</p>
 
     <ul class="list">
@@ -154,6 +181,46 @@ useStructuredData(() => ({
   background: var(--c-surface-warm);
   color: var(--c-text-muted);
   font-size: var(--fs-caption);
+}
+
+/* Поиск: своя рамка и скругление, иконка внутри поля слева */
+.search {
+  position: relative;
+  display: block;
+  width: 100%;
+  max-width: var(--content-narrow);
+}
+
+.search__icon {
+  position: absolute;
+  top: 50%;
+  left: var(--space-4);
+  transform: translateY(-50%);
+  color: var(--c-text-muted);
+  font-size: 0.875rem;
+  pointer-events: none;
+}
+
+.search__input {
+  width: 100%;
+  min-height: var(--tap-min);
+  padding: 0 var(--space-4) 0 calc(var(--space-4) * 2 + 0.5rem);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-pill);
+  background: var(--c-surface);
+  color: var(--c-text);
+  font: inherit;
+  font-size: var(--fs-body);
+}
+
+.search__input::placeholder {
+  color: var(--c-text-muted);
+}
+
+.search__input:focus-visible {
+  outline: none;
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 3px var(--c-accent-soft);
 }
 
 .chips {

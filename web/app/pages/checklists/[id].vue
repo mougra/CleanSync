@@ -386,9 +386,17 @@ useSeoMeta({
   margin: 0;
   padding: 0;
   list-style: none;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr;
   gap: var(--space-3);
+}
+
+@media (min-width: 768px) {
+  /* Десктоп: пункты чек-листа в две колонки — как карточки в «Советах» */
+  .list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4);
+  }
 }
 
 .item {

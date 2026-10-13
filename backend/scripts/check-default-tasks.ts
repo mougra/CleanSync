@@ -64,7 +64,14 @@ const check = (condition: boolean, message: string) => {
   if (!condition) problems.push(message);
 };
 
-const CONTEXT_TAGS: TaskTag[] = ['pets', 'balcony', 'yard', 'garage', 'kids', 'office'];
+/**
+ * Контекстные темы, которые обязаны попасть в набор, если о них спросили.
+ *
+ * Гараж здесь отсутствует осознанно: вопрос убран из анкеты, а задачи на гараж
+ * исключены из генерации (services/defaultTasks.ts) по просьбе заказчика.
+ * Требовать гаражную задачу в проверке — значит требовать то, чего быть не должно.
+ */
+const CONTEXT_TAGS: TaskTag[] = ['pets', 'balcony', 'yard', 'kids', 'office'];
 
 /** Классы месяцев (0-11), в которые задача со своим интервалом попадает. */
 const monthClassesOf = (task: { dueDate: string | null; intervalCount: number }): number[] => {
@@ -125,7 +132,12 @@ const worstRareByDate = (
  */
 const verifySet = (label: string, input: PartialHomeAnswers) => {
   const answers = withDefaultAnswers(input);
-  const declared = new Set(activeHomeTags(answers));
+  /**
+   * Гараж исключаем из объявленных тем: вопрос убран из анкеты, а задачи на гараж
+   * генератор не берёт вовсе (services/defaultTasks.ts). Иначе проверка требовала
+   * бы задачу, которой по решению заказчика быть не должно.
+   */
+  const declared = new Set<TaskTag>(activeHomeTags(answers).filter((tag) => tag !== 'garage'));
   const set: DefaultTaskSet = buildDefaultTasks(input);
 
   const titles = set.tasks.map((task) => task.title);
