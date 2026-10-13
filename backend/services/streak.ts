@@ -94,13 +94,15 @@ const loadActivity = async (userId: string): Promise<Set<string>> => {
  */
 const loadVacationDays = async (userId: string): Promise<Set<string>> => {
   const result = await pool.query<{ day: string }>(
-    `SELECT day::text AS day
-       FROM vacation_periods v,
-            LATERAL generate_series(
-              GREATEST(v.started_on, (${SQL_APP_TODAY} - ($2 || ' days')::interval)::date),
-              LEAST(COALESCE(v.ended_on, ${SQL_APP_TODAY}), ${SQL_APP_TODAY}),
-              INTERVAL '1 day'
-            )::date AS day
+    `SELECT series.day::text AS day
+       FROM vacation_periods v
+       CROSS JOIN LATERAL (
+         SELECT generate_series(
+                  GREATEST(v.started_on, (${SQL_APP_TODAY} - ($2 || ' days')::interval)::date),
+                  LEAST(COALESCE(v.ended_on, ${SQL_APP_TODAY}), ${SQL_APP_TODAY}),
+                  INTERVAL '1 day'
+                )::date AS day
+       ) AS series
       WHERE v.user_id = $1
         AND v.started_on <= ${SQL_APP_TODAY}
         AND COALESCE(v.ended_on, ${SQL_APP_TODAY}) >= (${SQL_APP_TODAY} - ($2 || ' days')::interval)::date`,
