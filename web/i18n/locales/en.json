@@ -66,6 +66,7 @@
     "guestRegister": "Create an account",
     "actions": "Task actions",
     "edit": "Edit",
+    "editHint": "Edit task",
     "deleteTitle": "Delete this task?",
     "deleteConfirm": "Delete",
     "forgetTitle": "Remove from the plan?",

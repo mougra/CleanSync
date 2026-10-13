@@ -66,6 +66,7 @@
     "guestRegister": "Создать аккаунт",
     "actions": "Действия с задачей",
     "edit": "Изменить",
+    "editHint": "Изменить задачу",
     "deleteTitle": "Удалить задачу?",
     "deleteConfirm": "Удалить",
     "forgetTitle": "Убрать из плана?",
