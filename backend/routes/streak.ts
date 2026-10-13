@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
 import { authMiddleware } from '../auth';
-import { getStreakState, setWeeklyGoal } from '../services/streak';
+import { endVacation, getStreakState, setWeeklyGoal, startVacation } from '../services/streak';
 
 const router = express.Router();
 
@@ -29,6 +29,37 @@ router.patch('/goal', authMiddleware, async (req: Request, res: Response) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to update weekly goal' });
+  }
+});
+
+/**
+ * Режим отпуска: включить и выключить.
+ *
+ * Пока он включён, главная показывает вместо задач состояние отпуска, а серия за
+ * пропущенные дни не рвётся (services/streak.ts): дни отпуска — «мост» между
+ * активными днями. Задачи при этом никуда не деваются и не сдвигаются: человек
+ * вернётся — план снова будет на месте, с сегодняшнего дня.
+ *
+ * Оба действия возвращают свежее состояние серии: интерфейсу не нужно делать
+ * второй запрос, чтобы показать или скрыть блок отпуска.
+ */
+router.post('/vacation', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    await startVacation(String(req.userId));
+    res.json(await getStreakState(String(req.userId)));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to start vacation' });
+  }
+});
+
+router.delete('/vacation', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    await endVacation(String(req.userId));
+    res.json(await getStreakState(String(req.userId)));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to end vacation' });
   }
 });
 

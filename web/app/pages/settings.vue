@@ -12,6 +12,26 @@ const localePath = useLocalePath();
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
+
+/**
+ * Режим отпуска. Состояние берём из серии: ключ кэша общий с главной, поэтому
+ * переключатель здесь и блок на главной показывают одно и то же без лишних запросов.
+ */
+const { streak: streakState, setVacation } = await useStreak();
+
+const vacationOn = computed(() => streakState.value?.vacation.active === true);
+const vacationBusy = ref(false);
+
+const toggleVacation = async () => {
+  if (vacationBusy.value || !auth.isAuthenticated) return;
+
+  vacationBusy.value = true;
+  try {
+    await setVacation(!vacationOn.value);
+  } finally {
+    vacationBusy.value = false;
+  }
+};
 // Не деструктурируем: preference — пара геттер/сеттер, деструктуризация ломает запись.
 const colorMode = useColorMode();
 const api = useApi();
@@ -430,6 +450,26 @@ useSeoMeta({ title: () => t('nav.settings') });
         :subtitle="t('homeSetup.needAuth')"
         :to="localePath('/login')"
       />
+
+      <!--
+        Режим отпуска. Пока он включён, на главной вместо задач — состояние
+        отпуска с выходом из него, а серия за пропущенные дни не рвётся.
+      -->
+      <SettingsRow icon="pi-sun" :title="t('vacation.settingsTitle')" :subtitle="t('vacation.settingsHint')">
+        <template #control>
+          <span class="switch" role="presentation" :class="{ 'switch--on': vacationOn }">
+            <input
+              class="switch__input"
+              type="checkbox"
+              :checked="vacationOn"
+              :disabled="vacationBusy || !auth.isAuthenticated"
+              :aria-label="t('vacation.settingsTitle')"
+              @change="toggleVacation"
+            >
+            <span class="switch__track"><span class="switch__thumb" /></span>
+          </span>
+        </template>
+      </SettingsRow>
 
       <SettingsRow icon="pi-bell" :title="t('settings.notifications')" expandable>
         <template #control>

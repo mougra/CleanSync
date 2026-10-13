@@ -732,5 +732,12 @@
       "garage": "Garage",
       "wholeHouse": "Whole house"
     }
+  },
+  "vacation": {
+    "settingsTitle": "Vacation mode",
+    "settingsHint": "Away from home? Your tasks will wait and the streak will hold.",
+    "title": "Vacation mode",
+    "text": "Your tasks are still here and waiting for you. The day streak will not reset while you are away.",
+    "finish": "End vacation"
   }
 }

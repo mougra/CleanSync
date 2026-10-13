@@ -82,6 +82,35 @@ const loadActivity = async (userId: string): Promise<Set<string>> => {
   return new Set(result.rows.map((row) => row.day));
 };
 
+/**
+ * Дни отпуска: в это время человек не убирается, и серия за это не наказывает.
+ *
+ * День отпуска — «мост» между активными днями: он не считается активным (серия не
+ * растёт из воздуха), но и пропуском не считается, поэтому отрезок не рвётся.
+ * Заморозки на такие дни не тратятся — они уже закрыты отпуском.
+ *
+ * Дни разворачиваем из периодов в окне активности: держать в памяти месяцы
+ * отпуска незачем, а серия всё равно считается не дальше этого окна.
+ */
+const loadVacationDays = async (userId: string): Promise<Set<string>> => {
+  const result = await pool.query<{ day: string }>(
+    `SELECT day::text AS day
+       FROM vacation_periods v,
+            LATERAL generate_series(
+              GREATEST(v.started_on, (${SQL_APP_TODAY} - ($2 || ' days')::interval)::date),
+              LEAST(COALESCE(v.ended_on, ${SQL_APP_TODAY}), ${SQL_APP_TODAY}),
+              INTERVAL '1 day'
+            )::date AS day
+      WHERE v.user_id = $1
+        AND v.started_on <= ${SQL_APP_TODAY}
+        AND COALESCE(v.ended_on, ${SQL_APP_TODAY}) >= (${SQL_APP_TODAY} - ($2 || ' days')::interval)::date`,
+    [userId, ACTIVITY_WINDOW_DAYS]
+  );
+
+  return new Set(result.rows.map((row) => row.day));
+};
+
+/** Закрытые заморозками дни. */
 const loadCovered = async (userId: string): Promise<Set<string>> => {
   const result = await pool.query<{ covered_on: string }>(
     'SELECT covered_on::text AS covered_on FROM streak_freezes WHERE user_id = $1',
@@ -223,6 +252,11 @@ export interface StreakState {
   lastActiveOn: string | null;
   freezesAvailable: number;
   freezesUsedTotal: number;
+  /** Режим отпуска: включён ли сейчас и с какого дня. */
+  vacation: {
+    active: boolean;
+    startedOn: string | null;
+  };
   week: {
     start: string;
     days: Array<{ date: string; active: boolean; isToday: boolean }>;
@@ -236,17 +270,35 @@ export const getStreakState = async (userId: string): Promise<StreakState> => {
   const today = appToday();
   const activity = await loadActivity(userId);
   const covered = await loadCovered(userId);
+  const vacationDays = await loadVacationDays(userId);
   const freezes = await ensureFreezes(userId, today);
 
-  const effective = new Set([...activity, ...covered]);
+  /**
+   * `counted` — дни, которые идут в счёт серии: настоящая активность и заморозки.
+   * `effective` — по ним строятся отрезки: плюс дни отпуска, которые разрывать
+   * серию не должны. Длина отрезка считается по `counted`, поэтому двухнедельный
+   * отпуск не превращается в двухнедельную серию.
+   */
+  const counted = new Set([...activity, ...covered]);
+  const effective = new Set([...counted, ...vacationDays]);
   const freezesLeft = await coverGaps(userId, effective, freezes);
 
+  const lengthOf = (run: string[]): number => run.filter((day) => counted.has(day)).length;
   const runs = buildRuns(effective);
   const yesterday = shift(today, -1);
   const currentRun = runs.find((run) => {
     const last = run[run.length - 1];
     return last === today || last === yesterday;
   });
+
+  const openVacation = await pool.query<{ started_on: string }>(
+    `SELECT started_on::text AS started_on
+       FROM vacation_periods
+      WHERE user_id = $1 AND ended_on IS NULL
+      ORDER BY started_on DESC
+      LIMIT 1`,
+    [userId]
+  );
 
   const used = await pool.query<{ total: number }>(
     'SELECT COUNT(*)::int AS total FROM streak_freezes WHERE user_id = $1',
@@ -271,12 +323,16 @@ export const getStreakState = async (userId: string): Promise<StreakState> => {
 
   return {
     today,
-    current: currentRun?.length ?? 0,
-    best: runs.reduce((max, run) => Math.max(max, run.length), 0),
+    current: currentRun ? lengthOf(currentRun) : 0,
+    best: runs.reduce((max, run) => Math.max(max, lengthOf(run)), 0),
     todayDone,
     lastActiveOn: todayDone ? today : (activeList[activeList.length - 1] ?? null),
     freezesAvailable: freezesLeft,
     freezesUsedTotal: Number(used.rows[0]?.total ?? 0),
+    vacation: {
+      active: openVacation.rows.length > 0,
+      startedOn: openVacation.rows[0]?.started_on ?? null,
+    },
     week: {
       start: weekStart,
       days: weekDays,
@@ -285,6 +341,33 @@ export const getStreakState = async (userId: string): Promise<StreakState> => {
       met: activeDays >= target,
     },
   };
+};
+
+/**
+ * Включить режим отпуска.
+ *
+ * Идемпотентно: частичный уникальный индекс (миграция 0021) не даёт завести второй
+ * открытый отпуск, поэтому повторное нажатие ничего не ломает и не плодит строк.
+ */
+export const startVacation = async (userId: string): Promise<void> => {
+  await pool.query(
+    `INSERT INTO vacation_periods (user_id, started_on)
+     SELECT $1, ${SQL_APP_TODAY}
+      WHERE NOT EXISTS (
+        SELECT 1 FROM vacation_periods WHERE user_id = $1 AND ended_on IS NULL
+      )`,
+    [userId]
+  );
+};
+
+/** Выключить режим отпуска: открытый период закрывается сегодняшним днём. */
+export const endVacation = async (userId: string): Promise<void> => {
+  await pool.query(
+    `UPDATE vacation_periods
+        SET ended_on = ${SQL_APP_TODAY}
+      WHERE user_id = $1 AND ended_on IS NULL`,
+    [userId]
+  );
 };
 
 /** Изменить недельную цель (1–7 дней). */

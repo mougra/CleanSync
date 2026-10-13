@@ -12,6 +12,11 @@ export interface StreakState {
   lastActiveOn: string | null;
   freezesAvailable: number;
   freezesUsedTotal: number;
+  /** Режим отпуска: включён ли и с какого дня начат. */
+  vacation: {
+    active: boolean;
+    startedOn: string | null;
+  };
   week: {
     start: string;
     days: StreakWeekDay[];

@@ -54,6 +54,27 @@ const { completed: homeProfileDone } = await useHomeProfile();
 const { active, current, seasonChallenge, seasonGuestProgress, guestCompletedSlug } =
   await useChallenges();
 
+/**
+ * Режим отпуска читаем из состояния серии: ключ кэша общий с карточкой серии,
+ * поэтому второго запроса не будет, а блок на главной обновится тем же ответом.
+ */
+const { streak: streakState, setVacation } = await useStreak();
+
+const vacationActive = computed(() => streakState.value?.vacation.active === true);
+const vacationBusy = ref(false);
+
+/** Выход из отпуска прямо с главной: та же операция, что и переключатель в настройках. */
+const endVacationNow = async () => {
+  if (vacationBusy.value) return;
+
+  vacationBusy.value = true;
+  try {
+    await setVacation(false);
+  } finally {
+    vacationBusy.value = false;
+  }
+};
+
 // Привычки: тот же composable, что и на вкладке «Привычки», ключи общие —
 // отметка на главной сразу видна и там.
 const { habits, dueToday, doneToday, refreshMine: refreshHabits } = await useHabits();
@@ -988,11 +1009,26 @@ useStructuredData(() => ({
     </div>
 
     <!--
+      Режим отпуска: вместо плана — состояние отпуска и выход из него.
+      Задачи никуда не деваются и не сдвигаются: человек вернётся, и план снова
+      будет на месте. Серия за дни отпуска не рвётся (см. services/streak.ts).
+    -->
+    <section v-if="vacationActive" class="card vacation">
+      <p class="vacation__emoji" aria-hidden="true">🌴</p>
+      <h2 class="vacation__title">{{ t('vacation.title') }}</h2>
+      <p class="vacation__text">{{ t('vacation.text') }}</p>
+
+      <AppButton variant="outline" :disabled="vacationBusy" @click="endVacationNow">
+        {{ t('vacation.finish') }}
+      </AppButton>
+    </section>
+
+    <!--
       План дня: карточка показывает выбранный в календаре день — его заголовок,
       статистику и список задач. Отмечать можно только сегодня: прошлое и будущее
       открываются на просмотр, без всплывающих панелей.
     -->
-    <section class="plan card">
+    <section v-else class="plan card">
       <div class="plan__head">
         <AppBadge variant="accent">{{ dayTitle }}</AppBadge>
       </div>
@@ -1317,6 +1353,35 @@ useStructuredData(() => ({
   max-width: var(--content-reading);
   margin-inline: auto;
   width: 100%;
+}
+
+/* Режим отпуска: спокойный блок вместо списка задач */
+.vacation {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+}
+
+.vacation__emoji {
+  margin: 0;
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.vacation__title {
+  margin: 0;
+  font-size: var(--fs-body);
+  font-weight: 600;
+}
+
+.vacation__text {
+  max-width: 42ch;
+  margin: 0;
+  color: var(--c-text-muted);
+  font-size: var(--fs-caption);
 }
 
 .card {
