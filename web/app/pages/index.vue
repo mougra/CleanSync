@@ -14,6 +14,11 @@ import type {
   CalendarDay,
   CalendarResponse,
   CalendarTask,
+  DeleteTaskResponse,
+  TaskCreateInput,
+  TaskEditInput,
+  TaskRepeat,
+  TaskRepeatUnit,
   TodayPlan,
   TodayPlanTask,
 } from '~/types/task';
@@ -384,6 +389,11 @@ const calendarTaskHint = (task: CalendarTask): string =>
 /**
  * Строка списка задач дня: карточке нужны только название, подпись и отметка.
  * `generated` заполнен у сегодняшних строк — от него зависит текст в листе действий.
+ *
+ * Остальные поля — для правки: название и периодичность человек меняет, а зону,
+ * минуты, время и дату постановки задача сохраняет прежними. Раньше запрос на
+ * правку читал бы задачу заново и мог взять уже изменённые данные; здесь же
+ * перед глазами ровно то, что пришло из плана.
  */
 interface PlanDayRow {
   id: number;
@@ -391,6 +401,15 @@ interface PlanDayRow {
   hint: string;
   done: boolean;
   generated: boolean;
+  scheduleId: number;
+  frequency: TodayPlanTask['frequency'];
+  intervalCount: number | null;
+  dayOfWeek: number | null;
+  dayOfMonth: number | null;
+  dueDate: string | null;
+  time: string | null;
+  estimatedMinutes: number | null;
+  room: string | null;
 }
 
 /**
@@ -414,6 +433,15 @@ const planTasks = computed<PlanDayRow[]>(() =>
       hint: taskHint(task),
       done: planMarks.value[task.id] ?? task.is_completed,
       generated: isGeneratedTask(task.source),
+      scheduleId: task.schedule_id,
+      frequency: task.frequency,
+      intervalCount: task.interval_count,
+      dayOfWeek: task.day_of_week,
+      dayOfMonth: task.day_of_month,
+      dueDate: task.due_date,
+      time: task.time,
+      estimatedMinutes: task.estimated_minutes,
+      room: task.room,
     })),
 );
 
@@ -439,6 +467,17 @@ const calendarRows = computed<PlanDayRow[]>(() =>
     hint: calendarTaskHint(task),
     done: task.is_completed,
     generated: false,
+    // Чужой день только просматривается: правки там нет, поэтому поля,
+    // нужные форме редактирования, остаются пустыми.
+    scheduleId: 0,
+    frequency: task.frequency,
+    intervalCount: task.interval_count,
+    dayOfWeek: null,
+    dayOfMonth: null,
+    dueDate: null,
+    time: null,
+    estimatedMinutes: task.estimated_minutes,
+    room: task.room,
   })),
 );
 
@@ -468,7 +507,7 @@ const {
 const taskSheetError = ref('');
 
 /** Лист действий открыт для этой строки: `null` — закрыт. */
-const actionTask = ref<{ id: number; title: string; generated: boolean } | null>(null);
+const actionTask = ref<PlanDayRow | null>(null);
 
 /** Задача, для которой прямо сейчас идёт удаление: повторное нажатие не проходит. */
 const actionBusy = ref(false);
@@ -480,7 +519,7 @@ const actionBusy = ref(false);
  * тапом, а удаление живёт за отдельной кнопкой и подтверждается в листе — иначе
  * удаление случалось бы от промаха по строке.
  */
-const openTaskActions = (task: { id: number; title: string; generated: boolean }) => {
+const openTaskActions = (task: PlanDayRow) => {
   actionBusy.value = false;
   taskSheetError.value = '';
   actionTask.value = task;
@@ -489,6 +528,200 @@ const openTaskActions = (task: { id: number; title: string; generated: boolean }
 const closeTaskActions = () => {
   actionTask.value = null;
   taskSheetError.value = '';
+};
+
+/** Лист «Изменить задачу» открыт для этой строки: `null` — закрыт. */
+const editingTask = ref<PlanDayRow | null>(null);
+
+/** Идёт сохранение правки: повторное нажатие «Сохранить» не проходит. */
+const editBusy = ref(false);
+
+/** Понятная строка ошибки сохранения: показывается в самом листе правки. */
+const editError = ref('');
+
+/**
+ * Открыть форму правки из листа действий.
+ *
+ * Лист действий закрывается: два листа друг над другом спорили бы за экран, к
+ * тому же после выбора «Изменить» прежние варианты уже не нужны. Строка при
+ * этом своя — её держит `actionTask`, и форму она не потеряет.
+ */
+const openTaskEdit = () => {
+  editingTask.value = actionTask.value;
+  editError.value = '';
+  actionTask.value = null;
+  taskSheetError.value = '';
+};
+
+const closeTaskEdit = () => {
+  editingTask.value = null;
+  editError.value = '';
+};
+
+/**
+ * Календарный день, который сервер считает датой постановки задачи.
+ *
+ * Колонка `tasks.due_date` — это `DATE`, но в JSON она приходит моментом времени
+ * на день раньше: хранится `2026-10-13`, а ответ содержит
+ * `2026-10-12T20:00:00.000Z` (полночь по поясу сервера). Поэтому при отправке
+ * значения назад его нужно вернуть на день вперёд — иначе якорь цикла «раз в N
+ * дней/недель/месяцев» (правило 33) при каждой правке уезжал бы на сутки назад, и
+ * задача с интервалом больше единицы могла вообще пропасть из плана.
+ *
+ * Формат ответа — момент времени в UTC, поэтому сдвиг делаем в UTC: местный пояс
+ * браузера тут ни при чём. Уже готовую дату (`YYYY-MM-DD`) отдаём как есть.
+ */
+const dueDay = (value: string | null): string | null => {
+  if (!value) {
+    return null;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
+  }
+
+  const parsed = new Date(value);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return new Date(parsed.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+};
+
+/**
+ * Периодичность правки в терминах API.
+ *
+ * День периода не спрашиваем: у той же единицы он остаётся прежним, а при смене
+ * единицы берётся из даты постановки (`due_date`) — задача лишь меняет частоту, а
+ * не переезжает на другой день недели или число. Дата нужна и как якорь цикла:
+ * по ней сервер считает «раз в N месяцев» (правило 33).
+ */
+const editRepeat = (task: PlanDayRow, unit: TaskRepeatUnit): TaskRepeat => {
+  if (unit === 'once') {
+    return { frequency: 'once', day_of_week: null, day_of_month: null };
+  }
+
+  if (unit === 'day') {
+    return { frequency: 'daily', day_of_week: null, day_of_month: null };
+  }
+
+  const today = appToday(appTimeZone);
+  const anchor = fromISODate(dueDay(task.dueDate) ?? today);
+
+  if (unit === 'week') {
+    return {
+      frequency: 'weekly',
+      // День недели и число берём в UTC: день периода живёт в API целым числом
+      // (0 — воскресенье), а не моментом времени, и часовой пояс браузера к нему
+      // отношения не имеет.
+      day_of_week: task.dayOfWeek ?? anchor.getUTCDay(),
+      day_of_month: null,
+    };
+  }
+
+  return {
+    frequency: 'monthly',
+    day_of_month: task.dayOfMonth ?? anchor.getUTCDate(),
+    day_of_week: null,
+  };
+};
+
+/**
+ * Сохранить правку задачи: название и периодичность.
+ *
+ * Два пути, как просил заказчик:
+ *  - сгенерированную задачу сначала удаляем (`DELETE` запоминает название в
+ *    памяти об отказах, поэтому пересборка плана её не вернёт), затем создаём
+ *    свою с новым текстом и частотой в том же расписании;
+ *  - свою задачу обновляем на месте (`PUT`).
+ *
+ * Отметка дня переносится: у повторяющихся дел результат живёт в журнале
+ * `task_completions` и вместе с удалённой задачей пропадает, поэтому закрытую
+ * сегодня задачу закрываем заново — иначе человек потерял бы свою галочку.
+ * Своей задаче на месте отметку ставить не нужно: она уже стоит.
+ *
+ * Ошибка не оставляет человека без объяснения, а строка до подтверждения
+ * сервера скрыта локально (`planRemoved`), чтобы список не показывал две задачи.
+ */
+const saveTaskEdit = async (input: TaskEditInput) => {
+  const task = editingTask.value;
+
+  if (!task || editBusy.value) {
+    return;
+  }
+
+  editBusy.value = true;
+  editError.value = '';
+  planRemoved.value = [...planRemoved.value, task.id];
+
+  // Признак успеха: только по нему трогаем список и данные — при ошибке строка
+  // остаётся на месте вместе с открытым листом, а человек правит дальше.
+  let saved = false;
+
+  try {
+    if (task.generated) {
+      const removed = await api.request<DeleteTaskResponse>(`/api/tasks/${task.id}`, {
+        method: 'DELETE',
+      });
+
+      if (removed?.deleted) {
+        const created = await api.request<{ id: number }>('/api/tasks', {
+          method: 'POST',
+          body: {
+            schedule_id: task.scheduleId,
+            title: input.title,
+            estimated_minutes: task.estimatedMinutes ?? 0,
+            room: task.room,
+            due_date: dueDay(task.dueDate),
+            ...editRepeat(task, input.frequency),
+            interval_count: input.intervalCount,
+          } satisfies TaskCreateInput,
+        });
+
+        // Отметка дня переезжает на новую задачу: журнал старой ушёл вместе с ней.
+        if (task.done && created?.id) {
+          await api.request(`/api/tasks/${created.id}`, {
+            method: 'PUT',
+            body: { is_completed: true },
+          });
+        }
+
+        saved = true;
+      }
+    } else {
+      await api.request(`/api/tasks/${task.id}`, {
+        method: 'PUT',
+        body: {
+          title: input.title,
+          ...editRepeat(task, input.frequency),
+          interval_count: input.intervalCount,
+          // Отметку трогаем, только если задача была закрыта: тогда сервер
+          // подтвердит результат дня и серия не потеряет сегодняшний пункт.
+          // Незакрытую задачу правка названия закрывать не должна.
+          ...(task.done ? { is_completed: true } : {}),
+        },
+      });
+
+      saved = true;
+    }
+  } catch {
+    saved = false;
+  } finally {
+    editBusy.value = false;
+  }
+
+  if (!saved) {
+    // Правка не прошла: строка возвращается на место, причина — в листе.
+    planRemoved.value = planRemoved.value.filter((id) => id !== task.id);
+    editError.value = t('tasks.editFailed');
+    return;
+  }
+
+  // Данные уже перечитаны — прежняя строка (её id) больше не нужна в списке скрытых.
+  closeTaskEdit();
+  await refreshNuxtData(['today-plan', 'calendar-day', 'streak', 'achievements-progress']);
+  planRemoved.value = planRemoved.value.filter((id) => id !== task.id);
 };
 
 /**
@@ -876,9 +1109,9 @@ useStructuredData(() => ({
         <p v-if="planError" class="plan__error" role="alert">{{ planError }}</p>
 
         <!--
-          Лист действий со строкой: одно действие, текст зависит от источника
-          задачи. Шторка (AppSheet) та же, что на других экранах, и живёт здесь,
-          рядом с планом, который её открывает.
+          Лист действий со строкой: правка и удаление, текст удаления зависит от
+          источника задачи. Шторка (AppSheet) та же, что на других экранах, и
+          живёт здесь, рядом с планом, который её открывает.
         -->
         <PlanTaskActionsSheet
           :open="actionTask !== null"
@@ -887,7 +1120,21 @@ useStructuredData(() => ({
           :pending="actionBusy"
           :error="taskSheetError"
           @close="closeTaskActions"
+          @edit="openTaskEdit"
           @confirm="confirmTaskDelete"
+        />
+
+        <!--
+          Форма правки: название и периодичность. Открывается из листа действий,
+          поэтому оба листа и стоят рядом — переход между ними не теряет строку.
+        -->
+        <TaskEditSheet
+          :open="editingTask !== null"
+          :task="editingTask"
+          :pending="editBusy"
+          :error="editError"
+          @close="closeTaskEdit"
+          @save="saveTaskEdit"
         />
       </template>
 
