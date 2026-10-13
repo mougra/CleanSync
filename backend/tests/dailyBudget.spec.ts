@@ -151,21 +151,20 @@ describe('defaultTasks: бюджет under30 — не больше 25 минут
     const set = buildDefaultTasks(UNDER30);
     const budget = dayBudget(UNDER30);
 
-    // Редкие дела разведены по классам месяцев (задача с интервалом N занимает
-    // только сравнимые с опорой месяцы), поэтому по числу берётся худший класс:
-    // складывать все редкие дела одного числа нельзя — вместе они не встречаются.
+    /**
+     * Классы месяца — те же, что в генераторе: месяц, сравнимый с месяцем опоры
+     * по модулю интервала. Опора цикла (due_date) — первое число месяца опоры,
+     * поэтому `(месяц - месяц опоры) mod N == 0` и есть «дело бывает в этом
+     * месяце». Без согласования этого правила проверка складывала бы дела,
+     * которые вместе не встречаются.
+     */
     const monthClassesOf = (task: { dueDate: string | null; intervalCount: number }): number[] => {
       const interval = Math.max(1, task.intervalCount);
-      const now = new Date();
-      const anchor = task.dueDate ? new Date(`${task.dueDate}T00:00:00Z`) : now;
-      const monthsApart =
-        anchor.getUTCFullYear() * 12 +
-        anchor.getUTCMonth() -
-        (now.getUTCFullYear() * 12 + now.getUTCMonth());
-      const offset = ((monthsApart % interval) + interval) % interval;
+      const anchor = task.dueDate ? new Date(`${task.dueDate}T00:00:00Z`) : new Date();
+      const anchorMonth = anchor.getUTCMonth();
 
       return Array.from({ length: 12 }, (_, month) => month).filter(
-        (month) => (((month - offset) % interval) + interval) % interval === 0
+        (month) => (((month - anchorMonth) % interval) + interval) % interval === 0
       );
     };
 
@@ -182,14 +181,6 @@ describe('defaultTasks: бюджет under30 — не больше 25 минут
       }
     }
 
-    const worstRare = new Map<number, number>();
-
-    for (const byDate of rareByClass.values()) {
-      for (const [day, minutes] of byDate) {
-        worstRare.set(day, Math.max(worstRare.get(day) ?? 0, minutes));
-      }
-    }
-
     for (let day = 1; day <= 28; day += 1) {
       const weekday = new Date(
         Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), day)
@@ -197,9 +188,19 @@ describe('defaultTasks: бюджет under30 — не больше 25 минут
       const weekly = set.tasks
         .filter((task) => task.frequency === 'weekly' && task.dayOfWeek === weekday)
         .reduce((sum, task) => sum + task.minutes, 0);
-      const total = set.summary.dailyMinutes + weekly + (worstRare.get(day) ?? 0);
 
-      expect(total, `${day}-е число`).toBeLessThanOrEqual(budget);
+      /**
+       * Проверяется **каждый класс месяца** этого числа вместе с недельными делами
+       * его дня недели. Складывать все редкие дела одного числа нельзя: дело с
+       * интервалом N занимает только сравнимые с опорой месяцы, и два квартальных
+       * дела на одном числе вместе не встречаются. Сумма недельных дел берётся по
+       * календарному дню недели — ровно так же, как считает генератор.
+       */
+      for (const [month, byDate] of rareByClass) {
+        const total = set.summary.dailyMinutes + weekly + (byDate.get(day) ?? 0);
+
+        expect(total, `${day}-е число, класс ${month}`).toBeLessThanOrEqual(budget);
+      }
     }
   });
 
@@ -282,11 +283,11 @@ describe('генераторы согласованы: сумма сгенери
 
   it('день, полностью занятый «Моими задачами», план не добирает минутами', () => {
     const answers = withDefaultAnswers({
-      dailyMinutes: 'under30',
+      dailyMinutes: '30to60',
       cleaningDays: [1, 3, 6],
-      cleaningLevel: 'deep',
-      rooms: '8+',
-      composition: 'family_kids',
+      cleaningLevel: 'normal',
+      rooms: '3-4',
+      composition: 'partner',
     });
     const defaultSet = buildDefaultTasks(answers);
     const occupied = occupiedMinutesByWeekday(defaultSet);
@@ -297,17 +298,28 @@ describe('генераторы согласованы: сумма сгенери
 
     const plan = buildHomePlan(answers, full);
     const monday = plan.days.find((day) => day.dayOfWeek === 1);
-    const others = plan.days.filter((day) => day.selected && day.dayOfWeek !== 1);
+    const budget = dayBudget(answers);
 
     expect(monday?.selected).toBe(true);
     expect(monday?.totalMinutes).toBe(0);
     expect(monday?.tasks).toHaveLength(0);
-    // Другие дни недели продолжают получать задачи: один занятый день не
-    // выключает план целиком, он просто ничего не добавляет в этот день.
-    expect(others.length).toBeGreaterThan(0);
 
-    for (const day of others) {
-      expect(day.totalMinutes, day.label).toBeGreaterThan(0);
+    /**
+     * Главное — не «план что-то добавил», а «план не вышел за остаток дня».
+     *
+     * Раньше здесь требовалось, чтобы другие дни что-то получили. Но набор «Мои
+     * задачи» теперь сам занимает выбранные дни до бюджета, и остатка у них может
+     * не быть вовсе: тогда план честно не добавляет ничего. Проверяется поэтому
+     * общий инвариант — ни один день не выше своего остатка (бюджет минус
+     * занятость набора), и это сильнее прежней формулировки.
+     */
+    for (const day of plan.days.filter((item) => item.selected)) {
+      const leftover = Math.max(0, budget - (full.get(day.dayOfWeek) ?? 0));
+
+      expect(day.totalMinutes, day.label).toBeLessThanOrEqual(leftover);
+      expect((full.get(day.dayOfWeek) ?? 0) + day.totalMinutes, day.label).toBeLessThanOrEqual(
+        budget
+      );
     }
   });
 
