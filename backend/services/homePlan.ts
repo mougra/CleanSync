@@ -544,24 +544,39 @@ const shapeWeek = (
     // «Блок» получает больше времени за счёт остальных дней недели, но не сверх
     // бюджета: распределяем ровно то, что доступно в выбранные дни.
     const weekBudget = days.reduce((sum, day) => sum + free(day), 0);
-    const blockBudget = days
-      .slice(0, blockDays)
-      .reduce((sum, day) => sum + free(day), 0);
-    const perBlock = blockDays > 0 ? Math.floor(blockBudget / blockDays) : 0;
+    /**
+     * Дни «блока» считаются только те, у которых остался хоть какой-то запас.
+     *
+     * Раньше бюджет блока делился на число первых дней недели, и день с нулевым
+     * остатком всё равно получал свою долю — то есть план выходил за бюджет дня
+     * (замер: 12 занято набором, 3 добавил план при бюджете 25 дали 28 минут).
+     * Это ровно то, что инвариант дневного бюджета запрещает.
+     */
+    const blockWithRoom = days.slice(0, blockDays).filter((day) => free(day) > 0);
+    const blockBudget = blockWithRoom.reduce((sum, day) => sum + free(day), 0);
+    const perBlock = blockWithRoom.length > 0 ? Math.floor(blockBudget / blockWithRoom.length) : 0;
     // Остаток недели делим только между днями, у которых есть свободное время:
     // иначе полный день получил бы лимит впустую, а другому не хватило.
     const lightWithRoom = days.slice(blockDays).filter((day) => free(day) > 0);
     const perLight =
       lightWithRoom.length > 0
-        ? Math.floor(Math.max(0, weekBudget - perBlock * blockDays) / lightWithRoom.length)
+        ? Math.floor(
+            Math.max(0, weekBudget - perBlock * blockWithRoom.length) / lightWithRoom.length
+          )
         : 0;
 
     return days.map((day, index) => {
-      const isBlock = index < blockDays && perBlock > 0;
+      const isBlock = index < blockDays && perBlock > 0 && free(day) > 0;
 
       return {
         day,
-        minutes: isBlock ? perBlock : free(day) > 0 ? Math.min(free(day), perLight) : 0,
+        // Доля блока тоже упирается в остаток **своего** дня: обещание бюджета
+        // важнее того, чтобы блок был ровно таким, как задумано стилем.
+        minutes: isBlock
+          ? Math.min(perBlock, free(day))
+          : free(day) > 0
+            ? Math.min(free(day), perLight)
+            : 0,
         maxTaskMinutes: isBlock ? MAX_TASK_MINUTES[level] : Math.min(20, MAX_TASK_MINUTES[level]),
         maxTasks: isBlock ? Math.max(budgetForTasks.max, 5) : Math.max(budgetForTasks.min - 1, 2),
       };
