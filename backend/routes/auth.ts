@@ -237,7 +237,7 @@ router.post('/login', async (req: Request, res: Response) => {
 
     // Find user
     const result = await pool.query(
-      'SELECT id, email, password, is_email_confirmed FROM users WHERE email = $1',
+      'SELECT id, email, password, username, avatar_url, is_email_confirmed FROM users WHERE email = $1',
       [email],
     );
 
@@ -268,10 +268,19 @@ router.post('/login', async (req: Request, res: Response) => {
     // Токен не перевыпускаем: клиент уже держит его в памяти после bootstrap.
     ensureCsrfToken(req, res);
 
+    /*
+     * Профиль отдаём целиком, а не только id с почтой: клиент кладёт этот объект
+     * в стор и до следующей перезагрузки страницы рисует имя и аватар именно из
+     * него. Без `username` и `avatar_url` интерфейс подставлял запасной вариант —
+     * часть адреса до собаки, — и выглядело это как «имя не сохранилось», хотя
+     * в базе оно было.
+     */
     res.json({
       user: {
         id: user.id,
         email: user.email,
+        username: user.username,
+        avatar_url: user.avatar_url,
         is_email_confirmed: user.is_email_confirmed,
       },
       accessToken,
