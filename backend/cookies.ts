@@ -9,7 +9,7 @@ import type { NextFunction, Request, Response } from 'express';
  * (double-submit: значение cookie должно совпасть с заголовком X-CSRF-Token).
  *
  * Для этого приложение и API должны быть на одном origin — иначе браузер
- * не отправит cookie (см. docs/PLAN.md §12.2).
+ * не отправит cookie.
  */
 
 const isProduction = process.env.NODE_ENV === 'production';

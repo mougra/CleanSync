@@ -1,8 +1,8 @@
 // Nuxt 4 приложение TidyPlan.
 //
-// Решения, зафиксированные в docs/PLAN.md §0:
+// Зафиксированные решения:
 //   - SSR/SSG всех публичных страниц, Express-бэкенд переиспользуется как API;
-//   - дизайн-токены сняты с макетов (docs/design/mockups) и живут в app/assets/css/tokens.css;
+//   - дизайн-токены живут в app/assets/css/tokens.css (сняты с утверждённых макетов);
 //   - источник статей-инсайтов — MDX в git (@nuxt/content), модуль подключим в Фазе 5.
 export default defineNuxtConfig({
   compatibilityDate: '2026-10-08',

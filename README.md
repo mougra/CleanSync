@@ -2,9 +2,9 @@
 
 Веб-приложение для домашней уборки: челленджи по дням с прогрессом, привычки с напоминаниями, чек-листы по зонам, статьи-советы, достижения и статистика. Адаптивный веб + PWA.
 
-Бренд — **TidyPlan**, публичный адрес — **tidyplan.ru**. Название в коде меняется в `web/nuxt.config.ts`
-(`site.name`, манифест PWA) и в макете логотипа `web/public/logo*.svg`; PNG-иконки пересобираются
-командой `node scripts/generate-icons.mjs` из каталога `web/`. Регистрация домена и товарный знак — на стороне заказчика.
+Публичный адрес — **tidyplan.ru**. Название сайта задаётся в `web/nuxt.config.ts` (`site.name`,
+манифест PWA) и в логотипе `web/public/logo*.svg`; PNG-иконки пересобираются командой
+`node scripts/generate-icons.mjs` из каталога `web/`.
 
 ## Стек
 
@@ -15,7 +15,7 @@
 | API | Node.js 24, Express 4, TypeScript (tsx), PostgreSQL, JWT (access + refresh), nodemailer, web-push, helmet + rate-limit |
 | Качество | ESLint 9 (flat config), Prettier, Vitest + supertest, `typecheck` по обоим пакетам |
 | Данные | Миграции `node-pg-migrate`, идемпотентный сид, бэкапы скриптом с ротацией |
-| Инфра | Docker Compose (Postgres + backend + web), Caddy для HTTPS |
+| Инфра | Docker Compose (Postgres + backend + web + Caddy для HTTPS), образы собираются в CI и публикуются в GHCR |
 
 ## Быстрый старт
 
@@ -46,8 +46,14 @@ docker compose -f docker-compose.dev.yml up --build
 docker compose -f docker-compose.dev.yml exec backend npm run db:setup
 ```
 
-**Продовый запуск** (собранные образы, без монтирования кода) — основной `docker-compose.yml`,
-подробности в [docs/DEPLOY.md](docs/DEPLOY.md).
+**Продовый запуск** — собранные образы, без монтирования кода:
+
+```bash
+cp .env.example .env                  # домен, пароль базы, имена образов
+cp backend/.env.example backend/.env  # секреты приложения
+docker compose up -d --build          # или docker compose pull && docker compose up -d --no-build
+docker compose exec backend npm run db:setup
+```
 
 - API — <http://localhost:5000>, состояние БД видно на `GET /api/health`
 - Приложение (Nuxt, SSR) — <http://localhost:3000>
@@ -65,31 +71,29 @@ docker compose -f docker-compose.dev.yml exec backend npm run db:setup
 | `npm --prefix backend run migrate:up` | применить миграции |
 | `npm --prefix backend run seed` | справочные данные (достижения, челленджи, шаблоны) |
 | `npm --prefix backend run db:setup` | `migrate:up` + `seed` |
+| `./scripts/backup-db.sh` | бэкап базы с ротацией (на сервере) |
+| `./scripts/visit-stats.sh` | сводка посещаемости из журнала Caddy (на сервере) |
 
 ## Структура
 
 ```
 backend/    Express API: app.ts (сборка приложения), server.ts (запуск), auth.ts, cookies.ts, db.ts,
             seed.ts, seed-challenges.ts, seed-habits.ts, migrations/, routes/, services/, tests/
-web/        Nuxt 4 (SSR): nuxt.config.ts, content.config.ts, content/tips/ (статьи),
-            app/{pages,components,composables,layouts,assets/css}, server/routes (источник карты сайта),
-            public/{photos,icons}
-shared/     Общие типы
-docs/       DEPLOY.md — выкладка на VPS, HTTPS, бэкапы, 152-ФЗ
-            design/mockups/ — макеты интерфейса с описью, design/photos.md — источники фото
-scripts/    backup-db.sh — бэкап базы с ротацией
+web/        Nuxt 4 (SSR): nuxt.config.ts, content.config.ts, content/{tips,legal},
+            app/{pages,components,composables,layouts,stores,assets/css}, server/routes (источник
+            карты сайта), public/{photos,icons}
+scripts/    backup-db.sh — бэкап базы с ротацией, visit-stats.sh — сводка посещаемости
 ```
 
 ## Состояние проекта
 
-Закрыты: стабилизация (миграции, идемпотентный сид, линт, тесты), каркас Nuxt, дизайн-система, навигация,
-челленджи, экран «Сегодня», контент и SEO-фундамент, геймификация (25 достижений), привычки, PWA с
-push-напоминаниями, чек-листы и свои задачи, экран достижений, статистика, безопасность и подготовка к запуску.
+Работает: челленджи с днями и задачами, экран «Сегодня», привычки с напоминаниями, чек-листы и свои
+задачи, достижения, статистика, семейный режим, мастер «Настройка по дому», статьи-советы, SEO-фундамент
+(карта сайта, robots, canonical, микроразметка), PWA с push-уведомлениями, авторизация на httpOnly-cookie,
+юридический контур по 152-ФЗ.
 
-Осталось до публичного запуска: аналитика посещаемости и мониторинг (Sentry), CI, юридические страницы
-по 152-ФЗ, а также наполнение контентом и открытые решения (монетизация).
+На сервере: Docker Compose (Postgres + API + приложение + Caddy с автоматическим HTTPS), образы
+собираются в CI и публикуются в GHCR, ежедневные бэкапы базы, сводка посещаемости из журнала сервера.
 
-**План по фазам, открытые вопросы и решения — в [docs/PLAN.md](docs/PLAN.md),
-выкладка на сервер — в [docs/DEPLOY.md](docs/DEPLOY.md).**
-
-Документация для разработки и агентов — в [CLAUDE.md](CLAUDE.md).
+В планах: наполнение контентом, аналитика поведения (внешний счётчик — вместе с обновлением
+уведомления в Роскомнадзор) и монетизация.

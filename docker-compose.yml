@@ -4,7 +4,7 @@
 # подставляет их в postgres, backend и web. Файл backend/.env описывает окружение
 # самого приложения (секреты, SMTP, VAPID) и локальную разработку.
 #
-# Первый запуск (два варианта, HTTPS и бэкапы — в docs/DEPLOY.md):
+# Первый запуск (домен, пароль базы и имена образов задаются в корневом .env):
 #   cp .env.example .env                 # домен и пароль базы
 #   cp backend/.env.example backend/.env # секреты приложения
 #   docker compose up -d --build
@@ -44,7 +44,7 @@ services:
 
   backend:
     # Имя образа нужно варианту «сборка в CI, на сервере только pull»: на сервере
-    # в .env задаются IMAGE_BACKEND/IMAGE_WEB из ghcr.io (см. docs/DEPLOY.md).
+    # в .env задаются IMAGE_BACKEND/IMAGE_WEB из ghcr.io.
     # При сборке на сервере `docker compose up -d --build` образ получит это же имя.
     image: ${IMAGE_BACKEND:-cleansync-backend:latest}
     build:
@@ -90,7 +90,8 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      # Внутренний адрес API для серверного рендера (см. правило в CLAUDE.md)
+      # Внутренний адрес API для серверного рендера: браузер ходит на относительный /api,
+      # а SSR — на этот адрес внутри compose-сети.
       NUXT_API_BASE: http://backend:5000
       # Тот же адрес в рантайме: llms.txt, RSS и запросы к своему origin
       NUXT_PUBLIC_SITE_URL: ${SITE_URL:-http://localhost:3000}
