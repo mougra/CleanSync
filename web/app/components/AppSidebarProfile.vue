@@ -2,6 +2,9 @@
 /**
  * Профиль в боковом меню: аватар и никнейм.
  *
+ * Почту здесь не показываем: в меню нужен только человек, а не его ящик —
+ * почта живёт в настройках, рядом с ней же и подтверждение.
+ *
  * Аватар приходит с сервера (`avatar_url`): при регистрации это картинка с
  * инициалами, а если человек задал свою ссылку — она. Если картинки нет,
  * показываем инициалы на месте, чтобы блок не «прыгал».
@@ -47,7 +50,6 @@ const logout = async () => {
 
         <span class="profile__text">
           <span class="profile__name" :title="displayName">{{ displayName }}</span>
-          <span class="profile__email" :title="auth.user?.email">{{ auth.user?.email }}</span>
         </span>
       </NuxtLink>
 
@@ -112,14 +114,6 @@ const logout = async () => {
 
 .profile__name {
   font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.profile__email {
-  color: var(--c-text-muted);
-  font-size: var(--fs-caption);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

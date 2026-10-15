@@ -380,7 +380,42 @@ useSeoMeta({ title: () => t('nav.settings') });
           <p class="profile__greeting">
             {{ auth.isAuthenticated ? t('settings.greeting', { name: displayName }) : t('settings.syncTitle') }}
           </p>
-          <p v-if="auth.isAuthenticated" class="profile__email">{{ auth.user?.email }}</p>
+
+          <!--
+            Почта и её состояние — рядом, в одной строке. Подтверждение показываем
+            галочкой с подсказкой (это статус, а не пункт меню), а пока почта не
+            подтверждена — коротким действием здесь же: отдельная строка «Почта»
+            в списке настроек заставляла искать состояние в другом месте.
+          -->
+          <p v-if="auth.isAuthenticated" class="profile__email-line">
+            <span class="profile__email">{{ auth.user?.email }}</span>
+
+            <span
+              v-if="auth.user?.is_email_confirmed"
+              class="email-check"
+              role="img"
+              :aria-label="t('settings.emailVerified')"
+              tabindex="0"
+            >
+              <i class="pi pi-check-circle" aria-hidden="true" />
+              <span class="email-check__tip" role="tooltip">{{ t('settings.emailVerifiedTooltip') }}</span>
+            </span>
+
+            <button
+              v-else
+              type="button"
+              class="email-confirm"
+              :disabled="emailBusy"
+              :title="t('settings.emailNotVerified')"
+              @click="resendConfirmation"
+            >
+              {{ t('settings.emailConfirmShort') }}
+            </button>
+          </p>
+
+          <p v-if="emailMessage" class="profile__hint" :class="{ 'profile__hint--error': emailError }">
+            {{ emailMessage }}
+          </p>
         </div>
       </div>
 
@@ -518,36 +553,6 @@ useSeoMeta({ title: () => t('nav.settings') });
 
       <SettingsRow
         v-if="auth.isAuthenticated"
-        :icon="auth.user?.is_email_confirmed ? 'pi-check-circle' : 'pi-envelope'"
-        :title="t('settings.email')"
-        :subtitle="
-          auth.user?.is_email_confirmed
-            ? t('settings.emailVerified')
-            : t('settings.emailNotVerified')
-        "
-        expandable
-      >
-        <template #body>
-          <p class="row-hint">{{ t('settings.emailHint') }}</p>
-
-          <AppButton
-            v-if="!auth.user?.is_email_confirmed"
-            variant="outline"
-            block
-            :disabled="emailBusy"
-            @click="resendConfirmation"
-          >
-            {{ t('settings.emailConfirmAction') }}
-          </AppButton>
-
-          <p v-if="emailMessage" class="row-hint" :class="{ 'row-hint--error': emailError }">
-            {{ emailMessage }}
-          </p>
-        </template>
-      </SettingsRow>
-
-      <SettingsRow
-        v-if="auth.isAuthenticated"
         icon="pi-lock"
         :title="t('settings.passwordChange')"
         :subtitle="t('settings.passwordHint')"
@@ -556,7 +561,7 @@ useSeoMeta({ title: () => t('nav.settings') });
         <template #body>
           <p class="row-hint">{{ t('settings.passwordLinkHint') }}</p>
 
-          <AppButton variant="outline" block :disabled="passwordBusy" @click="sendPasswordLink">
+          <AppButton variant="outline" class="settings__action" :disabled="passwordBusy" @click="sendPasswordLink">
             {{ t('settings.passwordLinkAction') }}
           </AppButton>
 
@@ -594,7 +599,7 @@ useSeoMeta({ title: () => t('nav.settings') });
 
           <AppButton
             variant="outline"
-            block
+            class="settings__action"
             :disabled="!resetPassword || resetting"
             @click="resetData"
           >
@@ -608,7 +613,12 @@ useSeoMeta({ title: () => t('nav.settings') });
       </SettingsRow>
     </section>
 
-    <AppButton v-if="auth.isAuthenticated" variant="outline" block @click="logout">
+    <AppButton
+      v-if="auth.isAuthenticated"
+      variant="outline"
+      class="settings__action settings__action--logout"
+      @click="logout"
+    >
       {{ t('auth.logout') }}
     </AppButton>
 
@@ -681,6 +691,15 @@ useSeoMeta({ title: () => t('nav.settings') });
   color: var(--c-text);
 }
 
+/* Почта, галочка подтверждения и действие подтверждения — одной строкой */
+.profile__email-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: 2px;
+  min-width: 0;
+}
+
 .profile__email {
   color: var(--c-text-muted);
   font-size: var(--fs-caption);
@@ -689,9 +708,76 @@ useSeoMeta({ title: () => t('nav.settings') });
   white-space: nowrap;
 }
 
+/*
+ * Галочка подтверждённой почты с подсказкой.
+ *
+ * Подсказку показываем на наведении и на фокусе с клавиатуры, а не через
+ * нативный `title`: на телефоне нативный тултип не появляется вовсе, а здесь
+ * он ещё и читается скринридером через `role="tooltip"`.
+ */
+.email-check {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  color: var(--c-brand);
+  cursor: help;
+}
+
+.email-check__tip {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  z-index: 5;
+  width: max-content;
+  max-width: 220px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--r-row);
+  background: var(--c-text);
+  color: var(--c-surface);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-tight);
+  text-align: left;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(-50%);
+  transition:
+    opacity 0.15s ease,
+    visibility 0.15s ease;
+}
+
+.email-check:hover .email-check__tip,
+.email-check:focus-visible .email-check__tip {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Действие подтверждения: текстовая кнопка рядом с почтой, не отдельный пункт */
+.email-confirm {
+  flex: 0 0 auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--c-brand);
+  font: inherit;
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.email-confirm:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .profile__hint {
   color: var(--c-text-muted);
   font-size: var(--fs-caption);
+}
+
+.profile__hint--error {
+  color: var(--c-danger);
 }
 
 .profile__actions {
@@ -725,6 +811,27 @@ useSeoMeta({ title: () => t('nav.settings') });
   background: var(--c-surface);
   color: var(--c-text);
   font: inherit;
+}
+
+/* Кнопка внутри строки настроек и «Выйти» внизу.
+ *
+ * Не во всю ширину: во всю ширину кнопка читается как главное действие
+ * страницы, а здесь это действие одной строки. Отступы сверху и снизу дают ей
+ * air и отделяют от строк, между которыми она стоит. */
+.settings__action {
+  display: flex;
+  width: fit-content;
+  min-width: 200px;
+  max-width: 100%;
+  margin: var(--space-4) auto var(--space-3);
+}
+
+/* «Выйти» стоит особняком: ему нужен воздух и от карточки, и от мастера ниже.
+   Отступы складываются с `gap` контейнера (16px), поэтому сверху выходит 32px,
+   снизу — 48px вместе с нижним полем страницы. */
+.settings__action--logout {
+  margin-top: var(--space-4);
+  margin-bottom: var(--space-5);
 }
 
 /* Переключатель */
