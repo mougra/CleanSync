@@ -9,6 +9,16 @@ import { clearAuthCookies, ensureCsrfToken, issueCsrfToken, readRefreshToken, se
 const router = express.Router();
 
 const emailFrom = process.env.EMAIL_FROM || 'no-reply@localhost';
+
+/**
+ * Адрес для ответов (`Reply-To`).
+ *
+ * Письма уходят от `noreply@домен`, у которого нет и не должно быть ящика: ответ
+ * на такое письмо вернулся бы отправителю ошибкой. Поэтому в `Reply-To` кладём
+ * живой адрес поддержки — пользователь нажимает «Ответить» и попадает к человеку,
+ * а формальный отправитель остаётся `noreply@`.
+ */
+const emailReplyTo = process.env.EMAIL_REPLY_TO || '';
 const smtpConfig = {
   host: process.env.SMTP_HOST,
   port: Number(process.env.SMTP_PORT) || 587,
@@ -68,7 +78,9 @@ const getEmailTemplate = (title: string, content: string, actionText: string, ac
         </p>
       </div>
       <div style="text-align: center; margin-top: 20px; color: #aaa; font-size: 12px;">
-        © ${new Date().getFullYear()} TidyPlan. Помогаем делать мир чище.
+        © ${new Date().getFullYear()} TidyPlan. Помогаем делать мир чище.${
+          emailReplyTo ? '<br>На это письмо можно ответить — оно придёт в поддержку.' : ''
+        }
       </div>
     </div>
   `;
@@ -79,7 +91,14 @@ const sendEmail = async ({ to, subject, html }: { to: string; subject: string; h
   if (!transporter) {
     return false;
   }
-  await transporter.sendMail({ from: emailFrom, to, subject, html });
+  await transporter.sendMail({
+    from: emailFrom,
+    to,
+    subject,
+    html,
+    // Пустая строка в replyTo ломает заголовок, поэтому передаём только когда задан.
+    replyTo: emailReplyTo || undefined,
+  });
   return true;
 };
 
