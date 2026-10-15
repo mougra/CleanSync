@@ -37,6 +37,20 @@ const colorMode = useColorMode();
 const api = useApi();
 
 /**
+ * Установка приложения. Состояние события установки ловит плагин на старте,
+ * поэтому к моменту открытия настроек кнопка уже готова (см. useInstallPrompt).
+ */
+const {
+  visible: installVisible,
+  canInstall: installCanInstall,
+  isInstalled: installIsInstalled,
+  platform: installPlatform,
+  dismissed: installDismissed,
+  subtitle: installSubtitle,
+  install: installApp,
+} = useInstallPrompt();
+
+/**
  * Мастер «Настройка по дому» и состояние анкеты.
  *
  * `completed` показывает, пройдена ли анкета: пройти её можно заново и пересобрать
@@ -505,6 +519,14 @@ useSeoMeta({ title: () => t('nav.settings') });
 
         <template #body>
           <p class="row-hint">{{ t('settings.remindersHint') }}</p>
+          <!--
+            На iPhone уведомления приходят только в установленном приложении
+            (iOS 16.4+): сказать об этом здесь честнее, чем показать
+            переключатель, который молча ничего не сделает.
+          -->
+          <p v-if="installPlatform === 'ios' && !installIsInstalled" class="row-hint">
+            {{ t('settings.remindersInstallFirst') }}
+          </p>
           <p v-if="!supported" class="row-hint">{{ t('settings.remindersUnsupported') }}</p>
           <p v-else-if="!notificationsOn" class="row-hint">{{ t('settings.remindersEnable') }}</p>
           <AppButton
@@ -518,6 +540,53 @@ useSeoMeta({ title: () => t('nav.settings') });
           <p v-if="pushMessage" class="row-hint">{{ pushMessage }}</p>
         </template>
       </SettingsRow>
+
+      <!--
+        Установка приложения. Три состояния строки: браузер прислал событие
+        установки — показываем кнопку; события нет, но платформа умеет ставить
+        приложение — показываем инструкцию (на iOS браузер установку не
+        предлагает вовсе, только «Поделиться → На экран „Домой“»); приложение
+        уже открыто как установленное — сообщаем об этом. В остальных браузерах
+        строки нет: она вела бы в тупик.
+      -->
+      <SettingsRow
+        v-if="installCanInstall"
+        icon="pi-download"
+        :title="t('settings.installApp')"
+        :subtitle="installSubtitle"
+        :action="t('settings.installAction')"
+        @action="installApp"
+      />
+
+      <SettingsRow
+        v-else-if="installVisible && !installIsInstalled"
+        icon="pi-mobile"
+        :title="t('settings.installApp')"
+        :subtitle="installSubtitle"
+        expandable
+      >
+        <template #body>
+          <template v-if="installPlatform === 'ios'">
+            <p class="row-hint">{{ t('settings.installIosStep1') }}</p>
+            <p class="row-hint">{{ t('settings.installIosStep2') }}</p>
+            <p class="row-hint">{{ t('settings.installIosStep3') }}</p>
+          </template>
+          <p v-else-if="installPlatform === 'android'" class="row-hint">
+            {{ t('settings.installAndroidHint') }}
+          </p>
+          <p v-else class="row-hint">{{ t('settings.installDesktopHint') }}</p>
+
+          <p class="row-hint">{{ t('settings.installPushHint') }}</p>
+          <p v-if="installDismissed" class="row-hint">{{ t('settings.installDismissed') }}</p>
+        </template>
+      </SettingsRow>
+
+      <SettingsRow
+        v-else-if="installIsInstalled"
+        icon="pi-check-circle"
+        :title="t('settings.installApp')"
+        :value="t('settings.installDone')"
+      />
 
       <SettingsRow icon="pi-palette" :title="t('settings.theme')" expandable :value="currentThemeLabel">
         <template #control>

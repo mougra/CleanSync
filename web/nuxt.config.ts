@@ -60,16 +60,27 @@ export default defineNuxtConfig({
       // Источник правды для прода. В dev этот объект не собирается (см.
       // devOptions ниже), и тот же JSON лежит готовым файлом в
       // public/manifest.webmanifest — при правке одного правьте оба.
+      // Английская версия — public/manifest.en.webmanifest: её подставляет
+      // app.vue, когда язык интерфейса английский (в манифесте живут описание
+      // и названия ярлыков, а они должны быть на языке интерфейса).
+      //
+      // `id` фиксирует личность приложения: без него Chrome считает ей start_url,
+      // и смена start_url однажды поставит вторую копию приложения рядом с первой.
+      id: '/',
       name: 'TidyPlan',
       short_name: 'TidyPlan',
       description:
         'План уборки по дням, привычки и советы — порядок дома без выгорания.',
       lang: 'ru',
+      dir: 'ltr',
       start_url: '/',
       scope: '/',
       display: 'standalone',
       background_color: '#FEF9F6',
       theme_color: '#2F6B58',
+      categories: ['lifestyle', 'productivity', 'health'],
+      // Магазина у нас нет: приложение ставится из браузера, а не из стора.
+      prefer_related_applications: false,
       icons: [
         { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' },
         { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png' },
@@ -78,6 +89,27 @@ export default defineNuxtConfig({
           sizes: '512x512',
           type: 'image/png',
           purpose: 'maskable',
+        },
+      ],
+      // Ярлыки появляются по долгому нажатию на иконку приложения.
+      shortcuts: [
+        {
+          name: 'Сегодня',
+          short_name: 'Сегодня',
+          url: '/',
+          icons: [{ src: '/icons/icon-192.png', sizes: '192x192' }],
+        },
+        {
+          name: 'Привычки',
+          short_name: 'Привычки',
+          url: '/habits',
+          icons: [{ src: '/icons/icon-192.png', sizes: '192x192' }],
+        },
+        {
+          name: 'Чек-листы',
+          short_name: 'Чек-листы',
+          url: '/checklists',
+          icons: [{ src: '/icons/icon-192.png', sizes: '192x192' }],
         },
       ],
     },
@@ -319,7 +351,8 @@ export default defineNuxtConfig({
       link: [
         { rel: 'icon', type: 'image/png', sizes: '32x32', href: '/icons/favicon-32.png' },
         { rel: 'apple-touch-icon', sizes: '180x180', href: '/icons/apple-touch-icon.png' },
-        { rel: 'manifest', href: '/manifest.webmanifest' },
+        // Ссылку на манифест ставит app.vue: адрес зависит от языка интерфейса
+        // (у русского и английского манифеста разные описание и ярлыки).
       ],
       meta: [
         // viewport Nuxt ставит сам — не дублируем.

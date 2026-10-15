@@ -1,13 +1,17 @@
 {
+  "id": "/",
   "name": "TidyPlan",
   "short_name": "TidyPlan",
   "description": "План уборки по дням, привычки и советы — порядок дома без выгорания.",
   "lang": "ru",
+  "dir": "ltr",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#FEF9F6",
   "theme_color": "#2F6B58",
+  "categories": ["lifestyle", "productivity", "health"],
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "/icons/icon-192.png",
@@ -24,6 +28,26 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Сегодня",
+      "short_name": "Сегодня",
+      "url": "/",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Привычки",
+      "short_name": "Привычки",
+      "url": "/habits",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Чек-листы",
+      "short_name": "Чек-листы",
+      "url": "/checklists",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     }
   ]
 }

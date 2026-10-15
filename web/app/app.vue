@@ -21,6 +21,16 @@ useSeoMeta({
   ogImage: '/og-image.png',
 });
 
+/**
+ * Манифест выбираем по языку интерфейса.
+ *
+ * Русский манифест собирает @vite-pwa/nuxt из `pwa.manifest` в nuxt.config
+ * (в dev его подменяет такой же файл из public), английский лежит готовым
+ * файлом `public/manifest.en.webmanifest`. Разница не косметическая: в манифесте
+ * живут описание и названия ярлыков, и на английском интерфейсе они должны быть
+ * английскими. `id` в обоих файлах один — иначе система поставит второе
+ * приложение рядом с первым.
+ */
 const { locale } = useI18n();
 const api = useApi();
 
@@ -55,6 +65,16 @@ watch(
   },
   { immediate: true },
 );
+
+useHead(() => ({
+  link: [
+    {
+      key: 'manifest',
+      rel: 'manifest',
+      href: locale.value === 'en' ? '/manifest.en.webmanifest' : '/manifest.webmanifest',
+    },
+  ],
+}));
 </script>
 
 <template>
