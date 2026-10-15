@@ -236,8 +236,20 @@ sudo mkdir -p /var/backups/cleansync
 ( crontab -l 2>/dev/null; echo "0 3 * * * /srv/cleansync/scripts/backup-db.sh >> /var/log/cleansync-backup.log 2>&1" ) | crontab -
 ```
 
-Восстановление:
+Сразу проверьте, что бэкап действительно снимается: по cron ошибка («Permission denied»
+на неисполняемом скрипте, остановленный контейнер) видна только в логе и всплывёт в самый
+неподходящий момент.
 
+```bash
+/srv/cleansync/scripts/backup-db.sh   # печатает путь, размер и число оставшихся дампов
+ls -lh /var/backups/cleansync
+```
+
+Cron считает время в часовом поясе сервера, а не в московском: если сервер живёт в UTC
+или в поясе провайдера, «3:00» окажется другим часом. Посмотреть и при желании перевести
+на московское время: `timedatectl` и `sudo timedatectl set-timezone Europe/Moscow`.
+
+Восстановление:
 ```bash
 gunzip -c /var/backups/cleansync/clean_planner-2026-10-08_03-00.sql.gz \
   | docker exec -i clean_planner_db psql -U postgres -d clean_planner
