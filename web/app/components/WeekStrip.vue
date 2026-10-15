@@ -7,6 +7,13 @@
  * плана на главной показывает план именно этого дня. Отметки при этом доступны
  * только для сегодняшнего дня — решает это карточка плана, а не календарь.
  *
+ * Окно едет за выбором: клик по крайнему числу подкручивает полосу на сутки, а
+ * не на неделю. Шаг в семь дней перепрыгивал бы шесть чисел, до которых человек
+ * как раз и хотел дойти: выбранный день остаётся выбранным, а рядом появляется
+ * следующий (или предыдущий) — и по нему можно кликнуть так же, пока не дойдёшь
+ * до нужной даты. Стрелки по-прежнему листают неделями: это «далеко», крайние
+ * числа — «на шаг».
+ *
  * Высота намеренно небольшая: полоса стоит над содержимым на каждом «дневном»
  * экране, поэтому из макета взяты только месяц, числа и кружок. Подписи дней
  * недели остались сокращёнными — по ним видно, где выходные.
@@ -28,16 +35,44 @@ const start = computed(() => fromISODate(weekStart.value));
 const days = computed(() =>
   Array.from({ length: 7 }, (_, index) => {
     const date = addDays(start.value, index);
-    return { iso: toISODate(date), date, dayNumber: date.getDate(), isWeekend: index === 0 || index === 6 };
+    const weekday = date.getDay();
+    return {
+      iso: toISODate(date),
+      date,
+      dayNumber: date.getDate(),
+      // Выходные считаем по самой дате, а не по позиции в полосе: окно ездит
+      // по дням, и «первая и последняя клетка» перестали быть субботой
+      // с воскресеньем.
+      isWeekend: weekday === 0 || weekday === 6,
+    };
   }),
 );
 
 const todayISO = computed(() => toISODate(new Date()));
 
-/** «октябрь 2025» — месяц и год одной строкой без предлога, как в макетах. */
-const monthTitle = computed(() =>
-  new Intl.DateTimeFormat(locale.value, { month: 'long', year: 'numeric' }).format(start.value),
-);
+/**
+ * «октябрь 2026» — месяц и год одной строкой без предлога, как в макетах.
+ *
+ * Если окно захватывает два месяца, показываем оба: иначе числа вроде «1» и «2»
+ * в конце полосы читались бы без месяца. При сдвиге на сутки это обычное дело.
+ */
+const monthTitle = computed(() => {
+  const from = start.value;
+  const to = addDays(from, 6);
+  const monthYear = (date: Date) =>
+    new Intl.DateTimeFormat(locale.value, { month: 'long', year: 'numeric' }).format(date);
+
+  if (from.getMonth() === to.getMonth() && from.getFullYear() === to.getFullYear()) {
+    return monthYear(from);
+  }
+
+  const monthOnly = (date: Date) =>
+    new Intl.DateTimeFormat(locale.value, { month: 'long' }).format(date);
+
+  return from.getFullYear() === to.getFullYear()
+    ? `${monthOnly(from)} — ${monthYear(to)}`
+    : `${monthYear(from)} — ${monthYear(to)}`;
+});
 
 const weekdayLabel = (date: Date) =>
   new Intl.DateTimeFormat(locale.value, { weekday: 'short' }).format(date).toUpperCase();
@@ -54,9 +89,25 @@ const shiftWeek = (delta: number) => {
   weekStart.value = toISODate(addDays(start.value, delta * 7));
 };
 
-/** Выбор дня: карточка плана на главной перечитывает выбранный день. */
+/**
+ * Выбор дня: карточка плана на главной перечитывает выбранный день.
+ *
+ * Крайнее число — это ещё и шаг: человек, дошедший до края полосы, хочет
+ * следующий день, а не следующую неделю. Выбранный день остаётся выбранным,
+ * а окно подкручивается на сутки, открывая соседний — по нему можно кликнуть
+ * так же и идти дальше по одному дню.
+ */
 const selectDay = (iso: string) => {
   selectedDate.value = iso;
+
+  const first = days.value[0]?.iso;
+  const last = days.value[days.value.length - 1]?.iso;
+
+  if (iso === last) {
+    weekStart.value = toISODate(addDays(start.value, 1));
+  } else if (iso === first) {
+    weekStart.value = toISODate(addDays(start.value, -1));
+  }
 };
 </script>
 
