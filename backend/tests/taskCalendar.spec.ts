@@ -74,6 +74,14 @@ const createFixture = async (): Promise<Fixture> => {
   return { userId, scheduleId: schedule.rows[0].id, token: generateTokens(String(userId)).accessToken };
 };
 
+/**
+ * `interval_count` по умолчанию — в днях, как и во всём API после миграции 0022:
+ * «каждую неделю» это 7, «каждый месяц» — 30. Пока здесь для всех частот стояла
+ * единица, недельная задача перестала попадать в календарь: правило выборки ищет
+ * ровно 7 дней либо кратное семи с опорой цикла в `due_date`.
+ */
+const DEFAULT_INTERVAL_DAYS: Record<string, number> = { daily: 1, weekly: 7, monthly: 30 };
+
 /** Задача с явной периодичностью: тот же набор колонок, что заполняет `POST /api/tasks`. */
 const createTask = async (
   scheduleId: number,
@@ -102,7 +110,7 @@ const createTask = async (
       fields.dueDate ?? null,
       fields.estimatedMinutes ?? 0,
       fields.room ?? null,
-      fields.intervalCount ?? 1,
+      fields.intervalCount ?? DEFAULT_INTERVAL_DAYS[fields.frequency] ?? 1,
     ]
   );
 
