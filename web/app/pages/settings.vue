@@ -308,6 +308,35 @@ const changePassword = async () => {
   }
 };
 
+/**
+ * Смена пароля по ссылке из письма: сервер отправляет ту же ссылку, что и
+ * «забыли пароль», а новый пароль человек вводит на странице /reset-password.
+ * Нужна тем, кто не помнит текущий пароль, и работает как второй фактор:
+ * ссылка приходит только владельцу ящика и действует 15 минут.
+ */
+const sendPasswordLink = async () => {
+  if (!auth.user?.email) {
+    return;
+  }
+
+  passwordBusy.value = true;
+  passwordMessage.value = '';
+  passwordError.value = false;
+
+  try {
+    await api.request('/api/auth/forgot-password', {
+      method: 'POST',
+      body: { email: auth.user.email },
+    });
+    passwordMessage.value = t('settings.passwordLinkSent');
+  } catch {
+    passwordError.value = true;
+    passwordMessage.value = t('state.error');
+  } finally {
+    passwordBusy.value = false;
+  }
+};
+
 const resendConfirmation = async () => {
   passwordBusy.value = true;
   try {
@@ -574,6 +603,12 @@ useSeoMeta({ title: () => t('nav.settings') });
           <p v-if="passwordMessage" class="row-hint" :class="{ 'row-hint--error': passwordError }">
             {{ passwordMessage }}
           </p>
+
+          <p class="row-hint">{{ t('settings.passwordLinkHint') }}</p>
+
+          <AppButton variant="outline" :disabled="passwordBusy" @click="sendPasswordLink">
+            {{ t('settings.passwordLinkAction') }}
+          </AppButton>
 
           <AppButton
             v-if="needsEmailConfirmation"
