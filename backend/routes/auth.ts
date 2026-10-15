@@ -120,6 +120,30 @@ const sendConfirmationEmail = async (to: string, confirmToken: string) => {
 };
 
 /**
+ * Письмо «пароль изменён».
+ *
+ * Лучшая практика: владелец аккаунта узнаёт о смене пароля из письма, а не из
+ * потери доступа. Отправка уведомления не должна ломать саму смену пароля —
+ * пароль уже изменён и откатывать это нельзя, поэтому ошибку только логируем.
+ */
+const sendPasswordChangedEmail = async (to: string) => {
+  try {
+    await sendEmail({
+      to,
+      subject: 'Пароль TidyPlan изменён',
+      html: getEmailTemplate(
+        'Пароль изменён',
+        'Пароль вашего аккаунта TidyPlan только что изменён. Если это сделали не вы, восстановите доступ к аккаунту и напишите нам.',
+        'Войти в TidyPlan',
+        appLink('/login')
+      ),
+    });
+  } catch (error) {
+    console.error('Failed to send password change notice:', error);
+  }
+};
+
+/**
  * Bootstrap для клиента: выдаёт CSRF-cookie и возвращает её значение.
  * Клиент вызывает это до первого изменяющего запроса и повторяет токен
  * в заголовке X-CSRF-Token.
@@ -345,6 +369,19 @@ router.post('/reset-password', async (req: Request, res: Response) => {
       token,
     ]);
 
+    const resetUser = await pool.query<{ email: string }>(
+      'SELECT email FROM users WHERE id = $1',
+      [user_id],
+    );
+
+    // Восстановление по ссылке из письма считаем сменой доступа: закрываем все
+    // сессии, включая чужие — иначе старый refresh-токен переживёт новый пароль.
+    await pool.query('DELETE FROM refresh_tokens WHERE user_id = $1', [user_id]);
+
+    if (resetUser.rows[0]?.email) {
+      await sendPasswordChangedEmail(resetUser.rows[0].email);
+    }
+
     res.status(200).json({ message: 'Password reset successfully' });
   } catch (err) {
     console.error(err);
@@ -476,7 +513,7 @@ router.post('/change-password', authMiddleware, async (req: Request, res: Respon
     }
 
     const userResult = await pool.query(
-      'SELECT password, is_email_confirmed FROM users WHERE id = $1',
+      'SELECT password, is_email_confirmed, email FROM users WHERE id = $1',
       [req.userId],
     );
     if (userResult.rows.length === 0) {
@@ -502,6 +539,17 @@ router.post('/change-password', authMiddleware, async (req: Request, res: Respon
       'UPDATE users SET password = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
       [hashedPassword, req.userId],
     );
+
+    // Остальные устройства разлогиниваем, текущую сессию оставляем: refresh-токен
+    // этой сессии пришёл в cookie, его и сохраняем. Так смена пароля закрывает
+    // чужие входы, но не выкидывает человека из приложения, где он и находится.
+    const currentRefresh = readRefreshToken(req);
+    await pool.query(
+      'DELETE FROM refresh_tokens WHERE user_id = $1 AND token IS DISTINCT FROM $2',
+      [req.userId, currentRefresh],
+    );
+
+    await sendPasswordChangedEmail(userResult.rows[0].email);
 
     res.json({ message: 'Password changed successfully' });
   } catch (err) {
