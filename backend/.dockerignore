@@ -1,3 +1,7 @@
 node_modules
 npm-debug.log
 .DS_Store
+# Секреты приходят в контейнер через env_file в docker-compose.yml, а не из образа:
+# без этой строки локальная сборка запекла бы ключи и SMTP-пароль внутрь образа.
+.env
+.env.*
