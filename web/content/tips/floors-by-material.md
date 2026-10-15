@@ -5,7 +5,7 @@ cover: /photos/kitchen-white.jpg
 category: home
 icon: pi-th-large
 minutes: 30
-publishedAt: 2026-10-18
+publishedAt: 2026-10-15
 order: 106
 keywords:
   - "чем мыть ламинат"

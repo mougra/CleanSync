@@ -5,7 +5,7 @@ cover: /photos/spring-cleaning.jpg
 category: home
 icon: pi-sun
 minutes: 45
-publishedAt: 2026-10-16
+publishedAt: 2026-10-15
 order: 104
 keywords:
   - "как помыть балкон"

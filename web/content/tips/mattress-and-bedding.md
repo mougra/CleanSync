@@ -5,7 +5,7 @@ cover: /photos/laundry.jpg
 category: home
 icon: pi-moon
 minutes: 35
-publishedAt: 2026-10-19
+publishedAt: 2026-10-15
 order: 107
 keywords:
   - "как почистить матрас"

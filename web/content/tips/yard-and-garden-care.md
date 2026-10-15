@@ -5,7 +5,7 @@ cover: /photos/autumn-home.jpg
 category: home
 icon: pi-map
 minutes: 40
-publishedAt: 2026-10-17
+publishedAt: 2026-10-15
 order: 105
 keywords:
   - "уборка двора и сада"
