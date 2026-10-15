@@ -25,9 +25,24 @@ if ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER"; then
   exit 1
 fi
 
-# -T отключает псевдотерминал, иначе gzip получит лишние байты
-docker exec -T "$CONTAINER" pg_dump -U "$DB_USER" -d "$DB_NAME" --clean --if-exists \
+# Псевдотерминал не выделяем: у `docker exec` его нет без флага -t, поэтому вывод
+# pg_dump уходит в gzip байт в байт. Флага -T здесь быть не может — он принадлежит
+# `docker compose exec`, а `docker exec` на нём падает ещё до первого дампа.
+docker exec "$CONTAINER" pg_dump -U "$DB_USER" -d "$DB_NAME" --clean --if-exists \
   | gzip -9 > "$FILE"
+
+# Пустой или битый дамп хуже отсутствия дампа: о нём узнают только при восстановлении,
+# поэтому проверяем и заголовок pg_dump, и целостность архива.
+HEADER="$(gzip -dc "$FILE" 2>/dev/null | head -3 || true)"
+
+case "$HEADER" in
+  *"PostgreSQL database dump"*) ;;
+  *)
+    echo "Дамп $FILE пустой или повреждён — удаляю" >&2
+    rm -f "$FILE"
+    exit 1
+    ;;
+esac
 
 SIZE="$(du -h "$FILE" | cut -f1)"
 echo "[$(date '+%F %T')] Готово: $SIZE"
