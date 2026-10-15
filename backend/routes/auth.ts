@@ -30,6 +30,22 @@ const createTransporter = () => {
   return nodemailer.createTransport(smtpConfig);
 };
 
+/**
+ * Настроена ли отправка писем.
+ *
+ * Пока SMTP нет, подтвердить почту физически невозможно: письмо некуда отправить,
+ * а ссылка подтверждения попадает только в лог сервера. Поэтому требовать
+ * подтверждение в этом режиме нельзя — иначе пользователь, который зарегистрировался
+ * и вошёл, не сможет сменить пароль и останется в тупике (см. change-password).
+ * Как только SMTP появится в окружении, проверка включается сама, без правок кода.
+ */
+const isEmailConfigured = () =>
+  Boolean(
+    process.env.SMTP_HOST &&
+      process.env.SMTP_USER &&
+      process.env.SMTP_PASS,
+  );
+
 const getEmailTemplate = (title: string, content: string, actionText: string, actionLink: string) => {
   return `
     <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px; background-color: #f9f9f9;">
@@ -467,7 +483,7 @@ router.post('/change-password', authMiddleware, async (req: Request, res: Respon
       return res.status(404).json({ error: 'User not found' });
     }
 
-    if (!userResult.rows[0].is_email_confirmed) {
+    if (isEmailConfigured() && !userResult.rows[0].is_email_confirmed) {
       return res
         .status(403)
         .json({ error: 'Email должен быть подтверждён перед сменой пароля.' });
