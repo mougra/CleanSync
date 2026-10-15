@@ -18,7 +18,16 @@
 
 	# Заголовки безопасности для HTML отдаёт Nuxt; здесь добавляем только то,
 	# что нужно на уровне прокси.
+	#
+	# HSTS: браузер запоминает домен как «только HTTPS» на год и сам переписывает
+	# http:// на https:// до первого запроса — это закрывает окно, в котором
+	# первый заход по http успевает уйти открытым текстом (важно и для cookie
+	# с флагом Secure, и для service worker: он работает только в защищённом
+	# контексте). `includeSubDomains` безопасен: единственный поддомен — www,
+	# и он уже перенаправляется на основной адрес. `preload` не включаем:
+	# это заявка в список браузеров, и снимать её потом долго.
 	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		Referrer-Policy strict-origin-when-cross-origin
 		X-Content-Type-Options nosniff
 		-Server
