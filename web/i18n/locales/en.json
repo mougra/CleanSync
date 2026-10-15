@@ -720,6 +720,7 @@
     "unitMonthOne": "month",
     "unitMonthFew": "months",
     "unitMonthMany": "months",
+    "intervalBounds": "From {min} to {max} days. The cycle starts from the date below.",
     "zone": {
       "kitchen": "Kitchen",
       "bathroom": "Bathroom",

@@ -65,9 +65,10 @@ const isoDayOf = (timestamp: string): string => {
  * ближайших дней обязаны считать одинаково, иначе недельная задача появится в
  * одном месте и исчезнет в другом. Дата — в UTC, как было и раньше.
  *
- * Про интервал: при `interval_count = 1` всё как раньше (задача дня/недели/
- * месяца), при большем цикл считается от `due_date` — даты первой постановки,
- * поэтому «раз в 3 месяца» не всплывает каждый месяц.
+ * Про интервал: интервал выражается **днями** для всех частот (миграция 0022),
+ * поэтому день переводится в единицу периода (неделя — 7, месяц — 30) и уже она
+ * сравнивается по модулю с опорой `due_date`. При интервале в одну единицу периода
+ * (7/30) всё как раньше: задача недели/месяца.
  *
  * Про результат дня. `is_completed` в ответе — это результат **на запрошенный
  * день**, а не текущий флаг задачи (миграция 0018, таблица `task_completions`):
@@ -108,25 +109,34 @@ const tasksDueOn = async (userId: string, date: Date) => {
                  AND (t.assignee_id IS NULL OR t.assignee_id = $1))
            )
        AND (
-         -- Периодичность «раз в N дней/недель/месяцев» (interval_count).
-         -- При interval_count = 1 всё как раньше: задача дня/недели/месяца.
-         -- При большем интервале цикл считается от due_date — даты первой
-         -- постановки, поэтому «раз в 3 месяца» не всплывает каждый месяц.
+         -- Периодичность «раз в N дней» (interval_count). Интервал выражается
+         -- **днями** для всех частот (миграция 0022): «раз в 3 недели» — это 21,
+         -- «раз в 3 месяца» — 90. Чтобы сравнить цикл с опорой («due_date»), день
+         -- переводится в единицу периода: неделя — 7 дней, месяц — 30.
+         --
+         -- Выбор формул не случаен. У **недельного** дела шаг цикла — это шаг
+         -- выбранного дня недели, поэтому недели и считаются: 21 день — каждый
+         -- третий понедельник. У **месячного** дела день месяца фиксирован
+         -- («day_of_month»), поэтому и сравниваются календарные месяцы: «раз в 3
+         -- месяца» — это сентябрь, декабрь, март, а не «каждые 90 дней от опоры».
+         -- С дней на месяцы интервал переводится делением на 30 — ровно тот
+         -- делитель, которым генератор мерил месячные ступени.
          (t.frequency = 'daily' AND t.interval_count <= 1) OR
          (t.frequency = 'daily' AND t.due_date IS NOT NULL
            AND MOD(($4::date - t.due_date), t.interval_count) = 0) OR
-         (t.frequency = 'weekly' AND t.day_of_week = $2 AND t.interval_count <= 1) OR
+         (t.frequency = 'weekly' AND t.day_of_week = $2 AND t.interval_count = 7) OR
          (t.frequency = 'weekly' AND t.day_of_week = $2 AND t.due_date IS NOT NULL
-           AND MOD(FLOOR(($4::date - t.due_date)::numeric / 7)::int, t.interval_count) = 0) OR
-         (t.frequency = 'monthly' AND t.day_of_month = $3 AND t.interval_count <= 1) OR
+           AND MOD(t.interval_count, 7) = 0
+           AND MOD(FLOOR(($4::date - t.due_date)::numeric / 7)::int, t.interval_count / 7) = 0) OR
+         (t.frequency = 'monthly' AND t.day_of_month = $3 AND t.interval_count = 30) OR
          (t.frequency = 'monthly' AND t.day_of_month = $3 AND t.due_date IS NOT NULL
            AND MOD(
                  MOD(
                    (EXTRACT(YEAR FROM $4::date) * 12 + EXTRACT(MONTH FROM $4::date))
                    - (EXTRACT(YEAR FROM t.due_date) * 12 + EXTRACT(MONTH FROM t.due_date)),
-                   t.interval_count
-                 ) + t.interval_count,
-                 t.interval_count
+                   t.interval_count / 30
+                 ) + t.interval_count / 30,
+                 t.interval_count / 30
                ) = 0) OR
          (t.due_date = $4)
        )
@@ -232,6 +242,82 @@ router.get('/upcoming', authMiddleware, async (req: Request, res: Response) => {
 
 /** Дата в формате YYYY-MM-DD — ровно то, что приходит в query и уходит в ответ. */
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Пределы интервала периодичности: от суток до десяти лет в днях.
+ *
+ * Единица измерения интервала — **день** (`interval_count`), даже у недельных и
+ * месячных дел: «раз в 3 недели» — это 21, «раз в 3 месяца» — 90. Нижняя граница
+ * задана схемой (CHECK >= 1 в миграции 0012), верхняя — здесь: 3650 дней
+ * (десять лет) отсекают мусорные значения, при которых задача «раз в 27 лет» уже
+ * не периодичность, а недоразумение. Сгенерированный набор живёт в своём, более
+ * узком коридоре (7…180 дней, services/defaultTasks.ts), но у своей задачи
+ * человек вправе выбрать любой интервал.
+ */
+const MIN_INTERVAL_COUNT = 1;
+const MAX_INTERVAL_COUNT = 3650;
+
+/**
+ * Разбор `interval_count` из тела запроса.
+ *
+ * Отсутствие поля — не ошибка (`null`): у создания это «раз в 1», у правки —
+ * «интервал не меняем». А вот число вне пределов или не целое — ошибка клиента,
+ * которую лучше назвать прямо, чем молча записать в базу ерунду.
+ */
+const parseIntervalCount = (value: unknown): { ok: true; value: number | null } | { ok: false } => {
+  if (value === undefined || value === null) return { ok: true, value: null };
+
+  if (typeof value !== 'number' || !Number.isInteger(value)) return { ok: false };
+
+  if (value < MIN_INTERVAL_COUNT || value > MAX_INTERVAL_COUNT) return { ok: false };
+
+  return { ok: true, value };
+};
+
+/** Интервал из тела запроса — в форме, пригодной для записи в колонку. */
+interface IntervalInput {
+  /** Интервал в днях после подстановки «раз в 1» на отсутствие значения. */
+  interval: number;
+  /** Можно ли писать `interval_count` в базу: у правки «поля нет» — нельзя. */
+  storeInterval: boolean;
+  dueDate: string | null;
+}
+
+/**
+ * Опорная дата цикла — `due_date` — обязательна при интервале больше суток.
+ *
+ * Без неё выборка «Сегодня» не найдёт задачу никогда: при `interval_count > 1`
+ * цикл считается как `MOD(день - due_date, interval_count)`, а с NULL это условие
+ * ложно всегда (правило 33 в CLAUDE.md). Поэтому сервер **подставляет сегодняшний
+ * день приложения** (`services/appTime.ts`), а не отказывает: клиент, не знающий
+ * про опору цикла, всё равно получит работающую задачу.
+ */
+const withDueDate = (dueDate: string | null, interval: number): string | null =>
+  dueDate === null && interval > 1 ? appToday() : dueDate;
+
+/**
+ * Интервал и опора цикла для `POST /api/tasks` и `PUT /api/tasks/:id`.
+ *
+ * `existingDueDate` — опора, уже лежащая в задаче (у правки): она сохраняется,
+ * когда клиент не передал дату, а интервал не менялся. Это то же самое, что делает
+ * `COALESCE(due_date, …)` в UPDATE: молчание в теле не означает «сбросить опору».
+ */
+const intervalInput = (
+  raw: unknown,
+  fallbackInterval: number,
+  dueDate: string | null,
+  existingDueDate: string | null
+): IntervalInput | null => {
+  const parsed = parseIntervalCount(raw);
+
+  if (!parsed.ok) return null;
+
+  const interval = parsed.value ?? fallbackInterval;
+  const storeInterval = parsed.value !== null;
+  const kept = dueDate ?? (storeInterval ? null : existingDueDate);
+
+  return { interval, storeInterval, dueDate: withDueDate(kept, interval) };
+};
 
 /**
  * Разбирает дату из query и проверяет, что она настоящая.
@@ -356,15 +442,22 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
-    // «Раз в N дней/недель/месяцев»: интервал меньше единицы не имеет смысла,
-    // поэтому всё, что не положительное целое, сводится к «раз в 1».
-    const interval = Number.isInteger(interval_count) && interval_count > 0 ? interval_count : 1;
+    // Периодичность: интервал выражается в днях, 1…3650. При интервале больше
+    // суток опора цикла (`due_date`) обязательна и подставляется сегодняшним днём
+    // приложения — иначе задача не появилась бы в плане никогда (правило 33).
+    const schedule = intervalInput(interval_count, 1, due_date ?? null, null);
+
+    if (schedule === null) {
+      return res.status(400).json({
+        error: `interval_count must be an integer between ${MIN_INTERVAL_COUNT} and ${MAX_INTERVAL_COUNT} days`,
+      });
+    }
 
     // `??`, а не `||`: ноль здесь законное значение. `day_of_week = 0` — это
     // воскресенье, и с `||` повтор на воскресенье сохранялся как «без дня».
     const result = await pool.query(
       'INSERT INTO tasks (schedule_id, title, frequency, day_of_week, day_of_month, due_date, time, estimated_minutes, room, interval_count) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id, title, frequency, interval_count, day_of_week, day_of_month, due_date, time, estimated_minutes, room, is_completed, created_at',
-      [schedule_id, title, frequency ?? null, day_of_week ?? null, day_of_month ?? null, due_date ?? null, time ?? null, estimated_minutes ?? 0, room ?? null, interval]
+      [schedule_id, title, frequency ?? null, day_of_week ?? null, day_of_month ?? null, schedule.dueDate, time ?? null, estimated_minutes ?? 0, room ?? null, schedule.interval]
     );
 
     res.status(201).json(result.rows[0]);
@@ -405,7 +498,7 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
 
     // Check ownership via schedule
     const taskResult = await pool.query(
-      'SELECT schedule_id FROM tasks WHERE id = $1',
+      'SELECT schedule_id, interval_count, due_date FROM tasks WHERE id = $1',
       [id]
     );
 
@@ -418,6 +511,25 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
 
     if (!access.allowed) {
       return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    /**
+     * Интервал и опора цикла. Интервал в теле — уже в днях (1…3650), а если поле
+     * не пришло, задача сохраняет прежний. При интервале больше суток опора
+     * обязательна: без неё задача не появится в плане никогда (правило 33), и
+     * сервер подставляет сегодняшний день приложения — так же, как при создании.
+     */
+    const schedule = intervalInput(
+      interval_count,
+      Number(taskResult.rows[0].interval_count) || 1,
+      due_date ?? null,
+      taskResult.rows[0].due_date ?? null
+    );
+
+    if (schedule === null) {
+      return res.status(400).json({
+        error: `interval_count must be an integer between ${MIN_INTERVAL_COUNT} and ${MAX_INTERVAL_COUNT} days`,
+      });
     }
 
     /** Сегодняшний день в UTC: отметка ставится именно на него. */
@@ -435,7 +547,7 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
         time = COALESCE($6, time),
         estimated_minutes = COALESCE($7, estimated_minutes),
         room = COALESCE($8, room),
-        -- Интервал периодичности: принимаем только положительное целое
+        -- Интервал периодичности: принимаем только целое в пределах 1…3650
         interval_count = COALESCE($12::int, interval_count),
         is_completed = COALESCE($9, is_completed),
         completed_at = CASE
@@ -450,7 +562,7 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
         END
       WHERE id = $10
       RETURNING id, title, frequency, interval_count, day_of_week, day_of_month, due_date, time, estimated_minutes, room, is_completed, completed_at, created_at, assignee_id, completed_by`,
-      [title ?? null, frequency ?? null, day_of_week ?? null, day_of_month ?? null, due_date ?? null, time ?? null, estimated_minutes ?? null, room ?? null, is_completed !== undefined ? is_completed : null, id, req.userId, Number.isInteger(interval_count) && interval_count > 0 ? interval_count : null]
+      [title ?? null, frequency ?? null, day_of_week ?? null, day_of_month ?? null, schedule.dueDate, time ?? null, estimated_minutes ?? null, room ?? null, is_completed !== undefined ? is_completed : null, id, req.userId, schedule.storeInterval ? schedule.interval : null]
     );
 
     const taskId = result.rows[0]?.id;

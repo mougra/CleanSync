@@ -157,9 +157,12 @@ describe('defaultTasks: бюджет under30 — не больше 25 минут
      * поэтому `(месяц - месяц опоры) mod N == 0` и есть «дело бывает в этом
      * месяце». Без согласования этого правила проверка складывала бы дела,
      * которые вместе не встречаются.
+     *
+     * Интервал выражается днями (миграция 0022), поэтому в месяцы он переводится
+     * тем же делителем 30, которым его мерит генератор: 90 дней — «раз в 3 месяца».
      */
     const monthClassesOf = (task: { dueDate: string | null; intervalCount: number }): number[] => {
-      const interval = Math.max(1, task.intervalCount);
+      const interval = Math.max(1, task.intervalCount / 30);
       const anchor = task.dueDate ? new Date(`${task.dueDate}T00:00:00Z`) : new Date();
       const anchorMonth = anchor.getUTCMonth();
 

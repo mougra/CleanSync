@@ -223,7 +223,8 @@ describe('полнота набора и названные частоты', () 
       expect(task, label).toBeDefined();
       expect(task?.cadence, label).toBe('weekly');
       expect(task?.frequency, label).toBe('weekly');
-      expect(task?.intervalCount, label).toBe(1);
+      // Интервал периодичности — в днях: неделя это 7 дней.
+      expect(task?.intervalCount, label).toBe(7);
       expect(task?.dayOfWeek, label).not.toBeNull();
     }
   });
@@ -250,16 +251,17 @@ describe('полнота набора и названные частоты', () 
       const hallway = tasks.find((entry) => entry.title === 'Протереть зеркало в прихожей');
 
       // Названная частота не может стать **чаще**, чем просили: генератор только
-      // удлиняет цикл. Для «раз в месяц» это интервал не меньше одного месяца.
+      // удлиняет цикл. Для «раз в месяц» это интервал не меньше месяца — то есть
+      // не меньше 30 дней (интервал периодичности выражается в днях).
       expect(bathroom, label).toBeDefined();
       expect(bathroom?.frequency, label).toBe('monthly');
-      expect(bathroom?.intervalCount, label).toBeGreaterThanOrEqual(1);
+      expect(bathroom?.intervalCount, label).toBeGreaterThanOrEqual(30);
       expect(bathroom?.dayOfMonth, label).toBeGreaterThanOrEqual(1);
       expect(bathroom?.dayOfMonth, label).toBeLessThanOrEqual(28);
 
       expect(hallway, label).toBeDefined();
       expect(hallway?.frequency, label).toBe('weekly');
-      expect(hallway?.intervalCount, label).toBeGreaterThanOrEqual(3);
+      expect(hallway?.intervalCount, label).toBeGreaterThanOrEqual(21);
       expect(hallway?.dayOfWeek, label).not.toBeNull();
     }
   });
@@ -300,16 +302,31 @@ describe('полнота набора и названные частоты', () 
     }
   });
 
-  it('новые недельные периодичности попадают в набор и считаются выборкой', () => {
+  it('недельные периодичности попадают в набор и считаются выборкой', () => {
     const set = buildDefaultTasks(THREE_DAYS);
     const weekly = set.tasks.filter((task) => task.frequency === 'weekly');
 
-    // Недельные интервалы — ступени лестницы: 1, 2, 3, 4, 6, 8, 13, 17, 26, 52
-    // недели. «Раз в 3 недели» и «раз в 6 недель» — полноценные ступени.
+    // Недельные интервалы — ступени лестницы в днях: неделя, 2, 3 и 6 недель.
+    // «Раз в 3 недели» и «раз в 6 недель» — полноценные ступени (21 и 42 дня).
     for (const task of weekly) {
-      expect([1, 2, 3, 4, 6, 8, 13, 17, 26, 52], task.title).toContain(task.intervalCount);
+      expect([7, 14, 21, 42], task.title).toContain(task.intervalCount);
     }
 
     expect(set.summary.cadences.weekly + set.summary.cadences.biweekly).toBeGreaterThan(0);
+  });
+
+  it('периодичность сгенерированного набора живёт в коридоре 7…180 дней', () => {
+    /**
+     * Решение заказчика: дефолтные дела — не чаще раза в неделю и не реже раза в
+     * полгода. Годовые дела каталога становятся «раз в 180 дней», а всё, чему не
+     * хватило места на этой ступени, уходит в `droppedTasks`, а не превращается в
+     * сгенерированное «раз в 3 года».
+     */
+    for (const answers of [THREE_DAYS, EVERY_DAY]) {
+      for (const task of buildDefaultTasks(answers).tasks) {
+        expect(task.intervalCount, `${task.title} (${task.frequency})`).toBeGreaterThanOrEqual(7);
+        expect(task.intervalCount, `${task.title} (${task.frequency})`).toBeLessThanOrEqual(180);
+      }
+    }
   });
 });

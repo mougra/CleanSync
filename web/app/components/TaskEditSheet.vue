@@ -33,9 +33,6 @@ const emit = defineEmits<{ close: []; save: [TaskEditInput] }>();
 
 const { t, locale } = useI18n();
 
-/** Шаг интервала: тот же предел, что в листе создания задачи. */
-const MAX_INTERVAL = 12;
-
 /**
  * Единицы повтора в порядке API (`TaskFrequency`): «один раз», день, неделя,
  * месяц — тот же набор, что хранит задача, поэтому преобразование одностороннее.
@@ -44,7 +41,17 @@ const repeatUnits: TaskRepeatUnit[] = ['once', 'day', 'week', 'month'];
 
 const title = ref('');
 const repeatUnit = ref<TaskRepeatUnit>('week');
-const intervalCount = ref(1);
+
+/**
+ * Интервал задачи в днях — то, что уходит в `interval_count` (миграция 0022).
+ * Счётчик «− N +» при этом шагает единицей выбранной шкалы, поэтому в форме
+ * «раз в 3 недели» показывается как 3, а в API уходит 21: одна единица измерения
+ * и одно место преобразования (utils/repeatInterval.ts) на оба листа.
+ */
+const intervalDays = ref(DAYS_PER_REPEAT_UNIT.week);
+
+/** Счётчик в единицах выбранной шкалы: неделя — 7 дней, месяц — 30. */
+const intervalCount = computed(() => intervalCountForUnit(intervalDays.value, repeatUnit.value));
 
 /** Из частоты задачи в единицу формы: без частоты задача разовая. */
 const unitOf = (frequency: TaskFrequency | null): TaskRepeatUnit =>
@@ -60,7 +67,7 @@ const unitOf = (frequency: TaskFrequency | null): TaskRepeatUnit =>
 const fill = (task: TaskEditSource | null) => {
   title.value = task?.title ?? '';
   repeatUnit.value = unitOf(task?.frequency ?? null);
-  intervalCount.value = Math.min(MAX_INTERVAL, Math.max(1, task?.intervalCount ?? 1));
+  intervalDays.value = clampIntervalDays(task?.intervalCount ?? 1, repeatUnit.value);
 };
 
 watch(
@@ -118,15 +125,16 @@ const intervalLabel = computed(() => {
 
 /** «Один раз» интервала не имеет — счётчик прячем, как в создании задачи. */
 const chooseUnit = (unit: TaskRepeatUnit) => {
-  repeatUnit.value = unit;
+  const days = intervalDays.value;
 
-  if (unit === 'once') {
-    intervalCount.value = 1;
-  }
+  repeatUnit.value = unit;
+  // Смена шкалы сохраняет срок: «раз в 3 недели» при переключении на дни — это 21
+  // день, а не «раз в 3 дня».
+  intervalDays.value = clampIntervalDays(unit === 'once' ? 1 : days, unit);
 };
 
 const step = (delta: number) => {
-  intervalCount.value = Math.min(MAX_INTERVAL, Math.max(1, intervalCount.value + delta));
+  intervalDays.value = stepIntervalDays(intervalDays.value, repeatUnit.value, delta);
 };
 
 /**
@@ -144,7 +152,8 @@ const submit = () => {
   emit('save', {
     title: value,
     frequency: repeatUnit.value,
-    intervalCount: repeatUnit.value === 'once' ? 1 : intervalCount.value,
+    // Интервал в днях: 21 — «раз в 3 недели», 90 — «раз в 3 месяца».
+    intervalCount: repeatUnit.value === 'once' ? 1 : intervalDays.value,
   });
 };
 </script>
@@ -204,7 +213,7 @@ const submit = () => {
               type="button"
               class="stepper__btn"
               :aria-label="t('tasks.stepUp')"
-              :disabled="pending || intervalCount >= MAX_INTERVAL"
+              :disabled="pending || intervalDays >= MAX_INTERVAL_DAYS"
               @click="step(1)"
             >
               <i class="pi pi-plus" aria-hidden="true" />

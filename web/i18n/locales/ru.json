@@ -720,6 +720,7 @@
     "unitMonthOne": "месяц",
     "unitMonthFew": "месяца",
     "unitMonthMany": "месяцев",
+    "intervalBounds": "От {min} до {max} дней. Отсчёт цикла — от даты ниже.",
     "zone": {
       "kitchen": "Кухня",
       "bathroom": "Ванная",

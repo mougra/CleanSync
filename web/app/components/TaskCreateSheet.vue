@@ -3,10 +3,12 @@
  * Лист «Добавить задачу» из макета «Добавление Задачи через кнопку»: название,
  * зона, повтор с шагом, срок выполнения, напоминание (пока выключено) и сложность.
  *
- * Повтор в API описан парой «частота + день периода»: счётчика интервала
- * («раз в N недель») в схеме БД нет, поэтому число шага кодируется ближайшим
- * доступным значением — днём недели для недель и днём месяца для месяцев, а
- * подпись показывает то, что выбрал человек (см. `intervalLabel` и `repeatFor`).
+ * Повтор в API описан парой «частота + интервал», а интервал измеряется **в днях**
+ * (миграция 0022): «раз в 3 недели» — это 21 день, «раз в 3 месяца» — 90. Счётчик
+ * «− N +» шагает единицей выбранной шкалы (день, неделя, месяц) и ограничен тем же
+ * пределом, что проверяет API: от 1 до 3650 дней (см. utils/repeatInterval.ts).
+ * День недели и день месяца нужны только для того, чтобы дело попало в план в свой
+ * день.
  */
 import type { ScheduleSummary, TaskCreateInput, TaskRepeat, TaskRepeatUnit } from '~/types/task';
 
@@ -19,7 +21,6 @@ const api = useApi();
 /** Расписание, в которое складываются задачи, созданные этой формой. */
 const SCHEDULE_TITLE = 'Мои задачи';
 const DEFAULT_ZONE_KEY = 'wholeHouse';
-const MAX_INTERVAL = 12;
 
 const repeatUnits: TaskRepeatUnit[] = ['once', 'day', 'week', 'month'];
 const zones: string[] = [
@@ -44,8 +45,13 @@ const difficulties = [
 const title = ref('');
 const zone = ref<string>(DEFAULT_ZONE_KEY);
 const repeatUnit = ref<TaskRepeatUnit>('week');
-const intervalCount = ref(1);
-const dueDate = ref(todayForApi());
+/**
+ * Срок пустой, пока человек его не тронул: тогда `due_date` подставляет сервер
+ * (сегодняшним днём приложения), и у задачи с интервалом больше суток
+ * гарантированно есть опора цикла. В поле при этом видно сегодняшний день —
+ * см. `dueValue`.
+ */
+const dueDate = ref('');
 const difficulty = ref<(typeof difficulties)[number]['key']>('medium');
 const pending = ref(false);
 const failed = ref(false);
@@ -70,25 +76,34 @@ const unitLabel = (unit: TaskRepeatUnit): string =>
         ? t('tasks.intervalWeek')
         : t('tasks.intervalMonth');
 
-/** Подпись периода: «Один раз», «Раз в 1 неделю», «Раз в 3 месяца». */
+/**
+ * Подпись периода: «Один раз», «Раз в 1 неделю», «Раз в 3 месяца».
+ *
+ * Считается по **дням**: в недельной шкале «раз в 3 недели» — это 21 день, и
+ * подпись обязана читаться как «раз в 3 недели», а не «раз в 21 день». Поэтому
+ * для недель и месяцев день переводится обратно в единицу шкалы, и склонение
+ * берётся от того числа, которое человек видит.
+ */
 const intervalLabel = computed(() => {
   if (repeatUnit.value === 'once') {
     return t('tasks.everyOnce');
   }
 
-  if (intervalCount.value <= 1) {
-    return repeatUnit.value === 'day'
+  const unit = repeatUnit.value;
+  const count = intervalCountForUnit(intervalDays.value, unit);
+
+  if (daysPerUnit(unit) === 1 || count <= 1) {
+    return unit === 'day'
       ? t('tasks.everyDay')
-      : repeatUnit.value === 'week'
+      : unit === 'week'
         ? t('tasks.everyWeek')
         : t('tasks.everyMonth');
   }
 
-  const count = intervalCount.value;
   const forms =
-    repeatUnit.value === 'day'
+    unit === 'day'
       ? [t('tasks.unitDayOne'), t('tasks.unitDayFew'), t('tasks.unitDayMany')]
-      : repeatUnit.value === 'week'
+      : unit === 'week'
         ? [t('tasks.unitWeekOne'), t('tasks.unitWeekFew'), t('tasks.unitWeekMany')]
         : [t('tasks.unitMonthOne'), t('tasks.unitMonthFew'), t('tasks.unitMonthMany')];
 
@@ -97,8 +112,41 @@ const intervalLabel = computed(() => {
   return t('tasks.everyN', { count, unit: unitWord });
 });
 
+/** Сколько дней в единице шкалы: у «один раз» шага нет. */
+const daysPerUnit = (unit: TaskRepeatUnit): number =>
+  unit === 'once' ? 1 : DAYS_PER_REPEAT_UNIT[unit];
+
+/** Счётчик в единицах выбранной шкалы: в базе и в API едет день (intervalDays). */
+const intervalCount = computed(() => intervalCountForUnit(intervalDays.value, repeatUnit.value));
+
+/** Интервал задачи в днях — то, что уходит в `interval_count`. */
+const intervalDays = ref(DAYS_PER_REPEAT_UNIT.week);
+
+/** Подсказка о границах интервала: «от 1 дня до 3650 дней». */
+const boundsHint = computed(() =>
+  t('tasks.intervalBounds', {
+    min: daysPerUnit(repeatUnit.value),
+    max: MAX_INTERVAL_DAYS,
+  })
+);
+
 /** Срок показываем как в макете: «Срок выполнения: окт. 11-го». */
 const dueLabel = computed(() => `${t('tasks.dueDate')}: ${formatDay(dueDate.value)}`);
+
+/**
+ * Что показывает поле даты и что уходит на сервер.
+ *
+ * Пока человек не тронул поле, оно пустое: тогда `due_date` подставляет сервер
+ * (сегодняшним днём приложения), и у задачи с интервалом больше суток
+ * гарантированно есть опора цикла (правило 33). В самом поле при этом видно
+ * сегодняшний день — иначе пустая дата выглядела бы как «срока нет».
+ */
+const dueValue = computed({
+  get: () => dueDate.value || todayForApi(),
+  set: (value: string) => {
+    dueDate.value = value;
+  },
+});
 
 /** Разбор ISO-даты на части: без сдвига в локальный пояс, как того ждёт сервер. */
 const dueParts = (value: string) => {
@@ -114,14 +162,17 @@ const formatDay = (value: string): string =>
   );
 
 const step = (delta: number) => {
-  intervalCount.value = Math.min(MAX_INTERVAL, Math.max(1, intervalCount.value + delta));
+  intervalDays.value = stepIntervalDays(intervalDays.value, repeatUnit.value, delta);
 };
 
+/**
+ * Смена шкалы сохраняет срок: «раз в 3 недели» при переключении на дни — это 21
+ * день, а не «раз в 3 дня». Иначе переключение шкалы молча меняло бы частоту дела.
+ */
 const chooseUnit = (unit: TaskRepeatUnit) => {
+  const days = intervalDays.value;
   repeatUnit.value = unit;
-  if (unit === 'once') {
-    intervalCount.value = 1;
-  }
+  intervalDays.value = clampIntervalDays(unit === 'once' ? 1 : days, unit);
 };
 
 const difficultyLabel = (key: (typeof difficulties)[number]['key']): string =>
@@ -178,8 +229,8 @@ const reset = () => {
   title.value = '';
   zone.value = DEFAULT_ZONE_KEY;
   repeatUnit.value = 'week';
-  intervalCount.value = 1;
-  dueDate.value = todayForApi();
+  intervalDays.value = DAYS_PER_REPEAT_UNIT.week;
+  dueDate.value = '';
   difficulty.value = 'medium';
   failed.value = false;
 };
@@ -203,9 +254,10 @@ const submit = async () => {
       due_date: dueDate.value || null,
       estimated_minutes: minutes,
       ...repeatFor(),
-      // Счётчик «− N +» уходит в базу: без него «раз в 3 недели» сохранилось бы
-      // как «каждую неделю». Для «один раз» интервал смысла не имеет.
-      interval_count: repeatUnit.value === 'once' ? 1 : intervalCount.value,
+      // Интервал в днях: без него «раз в 3 недели» сохранилось бы как «каждую
+      // неделю», а «раз в 10 дней» сервер не смог бы посчитать вовсе. Для «один
+      // раз» интервал смысла не имеет.
+      interval_count: repeatUnit.value === 'once' ? 1 : intervalDays.value,
     };
 
     await api.request('/api/tasks', { method: 'POST', body });
@@ -296,20 +348,32 @@ watch(
               type="button"
               class="stepper__btn"
               :aria-label="t('tasks.stepUp')"
-              :disabled="intervalCount >= MAX_INTERVAL"
+              :disabled="intervalDays >= MAX_INTERVAL_DAYS"
               @click="step(1)"
             >
               <i class="pi pi-plus" aria-hidden="true" />
             </button>
           </div>
+
+          <p v-if="repeatUnit !== 'once'" class="hint">{{ boundsHint }}</p>
         </div>
       </section>
 
+      <!--
+        Срок по умолчанию — сегодняшний день, но поле остаётся пустым, пока
+        человек его не тронул: тогда `due_date` подставляет сервер, и у задачи с
+        интервалом больше суток гарантированно есть опора цикла (правило 33).
+      -->
       <label class="card">
         <span class="row">
           <span class="row__icon" aria-hidden="true"><i class="pi pi-calendar" /></span>
           <span class="row__label">{{ dueLabel }}</span>
-          <input v-model="dueDate" class="row__date" type="date" :aria-label="t('tasks.dueDate')" >
+          <input
+            v-model="dueValue"
+            class="row__date"
+            type="date"
+            :aria-label="t('tasks.dueDate')"
+          >
         </span>
       </label>
 

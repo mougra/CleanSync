@@ -116,6 +116,44 @@ export const MAX_ZONE_TASKS_PER_DAY = 2;
  */
 const MAX_CYCLE_MONTHS = 60;
 
+/**
+ * Интервал периодичности каталога в днях — единственный источник правды для
+ * `interval_count` задач.
+ *
+ * Решение заказчика: периодичность выражается **днями**, а не неделями и месяцами.
+ * Недельные ступени — 7/14/21/42, месячные — 30/60/90/120/180, а годовое дело
+ * каталога становится «раз в 180 дней»: полгода — верхняя граница цикла
+ * сгенерированной задачи. Раскладка при этом продолжает считать клетки «число
+ * месяца + месяц года» в месяцах (это её рабочая величина), а в задачу уходит
+ * день — см. `slotDayCount`.
+ */
+const CADENCE_DAYS: Record<TaskCadence, number> = {
+  daily: 1,
+  weekly: 7,
+  biweekly: 14,
+  threeWeeks: 21,
+  sixWeeks: 42,
+  monthly: 30,
+  twoMonths: 60,
+  quarterly: 90,
+  fourMonths: 120,
+  semiannual: 180,
+  yearly: 180,
+  twoYears: 720,
+  threeYears: 1080,
+  fourYears: 1440,
+  fiveYears: 1800,
+};
+
+/**
+ * Верхняя граница цикла сгенерированной задачи: полгода.
+ *
+ * Годовое дело каталога попадает сюда же (180 дней) — по решению заказчика
+ * «полгода» и есть верхняя граница. Всё, чему не хватило места на этой ступени,
+ * уходит в `summary.droppedTasks`, а не превращается в «раз в 3 года».
+ */
+export const MAX_GENERATED_INTERVAL_DAYS = 180;
+
 /** Недель в месяце: по нему недельная шкала каталога переводится в месячную. */
 const WEEKS_PER_MONTH = 4.33;
 
@@ -162,29 +200,29 @@ const MONTHLY_CADENCE_NAMES: Record<number, TaskCadence> = {
 /** Частота, которую понимает таблица tasks и выборка «Сегодня». */
 export type DefaultTaskFrequency = 'daily' | 'weekly' | 'monthly';
 
-/** Периодичность каталога → пара (frequency, interval_count). */
+/** Периодичность каталога → пара (frequency, interval_count в днях). */
 const CADENCE_RULES: Record<
   TaskCadence,
   { frequency: DefaultTaskFrequency; intervalCount: number }
 > = {
-  daily: { frequency: 'daily', intervalCount: 1 },
-  weekly: { frequency: 'weekly', intervalCount: 1 },
-  biweekly: { frequency: 'weekly', intervalCount: 2 },
+  daily: { frequency: 'daily', intervalCount: CADENCE_DAYS.daily },
+  weekly: { frequency: 'weekly', intervalCount: CADENCE_DAYS.weekly },
+  biweekly: { frequency: 'weekly', intervalCount: CADENCE_DAYS.biweekly },
   // Новые недельные периодичности: та же частота 'weekly', другой интервал.
   // Выборка на день уже умеет интервалы (`MOD(FLOOR((дата - due_date)/7), N)`),
   // поэтому отдельного правила для «раз в 3 недели» нигде заводить не нужно.
-  threeWeeks: { frequency: 'weekly', intervalCount: 3 },
-  sixWeeks: { frequency: 'weekly', intervalCount: 6 },
-  monthly: { frequency: 'monthly', intervalCount: 1 },
-  twoMonths: { frequency: 'monthly', intervalCount: 2 },
-  quarterly: { frequency: 'monthly', intervalCount: 3 },
-  fourMonths: { frequency: 'monthly', intervalCount: 4 },
-  semiannual: { frequency: 'monthly', intervalCount: 6 },
-  yearly: { frequency: 'monthly', intervalCount: 12 },
-  twoYears: { frequency: 'monthly', intervalCount: 24 },
-  threeYears: { frequency: 'monthly', intervalCount: 36 },
-  fourYears: { frequency: 'monthly', intervalCount: 48 },
-  fiveYears: { frequency: 'monthly', intervalCount: 60 },
+  threeWeeks: { frequency: 'weekly', intervalCount: CADENCE_DAYS.threeWeeks },
+  sixWeeks: { frequency: 'weekly', intervalCount: CADENCE_DAYS.sixWeeks },
+  monthly: { frequency: 'monthly', intervalCount: CADENCE_DAYS.monthly },
+  twoMonths: { frequency: 'monthly', intervalCount: CADENCE_DAYS.twoMonths },
+  quarterly: { frequency: 'monthly', intervalCount: CADENCE_DAYS.quarterly },
+  fourMonths: { frequency: 'monthly', intervalCount: CADENCE_DAYS.fourMonths },
+  semiannual: { frequency: 'monthly', intervalCount: CADENCE_DAYS.semiannual },
+  yearly: { frequency: 'monthly', intervalCount: CADENCE_DAYS.yearly },
+  twoYears: { frequency: 'monthly', intervalCount: CADENCE_DAYS.twoYears },
+  threeYears: { frequency: 'monthly', intervalCount: CADENCE_DAYS.threeYears },
+  fourYears: { frequency: 'monthly', intervalCount: CADENCE_DAYS.fourYears },
+  fiveYears: { frequency: 'monthly', intervalCount: CADENCE_DAYS.fiveYears },
 };
 
 /** Каденсы недельной шкалы: их цикл — недели, дни недели и `due_date`. */
@@ -491,12 +529,15 @@ interface DaySlot {
 /**
  * Одна ступень цикла: как дело попадёт в расписание.
  *
- * `months` — шаг цикла в месяцах (у недельного дела он дробный: 3 недели — это
- * 0.69 месяца), `frequency` — то, как этот шаг выглядит в таблице tasks.
+ * `months` — рабочая величина раскладки: шаг цикла в месяцах (у недельного дела он
+ * дробный: 3 недели — это 0.69 месяца), по ней считаются клетки «число месяца +
+ * месяц года». `intervalCount` — то, что уходит в задачу: интервал **в днях**
+ * (7/14/21/42 у недельных ступеней, 30/60/90/120/180 у месячных).
  */
 interface CadenceSlot {
   cadence: TaskCadence;
   frequency: DefaultTaskFrequency;
+  /** Интервал в днях: `interval_count` задачи (решение заказчика, миграция 0022). */
   intervalCount: number;
   /** Сколько раз в году дело повторяется на этой ступени. */
   timesPerYear: number;
@@ -679,21 +720,25 @@ const slotFromMonths = (months: number, fallbackCadence: TaskCadence): CadenceSl
     weeks >= 1 && weeks <= 6 && Math.abs(months * WEEKS_PER_MONTH - weeks) < 1e-6;
 
   if (isWeekly) {
+    const cadence = weeklyCadenceName(weeks);
+
     return {
-      cadence: weeklyCadenceName(weeks),
+      cadence,
       frequency: 'weekly',
-      intervalCount: weeks,
+      // В задачу уходит день: «раз в 3 недели» — это 21, а не 3 (миграция 0022).
+      intervalCount: CADENCE_DAYS[cadence],
       timesPerYear: 52 / weeks,
       months,
     };
   }
 
   const wholeMonths = Math.max(1, Math.round(months));
+  const cadence = MONTHLY_CADENCE_NAMES[wholeMonths] ?? fallbackCadence;
 
   return {
-    cadence: MONTHLY_CADENCE_NAMES[wholeMonths] ?? fallbackCadence,
+    cadence,
     frequency: 'monthly',
-    intervalCount: wholeMonths,
+    intervalCount: CADENCE_DAYS[cadence],
     timesPerYear: 12 / wholeMonths,
     months,
   };
@@ -1148,8 +1193,14 @@ const attemptBuild = (
 
     const cadence = PINNED_CADENCE[catalogTask.task] ?? catalogTask.cadence;
     const preferred = cadence === 'daily' ? 1 / 365 : CADENCE_PREFERRED_MONTHS[cadence];
+    // Интервал в задаче — дни, поэтому для сравнения с каталожной частотой он
+    // приводится к месяцам: у недельного дела через недели, у месячного через 30.
+    // Без перевода «раз в полгода» весило бы как 180 месяцев, и `cycleScale`
+    // показывал бы 30 вместо реальных 1.1.
     const placed =
-      task.frequency === 'weekly' ? task.intervalCount / WEEKS_PER_MONTH : task.intervalCount;
+      task.frequency === 'weekly'
+        ? task.intervalCount / 7 / WEEKS_PER_MONTH
+        : task.intervalCount / 30;
 
     preferredCost += catalogTask.minutes * preferred;
     placedCost += catalogTask.minutes * placed;
