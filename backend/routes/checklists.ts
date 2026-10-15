@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import pool from '../db';
 import { authMiddleware } from '../auth';
+import { resolveContentLocale } from '../services/contentLocale';
 
 /**
  * Чек-листы: публичные шаблоны и личные списки пользователя.
@@ -54,13 +55,21 @@ const loadChecklist = async (id: number, userId: string | number) => {
 /** Публичные шаблоны чек-листов с количеством пунктов. */
 router.get('/templates', async (req: Request, res: Response) => {
   try {
+    const locale = resolveContentLocale(req);
+
     const result = await pool.query(
-      `SELECT s.id, s.title, s.description, COUNT(t.id)::int AS items_count
+      `SELECT s.id,
+              COALESCE(st.title, s.title) AS title,
+              COALESCE(st.description, s.description) AS description,
+              COUNT(t.id)::int AS items_count
          FROM schedules s
+         LEFT JOIN schedule_translations st
+                ON st.schedule_id = s.id AND st.locale = $1
          LEFT JOIN tasks t ON t.schedule_id = s.id
         WHERE s.is_template = TRUE AND s.is_seasonal = FALSE
-        GROUP BY s.id
-        ORDER BY s.id`
+        GROUP BY s.id, st.title, st.description
+        ORDER BY s.id`,
+      [locale]
     );
 
     res.json(result.rows);
@@ -104,9 +113,22 @@ router.post('/from-template/:templateId', authMiddleware, async (req: Request, r
   const client = await pool.connect();
 
   try {
+    const locale = resolveContentLocale(req);
+
+    /**
+     * Шаблон читаем сразу на языке запроса: скопированный чек-лист становится
+     * личным списком человека, и его текст больше не связан с шаблоном — иначе
+     * при смене языка интерфейса у человека менялись бы пункты уже начатой уборки.
+     */
     const template = await client.query(
-      'SELECT id, title, description FROM schedules WHERE id = $1 AND is_template = TRUE',
-      [templateId]
+      `SELECT s.id,
+              COALESCE(st.title, s.title) AS title,
+              COALESCE(st.description, s.description) AS description
+         FROM schedules s
+         LEFT JOIN schedule_translations st
+                ON st.schedule_id = s.id AND st.locale = $2
+        WHERE s.id = $1 AND s.is_template = TRUE`,
+      [templateId, locale]
     );
 
     if (template.rows.length === 0) {
@@ -133,12 +155,16 @@ router.post('/from-template/:templateId', authMiddleware, async (req: Request, r
       [req.userId, template.rows[0].title, template.rows[0].description, templateId]
     );
 
-    // Копируем пункты шаблона, отметки начинаются с нуля.
+    // Копируем пункты шаблона на языке запроса, отметки начинаются с нуля.
     await client.query(
       `INSERT INTO tasks (schedule_id, title, room, estimated_minutes)
-       SELECT $1, t.title, t.room, t.estimated_minutes
-         FROM tasks t WHERE t.schedule_id = $2 ORDER BY t.id`,
-      [created.rows[0].id, templateId]
+       SELECT $1, COALESCE(tt.title, t.title), t.room, t.estimated_minutes
+         FROM tasks t
+         LEFT JOIN task_translations tt
+                ON tt.task_id = t.id AND tt.locale = $3
+        WHERE t.schedule_id = $2
+        ORDER BY t.id`,
+      [created.rows[0].id, templateId, locale]
     );
 
     await client.query('COMMIT');

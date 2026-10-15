@@ -734,7 +734,8 @@
       "balcony": "Balcony",
       "yard": "Yard",
       "garage": "Garage",
-      "wholeHouse": "Whole house"
+      "wholeHouse": "Whole house",
+      "windows": "Windows"
     }
   },
   "vacation": {

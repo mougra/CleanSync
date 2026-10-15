@@ -9,6 +9,7 @@
 import type { ChecklistItem, TaskFrequency } from '~/types/checklist';
 
 const { t, locale } = useI18n();
+const { zoneLabel } = useZoneLabel();
 const localePath = useLocalePath();
 const route = useRoute();
 const api = useApi();
@@ -60,7 +61,10 @@ const weekdays = computed(() =>
 );
 
 const itemMeta = (item: ChecklistItem) =>
-  [item.room, item.estimated_minutes ? `${item.estimated_minutes} ${t('checklists.minutes')}` : null]
+  [
+    zoneLabel(item.room),
+    item.estimated_minutes ? `${item.estimated_minutes} ${t('checklists.minutes')}` : null,
+  ]
     .filter(Boolean)
     .join(' · ');
 

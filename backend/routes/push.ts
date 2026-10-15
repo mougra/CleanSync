@@ -2,8 +2,16 @@ import express, { Request, Response } from 'express';
 import pool from '../db';
 import { authMiddleware } from '../auth';
 import { isPushConfigured, pushPublicKey, sendPushToUser } from '../services/push';
+import { resolveContentLocale, type ContentLocale } from '../services/contentLocale';
+import { PUSH_EN } from '../content/en/notifications';
 
 const router = express.Router();
+
+/** Проверочное уведомление — на языке того, кто его запросил. */
+const testPushText = (lang: ContentLocale): { title: string; body: string } =>
+  lang === 'en'
+    ? { title: PUSH_EN.testTitle, body: PUSH_EN.testBody }
+    : { title: 'Уведомления включены', body: 'Так будут приходить напоминания о привычках.' };
 
 /** Публичный ключ для подписки: нужен браузеру, секрета в нём нет. */
 router.get('/key', (req: Request, res: Response) => {
@@ -88,8 +96,7 @@ router.post('/test', authMiddleware, async (req: Request, res: Response) => {
     }
 
     const delivered = await sendPushToUser(req.userId!, {
-      title: 'Уведомления включены',
-      body: 'Так будут приходить напоминания о привычках.',
+      ...testPushText(resolveContentLocale(req)),
       url: '/habits',
       tag: 'push-test',
     });

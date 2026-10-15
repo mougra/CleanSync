@@ -1,5 +1,57 @@
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
+/**
+ * Cookie, в которое `@nuxtjs/i18n` кладёт выбранный язык.
+ * Ключ обязан совпадать с `i18n.detectBrowserLanguage.cookieKey` в nuxt.config.
+ */
+const LOCALE_COOKIE = 'tidyplan-locale';
+
+/** Значение cookie без зависимостей от Nuxt: нужно и в SSR, и в браузере. */
+const cookieValue = (raw: string | undefined, name: string): string | null => {
+  if (!raw) {
+    return null;
+  }
+
+  for (const part of raw.split(';')) {
+    const [key, ...rest] = part.split('=');
+
+    if (key?.trim() === name) {
+      const value = rest.join('=').trim();
+
+      return value ? decodeURIComponent(value) : null;
+    }
+  }
+
+  return null;
+};
+
+/**
+ * Язык, на котором API должен отдать тексты из базы (названия челленджей,
+ * достижений, привычек). Интерфейс переводят i18n на клиенте, а этот текст
+ * приходит готовой строкой с сервера, поэтому язык едет в каждом запросе.
+ *
+ * Источник — то же cookie, что читает i18n: выбор человека важнее языка
+ * браузера, и на сервере, и в браузере получается одно и то же значение.
+ * Если cookie ещё нет (первый заход), SSR отвечает по `Accept-Language`
+ * браузера, а клиент — по `navigator.language`.
+ */
+const apiLocale = (forwardedCookie: string | undefined): string => {
+  const fromCookie = cookieValue(
+    import.meta.server ? forwardedCookie : document.cookie,
+    LOCALE_COOKIE,
+  );
+
+  if (fromCookie) {
+    return fromCookie;
+  }
+
+  if (import.meta.server) {
+    return useRequestHeaders(['accept-language'])['accept-language'] ?? 'ru';
+  }
+
+  return navigator.language || 'ru';
+};
+
 /** Тип опций берём у самого $fetch, чтобы не расходиться с версией Nitro. */
 type ApiRequestOptions = Parameters<typeof $fetch>[1];
 
@@ -35,6 +87,8 @@ export const useApi = () => {
     const method = String(options.method ?? 'GET').toUpperCase();
     const headers: Record<string, string> = {
       ...((options.headers as Record<string, string> | undefined) ?? {}),
+      // Язык текстов из базы: интерфейс переводит i18n, а контент — сервер.
+      'Accept-Language': apiLocale(forwardedCookie),
     };
 
     if (!SAFE_METHODS.has(method)) {

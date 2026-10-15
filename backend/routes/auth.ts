@@ -4,6 +4,9 @@ import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import pool from '../db';
 import { generateTokens, verifyRefreshToken, authMiddleware } from '../auth';
+import { normalizeLocale, resolveContentLocale, type ContentLocale } from '../services/contentLocale';
+import { EMAIL_EN } from '../content/en/emails';
+import { relocalizeGeneratedContent } from '../services/generatedContent';
 import { clearAuthCookies, ensureCsrfToken, issueCsrfToken, readRefreshToken, setAuthCookies } from '../cookies';
 
 const router = express.Router();
@@ -56,7 +59,63 @@ const isEmailConfigured = () =>
       process.env.SMTP_PASS,
   );
 
-const getEmailTemplate = (title: string, content: string, actionText: string, actionLink: string) => {
+/**
+ * Тексты писем на двух языках.
+ *
+ * Русский лежит здесь (он язык по умолчанию), английский — в
+ * `content/en/emails.ts`. Язык письма берём из профиля (`users.locale`),
+ * а если он там ещё не проставлен — из заголовка запроса: письмо читают в
+ * почтовом клиенте, где cookie не видно.
+ */
+interface EmailCopy {
+  subject: string;
+  title: string;
+  body: string;
+  action: string;
+}
+
+const EMAIL_RU: Record<'reset' | 'confirm' | 'changed', EmailCopy> = {
+  reset: {
+    subject: 'Сброс пароля TidyPlan',
+    title: 'Сброс пароля',
+    body: 'Вы запросили сброс пароля для своего аккаунта. Перейдите по кнопке ниже, чтобы установить новый пароль.',
+    action: 'Установить новый пароль',
+  },
+  confirm: {
+    subject: 'Подтвердите email для TidyPlan',
+    title: 'Подтверждение почты',
+    body: 'Добро пожаловать в TidyPlan! Чтобы начать пользоваться приложением, пожалуйста, подтвердите ваш адрес электронной почты.',
+    action: 'Подтвердить email',
+  },
+  changed: {
+    subject: 'Пароль TidyPlan изменён',
+    title: 'Пароль изменён',
+    body: 'Пароль вашего аккаунта TidyPlan только что изменён. Если это сделали не вы, восстановите доступ к аккаунту и напишите нам.',
+    action: 'Войти в TidyPlan',
+  },
+};
+
+const emailCopy = (key: 'reset' | 'confirm' | 'changed', lang: ContentLocale): EmailCopy =>
+  lang === 'en' ? EMAIL_EN[key] : EMAIL_RU[key];
+
+const getEmailTemplate = (
+  title: string,
+  content: string,
+  actionText: string,
+  actionLink: string,
+  lang: ContentLocale,
+) => {
+  const footer =
+    lang === 'en'
+      ? `© ${new Date().getFullYear()} TidyPlan. ${EMAIL_EN.footer}${
+          emailReplyTo ? `<br>${EMAIL_EN.replyNote}` : ''
+        }`
+      : `© ${new Date().getFullYear()} TidyPlan. Помогаем делать мир чище.${
+          emailReplyTo ? '<br>На это письмо можно ответить — оно придёт в поддержку.' : ''
+        }`;
+  const fallback =
+    lang === 'en' ? EMAIL_EN.fallbackNote : 'Если кнопка не работает, скопируйте эту ссылку:';
+
   return `
     <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px; background-color: #f9f9f9;">
       <div style="text-align: center; margin-bottom: 20px;">
@@ -73,14 +132,12 @@ const getEmailTemplate = (title: string, content: string, actionText: string, ac
           </a>
         </div>
         <p style="color: #999; font-size: 12px; text-align: center; margin-top: 20px;">
-          Если кнопка не работает, скопируйте эту ссылку:<br>
+          ${fallback}<br>
           <a href="${actionLink}" style="color: #007bff; word-break: break-all;">${actionLink}</a>
         </p>
       </div>
       <div style="text-align: center; margin-top: 20px; color: #aaa; font-size: 12px;">
-        © ${new Date().getFullYear()} TidyPlan. Помогаем делать мир чище.${
-          emailReplyTo ? '<br>На это письмо можно ответить — оно придёт в поддержку.' : ''
-        }
+        ${footer}
       </div>
     </div>
   `;
@@ -110,31 +167,25 @@ const sendEmail = async ({ to, subject, html }: { to: string; subject: string; h
 const appBaseUrl = (process.env.APP_BASE_URL || 'http://localhost:3000').replace(/\/+$/, '');
 const appLink = (path: string) => `${appBaseUrl}${path}`;
 
-const sendPasswordResetEmail = async (to: string, resetToken: string) => {
+const sendPasswordResetEmail = async (to: string, resetToken: string, lang: ContentLocale) => {
   const resetLink = appLink(`/reset-password?token=${resetToken}`);
+  const copy = emailCopy('reset', lang);
+
   return sendEmail({
     to,
-    subject: 'Сброс пароля TidyPlan',
-    html: getEmailTemplate(
-      'Сброс пароля',
-      'Вы запросили сброс пароля для своего аккаунта. Перейдите по кнопке ниже, чтобы установить новый пароль.',
-      'Установить новый пароль',
-      resetLink
-    ),
+    subject: copy.subject,
+    html: getEmailTemplate(copy.title, copy.body, copy.action, resetLink, lang),
   });
 };
 
-const sendConfirmationEmail = async (to: string, confirmToken: string) => {
+const sendConfirmationEmail = async (to: string, confirmToken: string, lang: ContentLocale) => {
   const confirmLink = appLink(`/confirm-email?token=${confirmToken}`);
+  const copy = emailCopy('confirm', lang);
+
   return sendEmail({
     to,
-    subject: 'Подтвердите email для TidyPlan',
-    html: getEmailTemplate(
-      'Подтверждение почты',
-      'Добро пожаловать в TidyPlan! Чтобы начать пользоваться приложением, пожалуйста, подтвердите ваш адрес электронной почты.',
-      'Подтвердить email',
-      confirmLink
-    ),
+    subject: copy.subject,
+    html: getEmailTemplate(copy.title, copy.body, copy.action, confirmLink, lang),
   });
 };
 
@@ -145,17 +196,14 @@ const sendConfirmationEmail = async (to: string, confirmToken: string) => {
  * потери доступа. Отправка уведомления не должна ломать саму смену пароля —
  * пароль уже изменён и откатывать это нельзя, поэтому ошибку только логируем.
  */
-const sendPasswordChangedEmail = async (to: string) => {
+const sendPasswordChangedEmail = async (to: string, lang: ContentLocale) => {
+  const copy = emailCopy('changed', lang);
+
   try {
     await sendEmail({
       to,
-      subject: 'Пароль TidyPlan изменён',
-      html: getEmailTemplate(
-        'Пароль изменён',
-        'Пароль вашего аккаунта TidyPlan только что изменён. Если это сделали не вы, восстановите доступ к аккаунту и напишите нам.',
-        'Войти в TidyPlan',
-        appLink('/login')
-      ),
+      subject: copy.subject,
+      html: getEmailTemplate(copy.title, copy.body, copy.action, appLink('/login'), lang),
     });
   } catch (error) {
     console.error('Failed to send password change notice:', error);
@@ -315,6 +363,7 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
     }
 
     const userId = userResult.rows[0].id;
+    const lang = resolveContentLocale(req, userResult.rows[0].locale);
 
     // Generate reset token
     const resetToken = crypto.randomBytes(32).toString('hex');
@@ -329,7 +378,7 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
     // Send email if SMTP is configured
     const resetLink = appLink(`/reset-password?token=${resetToken}`);
     try {
-      const emailSent = await sendPasswordResetEmail(email, resetToken);
+      const emailSent = await sendPasswordResetEmail(email, resetToken, lang);
       if (!emailSent) {
         console.warn(
           'SMTP not configured — password reset link is logged in the backend console.',
@@ -391,8 +440,8 @@ router.post('/reset-password', async (req: Request, res: Response) => {
       token,
     ]);
 
-    const resetUser = await pool.query<{ email: string }>(
-      'SELECT email FROM users WHERE id = $1',
+    const resetUser = await pool.query<{ email: string; locale: string | null }>(
+      'SELECT email, locale FROM users WHERE id = $1',
       [user_id],
     );
 
@@ -401,7 +450,10 @@ router.post('/reset-password', async (req: Request, res: Response) => {
     await pool.query('DELETE FROM refresh_tokens WHERE user_id = $1', [user_id]);
 
     if (resetUser.rows[0]?.email) {
-      await sendPasswordChangedEmail(resetUser.rows[0].email);
+      await sendPasswordChangedEmail(
+        resetUser.rows[0].email,
+        resolveContentLocale(req, resetUser.rows[0].locale),
+      );
     }
 
     res.status(200).json({ message: 'Password reset successfully' });
@@ -445,7 +497,7 @@ router.post('/resend-confirmation', async (req: Request, res: Response) => {
     }
 
     const userResult = await pool.query(
-      'SELECT id FROM users WHERE email = $1 AND is_email_confirmed = FALSE',
+      'SELECT id, locale FROM users WHERE email = $1 AND is_email_confirmed = FALSE',
       [email],
     );
     if (userResult.rows.length === 0) {
@@ -462,7 +514,11 @@ router.post('/resend-confirmation', async (req: Request, res: Response) => {
     const confirmLink = appLink(`/confirm-email?token=${confirmToken}`);
 
     try {
-      const emailSent = await sendConfirmationEmail(email, confirmToken);
+      const emailSent = await sendConfirmationEmail(
+        email,
+        confirmToken,
+        resolveContentLocale(req, userResult.rows[0].locale),
+      );
       if (!emailSent) {
         console.warn(
           'SMTP not configured — confirmation link logged in the backend console.',
@@ -487,7 +543,7 @@ router.post('/resend-confirmation', async (req: Request, res: Response) => {
 router.get('/me', authMiddleware, async (req: Request, res: Response) => {
   try {
     const result = await pool.query(
-      'SELECT id, email, username, avatar_url, is_email_confirmed FROM users WHERE id = $1',
+      'SELECT id, email, username, avatar_url, is_email_confirmed, locale, timezone FROM users WHERE id = $1',
       [req.userId],
     );
 
@@ -523,6 +579,64 @@ router.put('/profile', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Язык и часовой пояс профиля.
+ *
+ * Нужны там, где интерфейса рядом нет: письма, push-напоминания и генерация
+ * плана по дому. Отдельный маршрут, а не `PUT /profile`, потому что язык
+ * меняется из переключателя в настройках — без имени и аватара, и требовать
+ * их ради смены языка было бы странно.
+ */
+router.put('/locale', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { locale, timezone } = req.body as { locale?: unknown; timezone?: unknown };
+
+    const localeValue = normalizeLocale(typeof locale === 'string' ? locale : null);
+
+    // Неизвестный язык — ошибка клиента: молча записать «ru» значило бы
+    // показать человеку не тот язык, который он выбрал.
+    if (locale !== undefined && !localeValue) {
+      return res.status(400).json({ error: 'Unsupported locale' });
+    }
+
+    const timezoneValue =
+      typeof timezone === 'string' && timezone.trim() ? timezone.trim().slice(0, 64) : null;
+
+    const result = await pool.query(
+      `UPDATE users
+          SET locale = COALESCE($1, locale),
+              timezone = COALESCE($2, timezone),
+              updated_at = CURRENT_TIMESTAMP
+        WHERE id = $3
+    RETURNING id, email, username, avatar_url, is_email_confirmed, locale, timezone`,
+      [localeValue, timezoneValue, req.userId],
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    /**
+     * Сменился язык — приводим к нему переводы сгенерированного набора задач
+     * («Мои задачи» и план по дому): их названия лежат в базе русскими (по ним
+     * генератор и «Вернуть» находят задачи), а английский живёт в переводах.
+     * Ошибка перевода не должна ломать саму смену языка: интерфейс уже переключён.
+     */
+    if (localeValue) {
+      try {
+        await relocalizeGeneratedContent(req.userId!, localeValue);
+      } catch (error) {
+        console.error('Не удалось обновить переводы сгенерированных задач:', error);
+      }
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update locale' });
+  }
+});
+
 // Change password
 router.post('/change-password', authMiddleware, async (req: Request, res: Response) => {
   try {
@@ -535,7 +649,7 @@ router.post('/change-password', authMiddleware, async (req: Request, res: Respon
     }
 
     const userResult = await pool.query(
-      'SELECT password, is_email_confirmed, email FROM users WHERE id = $1',
+      'SELECT password, is_email_confirmed, email, locale FROM users WHERE id = $1',
       [req.userId],
     );
     if (userResult.rows.length === 0) {
@@ -571,7 +685,10 @@ router.post('/change-password', authMiddleware, async (req: Request, res: Respon
       [req.userId, currentRefresh],
     );
 
-    await sendPasswordChangedEmail(userResult.rows[0].email);
+    await sendPasswordChangedEmail(
+      userResult.rows[0].email,
+      resolveContentLocale(req, userResult.rows[0].locale),
+    );
 
     res.json({ message: 'Password changed successfully' });
   } catch (err) {

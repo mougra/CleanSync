@@ -1,5 +1,8 @@
 import type { PoolClient } from 'pg';
 import type { Season } from './services/seasons';
+import { CHALLENGE_EN } from './content/en/challenges';
+import { zoneEn } from './content/en/zones';
+import { extraKeys, missingKeys, upsertTranslation } from './services/translations';
 
 /**
  * Челленджи: марафон по дням с задачами.
@@ -433,6 +436,22 @@ export const seedChallenges = async (
       created += 1;
     }
 
+    /**
+     * Английский перевод пишем и для нового челленджа, и для обновлённого:
+     * переводы не зависят от того, был ли челлендж в базе раньше.
+     */
+    const translation = CHALLENGE_EN[challenge.slug];
+
+    if (translation) {
+      await upsertTranslation(client, {
+        table: 'challenge_translations',
+        keyColumn: 'challenge_id',
+        key: challengeId,
+        locale: 'en',
+        fields: { title: translation.title, description: translation.description },
+      });
+    }
+
     for (const day of challenge.days) {
       const dayRow = await client.query<{ id: number }>(
         `INSERT INTO challenge_days (challenge_id, day_number, title, subtitle)
@@ -445,13 +464,29 @@ export const seedChallenges = async (
 
       const dayId = dayRow.rows[0].id;
 
+      const dayTranslation = translation?.days[String(day.day)];
+
+      if (dayTranslation) {
+        await upsertTranslation(client, {
+          table: 'challenge_day_translations',
+          keyColumn: 'challenge_day_id',
+          key: dayId,
+          locale: 'en',
+          fields: {
+            title: dayTranslation.title,
+            subtitle: dayTranslation.subtitle,
+          },
+        });
+      }
+
       for (const [index, task] of day.tasks.entries()) {
-        await client.query(
+        const savedTask = await client.query<{ id: number }>(
           `INSERT INTO challenge_tasks (challenge_day_id, position, title, hint, room, estimated_minutes, frequency)
            VALUES ($1, $2, $3, $4, $5, $6, $7)
            ON CONFLICT (challenge_day_id, position)
            DO UPDATE SET title = EXCLUDED.title, hint = EXCLUDED.hint, room = EXCLUDED.room,
-                         estimated_minutes = EXCLUDED.estimated_minutes, frequency = EXCLUDED.frequency`,
+                         estimated_minutes = EXCLUDED.estimated_minutes, frequency = EXCLUDED.frequency
+           RETURNING id`,
           [
             dayId,
             index + 1,
@@ -462,6 +497,25 @@ export const seedChallenges = async (
             task.frequency ?? 'once',
           ]
         );
+
+        const taskId = savedTask.rows[0]?.id;
+        const taskTranslation = dayTranslation?.tasks[task.title];
+
+        if (taskId && taskTranslation) {
+          await upsertTranslation(client, {
+            table: 'challenge_task_translations',
+            keyColumn: 'challenge_task_id',
+            key: taskId,
+            locale: 'en',
+            fields: {
+              title: taskTranslation.title,
+              hint: taskTranslation.hint,
+              // Зона в базе остаётся русской (по ней считаются срезы), а перевод
+              // отдаёт её английское название для интерфейса.
+              room: zoneEn(task.room),
+            },
+          });
+        }
       }
 
       // Если набор задач в дне сократился, хвост лишних позиций удаляем.
@@ -520,6 +574,74 @@ export const validateChallengeSeeds = (): string[] => {
     if (count !== 1) {
       problems.push(`сезон ${season}: челленджей ${count}, а нужен ровно один`);
     }
+  }
+
+  return problems;
+};
+
+/**
+ * Проверка английских переводов челленджей.
+ *
+ * Ключ задачи в переводе — русское название внутри дня: стабильного id у задачи
+ * до записи в базу нет (он появляется в `challenge_tasks.id`), а название внутри
+ * дня уникально. Уникальность здесь и проверяем: если в дне появятся две задачи
+ * с одинаковым названием, одна из них молча получит чужой перевод.
+ */
+export const validateChallengeTranslations = (): string[] => {
+  const problems: string[] = [];
+
+  for (const challenge of CHALLENGES) {
+    const translation = CHALLENGE_EN[challenge.slug];
+
+    if (!translation) {
+      problems.push(`нет английского перевода челленджа «${challenge.slug}»`);
+      continue;
+    }
+
+    const dayNumbers = challenge.days.map((day) => String(day.day));
+
+    for (const day of missingKeys(dayNumbers, translation.days)) {
+      problems.push(`${challenge.slug}: нет английского перевода дня ${day}`);
+    }
+
+    for (const day of extraKeys(dayNumbers, translation.days)) {
+      problems.push(`${challenge.slug}: английский перевод дня ${day} остался без оригинала`);
+    }
+
+    for (const day of challenge.days) {
+      const dayTranslation = translation.days[String(day.day)];
+
+      if (!dayTranslation) {
+        continue;
+      }
+
+      const titles = day.tasks.map((task) => task.title);
+
+      if (new Set(titles).size !== titles.length) {
+        problems.push(
+          `${challenge.slug}, день ${day.day}: в дне повторяется название задачи — перевод по названию неоднозначен`,
+        );
+      }
+
+      for (const title of missingKeys(titles, dayTranslation.tasks)) {
+        problems.push(
+          `${challenge.slug}, день ${day.day}: нет английского перевода задачи «${title}»`,
+        );
+      }
+
+      for (const title of extraKeys(titles, dayTranslation.tasks)) {
+        problems.push(
+          `${challenge.slug}, день ${day.day}: английский перевод задачи «${title}» остался без оригинала`,
+        );
+      }
+    }
+  }
+
+  for (const slug of extraKeys(
+    CHALLENGES.map((challenge) => challenge.slug),
+    CHALLENGE_EN,
+  )) {
+    problems.push(`английский перевод челленджа «${slug}» остался без оригинала`);
   }
 
   return problems;

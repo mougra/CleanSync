@@ -734,7 +734,8 @@
       "balcony": "Балкон",
       "yard": "Двор",
       "garage": "Гараж",
-      "wholeHouse": "По всему дому"
+      "wholeHouse": "По всему дому",
+      "windows": "Окна"
     }
   },
   "vacation": {

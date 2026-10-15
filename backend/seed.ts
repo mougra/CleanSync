@@ -1,8 +1,18 @@
 import dotenv from 'dotenv';
 import pool from './db';
-import { seedChallenges, validateChallengeSeeds } from './seed-challenges';
-import { seedHabitTemplates } from './seed-habits';
-import { taskCatalogSize, taskCountByLevel, validateTaskCatalog } from './services/taskCatalog';
+import { seedChallenges, validateChallengeSeeds, validateChallengeTranslations } from './seed-challenges';
+import { HABIT_TEMPLATES, seedHabitTemplates } from './seed-habits';
+import { ACHIEVEMENT_EN, validateAchievementTranslations } from './content/en/achievements';
+import { validateHabitTranslations } from './content/en/habits';
+import { TEMPLATE_EN, validateTemplateTranslations } from './content/en/templates';
+import { validateCatalogTranslations } from './content/en/taskCatalog';
+import {
+  getTaskCatalog,
+  taskCatalogSize,
+  taskCountByLevel,
+  validateTaskCatalog,
+} from './services/taskCatalog';
+import { upsertTranslation } from './services/translations';
 
 dotenv.config();
 
@@ -160,6 +170,21 @@ const seed = async (): Promise<void> => {
   );
 
   /**
+   * Переводы каталога проверяем здесь же: из каталога собирается план по дому,
+   * и задача без английского названия вылезет русской в англоязычном плане.
+   * Ключ — русское название: у записи каталога другого стабильного ключа нет.
+   */
+  const catalogTranslationProblems = validateCatalogTranslations(
+    getTaskCatalog().map((task) => task.task),
+  );
+
+  if (catalogTranslationProblems.length > 0) {
+    throw new Error(
+      `Переводы каталога задач некорректны:\n  - ${catalogTranslationProblems.join('\n  - ')}`,
+    );
+  }
+
+  /**
    * Сезонные челленджи проверяем до записи: главная выбирает челлендж по сезону,
    * и пропущенный сезон выглядит как «челленджа нет», а не как ошибка наполнения.
    */
@@ -169,13 +194,59 @@ const seed = async (): Promise<void> => {
     throw new Error(`Наполнение челленджей некорректно:\n  - ${challengeProblems.join('\n  - ')}`);
   }
 
+  const challengeTranslationProblems = validateChallengeTranslations();
+
+  if (challengeTranslationProblems.length > 0) {
+    throw new Error(
+      `Переводы челленджей некорректны:\n  - ${challengeTranslationProblems.join('\n  - ')}`,
+    );
+  }
+
+  /**
+   * Английские переводы достижений проверяем до записи: справочник достижений
+   * показывается и в интерфейсе, и в тосте о получении, поэтому название без
+   * перевода вылезет русским посреди английского экрана.
+   */
+  const achievementTranslationProblems = validateAchievementTranslations(
+    ACHIEVEMENTS.map((a) => a.code),
+  );
+
+  if (achievementTranslationProblems.length > 0) {
+    throw new Error(
+      `Переводы достижений некорректны:\n  - ${achievementTranslationProblems.join('\n  - ')}`,
+    );
+  }
+
+  /**
+   * Переводы шаблонов и привычек проверяем так же до записи. У шаблонов нет
+   * стабильного ключа — сверяем наборы названий целиком, чтобы переименованный
+   * пункт не остался с прежним (и уже неверным) переводом.
+   */
+  const templateTranslationProblems = validateTemplateTranslations(TEMPLATES);
+
+  if (templateTranslationProblems.length > 0) {
+    throw new Error(
+      `Переводы шаблонов некорректны:\n  - ${templateTranslationProblems.join('\n  - ')}`,
+    );
+  }
+
+  const habitTranslationProblems = validateHabitTranslations(
+    HABIT_TEMPLATES.map((template) => template.slug),
+  );
+
+  if (habitTranslationProblems.length > 0) {
+    throw new Error(
+      `Переводы привычек некорректны:\n  - ${habitTranslationProblems.join('\n  - ')}`,
+    );
+  }
+
   const client = await pool.connect();
 
   try {
     await client.query('BEGIN');
 
     for (const a of ACHIEVEMENTS) {
-      await client.query(
+      const saved = await client.query<{ id: number }>(
         `INSERT INTO achievements (code, name, description, icon, criteria_type, criteria_value)
          VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (code) DO UPDATE SET
@@ -183,36 +254,98 @@ const seed = async (): Promise<void> => {
            description = EXCLUDED.description,
            icon = EXCLUDED.icon,
            criteria_type = EXCLUDED.criteria_type,
-           criteria_value = EXCLUDED.criteria_value`,
+           criteria_value = EXCLUDED.criteria_value
+         RETURNING id`,
         [a.code, a.name, a.description, a.icon, a.criteriaType, a.criteriaValue]
       );
+
+      const achievementId = saved.rows[0]?.id;
+      const translation = ACHIEVEMENT_EN[a.code];
+
+      if (achievementId && translation) {
+        await upsertTranslation(client, {
+          table: 'achievement_translations',
+          keyColumn: 'achievement_id',
+          key: achievementId,
+          locale: 'en',
+          fields: { name: translation.name, description: translation.description },
+        });
+      }
     }
-    console.log(`Достижения: ${ACHIEVEMENTS.length} (обновлены/созданы)`);
+    console.log(`Достижения: ${ACHIEVEMENTS.length} (обновлены/созданы, с переводом)`);
 
     let created = 0;
     let skipped = 0;
 
+    /**
+     * Шаблоны не пересоздаём (идемпотентность), но перевод пишем всегда — и для
+     * уже существующего расписания тоже: иначе английскими стали бы только
+     * шаблоны, добавленные после этой правки, а весь прежний набор остался бы
+     * русским. Пункты берём из базы: у существующего расписания их id уже есть,
+     * а у нового они только что вставлены.
+     */
     for (const t of TEMPLATES) {
-      const existing = await client.query(
+      const existing = await client.query<{ id: number }>(
         'SELECT id FROM schedules WHERE is_template = TRUE AND title = $1 LIMIT 1',
         [t.title]
       );
 
-      if (existing.rowCount) {
+      let scheduleId = existing.rows[0]?.id;
+
+      if (scheduleId) {
         skipped += 1;
+      } else {
+        const inserted = await client.query<{ id: number }>(
+          'INSERT INTO schedules (title, description, is_template, is_seasonal) VALUES ($1, $2, TRUE, $3) RETURNING id',
+          [t.title, t.description, t.isSeasonal]
+        );
+
+        scheduleId = inserted.rows[0]?.id;
+
+        for (const taskTitle of t.tasks) {
+          await client.query('INSERT INTO tasks (schedule_id, title) VALUES ($1, $2)', [
+            scheduleId,
+            taskTitle,
+          ]);
+        }
+
+        created += 1;
+      }
+
+      const translation = TEMPLATE_EN[t.title];
+
+      if (!scheduleId || !translation) {
         continue;
       }
 
-      const inserted = await client.query(
-        'INSERT INTO schedules (title, description, is_template, is_seasonal) VALUES ($1, $2, TRUE, $3) RETURNING id',
-        [t.title, t.description, t.isSeasonal]
-      );
-      const scheduleId = inserted.rows[0].id;
+      await upsertTranslation(client, {
+        table: 'schedule_translations',
+        keyColumn: 'schedule_id',
+        key: scheduleId,
+        locale: 'en',
+        fields: { title: translation.title, description: translation.description },
+      });
 
-      for (const taskTitle of t.tasks) {
-        await client.query('INSERT INTO tasks (schedule_id, title) VALUES ($1, $2)', [scheduleId, taskTitle]);
+      const templateTasks = await client.query<{ id: number; title: string }>(
+        'SELECT id, title FROM tasks WHERE schedule_id = $1',
+        [scheduleId]
+      );
+
+      for (const task of templateTasks.rows) {
+        const taskTitleEn = translation.tasks[task.title];
+
+        if (!taskTitleEn) {
+          continue;
+        }
+
+        await upsertTranslation(client, {
+          table: 'task_translations',
+          keyColumn: 'task_id',
+          key: task.id,
+          locale: 'en',
+          fields: { title: taskTitleEn },
+        });
       }
-      created += 1;
     }
 
     const challenges = await seedChallenges(client);

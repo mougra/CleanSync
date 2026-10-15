@@ -20,6 +20,41 @@ useSeoMeta({
   // Картинка бренда по умолчанию: страницы со своей обложкой её перекрывают
   ogImage: '/og-image.png',
 });
+
+const { locale } = useI18n();
+const api = useApi();
+
+/**
+ * Язык профиля.
+ *
+ * Переключатель меняет интерфейс и cookie, но письма и push-напоминания
+ * собираются на сервере, где cookie не видно: там язык берётся из профиля.
+ * Поэтому синхронизируем его при каждом изменении языка — и при входе тоже,
+ * чтобы профиль соответствовал тому, что человек видит.
+ */
+watch(
+  [locale, () => auth.isAuthenticated],
+  () => {
+    if (import.meta.server || !auth.isAuthenticated) {
+      return;
+    }
+
+    void api
+      .request('/api/auth/locale', {
+        method: 'PUT',
+        body: {
+          locale: locale.value,
+          // Часовой пояс нужен напоминаниям: «в 9:00» должно считаться
+          // по времени человека, а не сервера.
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        },
+      })
+      // Смена языка в интерфейсе не должна ломаться из-за сети: профиль
+      // догонит при следующем переключении или входе.
+      .catch(() => undefined);
+  },
+  { immediate: true },
+);
 </script>
 
 <template>

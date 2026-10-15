@@ -9,6 +9,8 @@ import {
   type DefaultTaskSet,
 } from '../services/defaultTasks';
 import { dayBudget } from '../services/dailyBudget';
+import { resolveContentLocale, type ContentLocale } from '../services/contentLocale';
+import { relocalizeGeneratedContent } from '../services/generatedContent';
 import { getTaskCatalog } from '../services/taskCatalog';
 import {
   CLEANING_LEVELS,
@@ -402,6 +404,10 @@ router.put('/', authMiddleware, async (req: Request, res: Response) => {
         const merged = await mergePlanIntoTasks(userId);
         const myTasks = await syncDefaultTasks(userId, defaultSet, { removeStale: true });
 
+        // Набор только что собран русскими названиями (они — ключ идемпотентности),
+        // поэтому английские подписи кладём рядом, в таблицу переводов.
+        await relocalizeGeneratedContent(userId, resolveContentLocale(req));
+
         res.json({
           ...toProfileResponse(updated),
           myTasks: toMyTasksResponse(myTasks, defaultSet, merged),
@@ -435,6 +441,9 @@ const toAnswers = (row: HomeProfileRow): HomeAnswers => answersFromStoredRow(row
 /** Задача набора в объёме, который нужен «плану» и финальному экрану мастера. */
 interface PlanTaskRow {
   id: number;
+  /** Русское название из базы: по нему находится запись каталога (уровень, теги). */
+  source_title: string;
+  /** Название на языке запроса — то, что видит человек. */
   title: string;
   room: string | null;
   estimated_minutes: number | null;
@@ -455,11 +464,27 @@ interface PlanTaskRow {
  *  - `focusZone` — «трудная» зона из анкеты (набор вокруг неё больше не строится,
  *    но человек выбрал именно её, и мастер про неё пишет).
  */
-const buildPlanView = async (answers: HomeAnswers, scheduleId: number, set: DefaultTaskSet) => {
+const buildPlanView = async (
+  answers: HomeAnswers,
+  scheduleId: number,
+  set: DefaultTaskSet,
+  locale: ContentLocale,
+) => {
+  /**
+   * Название отдаём на языке запроса, но рядом берём и русское: по нему
+   * находится запись каталога (уровень задачи и теги знает только каталог,
+   * а его ключ — русское название).
+   */
   const result = await pool.query<PlanTaskRow>(
-    `SELECT id, title, room, estimated_minutes, frequency, day_of_week
-       FROM tasks WHERE schedule_id = $1 ORDER BY id`,
-    [scheduleId]
+    `SELECT t.id,
+            t.title AS source_title,
+            COALESCE(tt.title, t.title) AS title,
+            t.room, t.estimated_minutes, t.frequency, t.day_of_week
+       FROM tasks t
+       LEFT JOIN task_translations tt ON tt.task_id = t.id AND tt.locale = $2
+      WHERE t.schedule_id = $1
+      ORDER BY t.id`,
+    [scheduleId, locale]
   );
 
   const rows = result.rows;
@@ -473,7 +498,7 @@ const buildPlanView = async (answers: HomeAnswers, scheduleId: number, set: Defa
           (row.frequency === 'weekly' && row.day_of_week === dayOfWeek)
       )
       .map((row, index) => {
-        const catalogTask = catalogByTitle.get(row.title);
+        const catalogTask = catalogByTitle.get(row.source_title);
 
         return {
           id: row.id,
@@ -546,13 +571,22 @@ const toPlanResponse = async (options: {
   defaultSet: DefaultTaskSet;
   myTasks: SyncResult;
   merged: MergePlanReport;
+  locale: ContentLocale;
 }) => {
   const schedule = await pool.query<{ id: number; title: string; created_at: string }>(
-    'SELECT id, title, created_at::text AS created_at FROM schedules WHERE id = $1',
-    [options.myTasks.scheduleId]
+    `SELECT s.id, COALESCE(st.title, s.title) AS title, s.created_at::text AS created_at
+       FROM schedules s
+       LEFT JOIN schedule_translations st ON st.schedule_id = s.id AND st.locale = $2
+      WHERE s.id = $1`,
+    [options.myTasks.scheduleId, options.locale]
   );
   const row = schedule.rows[0];
-  const plan = await buildPlanView(options.answers, options.myTasks.scheduleId, options.defaultSet);
+  const plan = await buildPlanView(
+    options.answers,
+    options.myTasks.scheduleId,
+    options.defaultSet,
+    options.locale,
+  );
 
   return {
     schedule: row ? { id: row.id, title: row.title, createdAt: row.created_at } : null,
@@ -848,7 +882,9 @@ router.post('/plan', authMiddleware, async (req: Request, res: Response) => {
     const merged = await mergePlanIntoTasks(userId);
     const myTasks = await syncDefaultTasks(userId, defaultSet, { removeStale: true });
 
-    res.json(await toPlanResponse({ answers, defaultSet, myTasks, merged }));
+    await relocalizeGeneratedContent(userId, resolveContentLocale(req));
+
+    res.json(await toPlanResponse({ answers, defaultSet, myTasks, merged, locale: resolveContentLocale(req) }));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to generate home plan' });
@@ -878,7 +914,7 @@ router.get('/plan', authMiddleware, async (req: Request, res: Response) => {
     const merged = await mergePlanIntoTasks(userId);
     const myTasks = await syncDefaultTasks(userId, defaultSet, { removeStale: false });
 
-    res.json(await toPlanResponse({ answers, defaultSet, myTasks, merged }));
+    res.json(await toPlanResponse({ answers, defaultSet, myTasks, merged, locale: resolveContentLocale(req) }));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch home plan' });

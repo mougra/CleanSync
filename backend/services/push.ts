@@ -1,6 +1,8 @@
 import webpush from 'web-push';
 import pool from '../db';
 import { isHabitDue, todayIso } from './habitSchedule';
+import { normalizeLocale } from './contentLocale';
+import { PUSH_EN } from '../content/en/notifications';
 
 /**
  * Web Push для напоминаний о привычках.
@@ -122,15 +124,18 @@ export const runReminderPass = async (): Promise<number> => {
     due_date: string | null;
     created_at: string;
     completions: string[];
+    locale: string | null;
   }>(
     `SELECT h.id, h.user_id, h.title, h.zone, h.interval_count, h.interval_unit,
             h.due_date::text AS due_date, h.created_at::text AS created_at,
+            u.locale,
             COALESCE(
               (SELECT array_agg(c.completed_on::text ORDER BY c.completed_on DESC)
                  FROM habit_completions c WHERE c.user_habit_id = h.id),
               ARRAY[]::text[]
             ) AS completions
        FROM user_habits h
+       JOIN users u ON u.id = h.user_id
       WHERE h.reminder_enabled = TRUE
         AND h.archived_at IS NULL
         AND h.reminder_time IS NOT NULL
@@ -149,8 +154,12 @@ export const runReminderPass = async (): Promise<number> => {
       continue;
     }
 
+    // Заголовок напоминания — на языке пользователя: интерфейса рядом нет,
+    // и язык берём из профиля.
+    const isEnglish = normalizeLocale(habit.locale) === 'en';
+
     const delivered = await sendPushToUser(habit.user_id, {
-      title: 'Пора отметить привычку',
+      title: isEnglish ? PUSH_EN.habitTitle : 'Пора отметить привычку',
       body: habit.zone ? `${habit.title} · ${habit.zone}` : habit.title,
       url: '/habits',
       tag: `habit-${habit.id}`,

@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import pool from '../db';
 import { SQL_APP_TODAY, sqlAppDate } from '../services/appTime';
 import { authMiddleware } from '../auth';
+import { resolveContentLocale } from '../services/contentLocale';
 
 const router = express.Router();
 
@@ -200,9 +201,13 @@ router.get('/overview', authMiddleware, async (req: Request, res: Response) => {
   try {
     const period: Period = isPeriod(req.query.period) ? req.query.period : 'all';
     const since = PERIOD_SINCE[period];
+    // Названия задач и пунктов челленджей в истории и «самой долгой задаче» —
+    // на языке запроса: у сгенерированных задач русское название остаётся
+    // ключом, а английское лежит в таблице переводов.
+    const locale = resolveContentLocale(req);
 
     const items = `
-      SELECT t.title,
+      SELECT COALESCE(tt.title, t.title) AS title,
              c.completed_on AS day,
              c.completed_at,
              COALESCE(t.estimated_minutes, 0)::int AS minutes,
@@ -211,10 +216,11 @@ router.get('/overview', authMiddleware, async (req: Request, res: Response) => {
         FROM task_completions c
         JOIN tasks t ON t.id = c.task_id
         JOIN schedules s ON s.id = t.schedule_id
+        LEFT JOIN task_translations tt ON tt.task_id = t.id AND tt.locale = $3
        WHERE (s.user_id = $1 OR c.completed_by = $1)
          AND c.completed_on >= (${SQL_APP_TODAY} - ($2 || ' days')::interval)::date
       UNION ALL
-      SELECT ct.title,
+      SELECT COALESCE(ctt.title, ct.title) AS title,
              ${sqlAppDate('p.done_at')} AS day,
              p.done_at AS completed_at,
              COALESCE(ct.estimated_minutes, 0)::int AS minutes,
@@ -222,6 +228,8 @@ router.get('/overview', authMiddleware, async (req: Request, res: Response) => {
              'challenge' AS kind
         FROM user_task_progress p
         JOIN challenge_tasks ct ON ct.id = p.challenge_task_id
+        LEFT JOIN challenge_task_translations ctt
+               ON ctt.challenge_task_id = ct.id AND ctt.locale = $3
         JOIN user_challenges uc ON uc.id = p.user_challenge_id
        WHERE uc.user_id = $1 AND p.is_done
          AND ${sqlAppDate('p.done_at')} >= (${SQL_APP_TODAY} - ($2 || ' days')::interval)::date
@@ -233,7 +241,7 @@ router.get('/overview', authMiddleware, async (req: Request, res: Response) => {
               COALESCE(SUM(minutes), 0)::int AS minutes,
               COUNT(DISTINCT day)::int AS days
          FROM items`,
-      [req.userId, since]
+      [req.userId, since, locale]
     );
 
     // Последние 7 дней показываем всегда, независимо от выбранного периода
@@ -242,7 +250,7 @@ router.get('/overview', authMiddleware, async (req: Request, res: Response) => {
        SELECT COUNT(*)::int AS tasks, COALESCE(SUM(minutes), 0)::int AS minutes
          FROM items
         WHERE day >= (${SQL_APP_TODAY} - INTERVAL '6 days')::date`,
-      [req.userId, since]
+      [req.userId, since, locale]
     );
 
     const weekday = await pool.query(
@@ -252,7 +260,7 @@ router.get('/overview', authMiddleware, async (req: Request, res: Response) => {
               COALESCE(SUM(minutes), 0)::int AS minutes
          FROM items
         GROUP BY 1`,
-      [req.userId, since]
+      [req.userId, since, locale]
     );
 
     const longest = await pool.query(
@@ -262,7 +270,7 @@ router.get('/overview', authMiddleware, async (req: Request, res: Response) => {
         WHERE minutes > 0
         ORDER BY minutes DESC, completed_at DESC NULLS LAST
         LIMIT 1`,
-      [req.userId, since]
+      [req.userId, since, locale]
     );
 
     // История ограничена тремя сотнями записей: этого хватает надолго,
@@ -273,7 +281,7 @@ router.get('/overview', authMiddleware, async (req: Request, res: Response) => {
          FROM items
         ORDER BY completed_at DESC NULLS LAST
         LIMIT 300`,
-      [req.userId, since]
+      [req.userId, since, locale]
     );
 
     const byWeekday = Array.from({ length: 7 }, (_, index) => {

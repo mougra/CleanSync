@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import pool from '../db';
 import { authMiddleware, optionalAuthMiddleware } from '../auth';
 import { checkAndAwardAchievements } from '../services/achievementManager';
+import { resolveContentLocale, type ContentLocale } from '../services/contentLocale';
 import { Season, seasonForDate, seasonTitle } from '../services/seasons';
 
 const router = express.Router();
@@ -41,18 +42,32 @@ interface UserChallengeRow {
 }
 
 /** Дни с задачами и отметками пользователя — собираем из плоской выборки. */
-const loadDays = async (challengeId: number, userChallengeId: number | null) => {
+const loadDays = async (
+  challengeId: number,
+  userChallengeId: number | null,
+  locale: ContentLocale,
+) => {
   const result = await pool.query<ProgressRow>(
-    `SELECT d.id AS day_id, d.day_number, d.title AS day_title, d.subtitle,
-            t.id AS task_id, t.position, t.title, t.hint, t.room, t.estimated_minutes, t.frequency,
+    `SELECT d.id AS day_id, d.day_number,
+            COALESCE(dt.title, d.title) AS day_title,
+            COALESCE(dt.subtitle, d.subtitle) AS subtitle,
+            t.id AS task_id, t.position,
+            COALESCE(tt.title, t.title) AS title,
+            COALESCE(tt.hint, t.hint) AS hint,
+            COALESCE(tt.room, t.room) AS room,
+            t.estimated_minutes, t.frequency,
             COALESCE(p.is_done, FALSE) AS is_done
        FROM challenge_days d
+       LEFT JOIN challenge_day_translations dt
+              ON dt.challenge_day_id = d.id AND dt.locale = $3
        LEFT JOIN challenge_tasks t ON t.challenge_day_id = d.id
+       LEFT JOIN challenge_task_translations tt
+              ON tt.challenge_task_id = t.id AND tt.locale = $3
        LEFT JOIN user_task_progress p
               ON p.challenge_task_id = t.id AND p.user_challenge_id = $2
       WHERE d.challenge_id = $1
       ORDER BY d.day_number, t.position`,
-    [challengeId, userChallengeId]
+    [challengeId, userChallengeId, locale]
   );
 
   const days: Array<{
@@ -148,19 +163,36 @@ const challengeCard = (row: ChallengeRow) => ({
   cover_url: row.cover_url,
 });
 
-const CHALLENGE_COLUMNS = `id, slug, title, description, season, days_count, tasks_count, cover_url`;
+/**
+ * Колонки карточки челленджа на языке запроса.
+ *
+ * Плейсхолдер языка передаём аргументом: в разных запросах он стоит под разным
+ * номером (`$1`, `$2`), и зашитая константа столкнулась бы с их параметрами.
+ * `COALESCE` оставляет русское значение там, где перевода ещё нет.
+ */
+const challengeColumns = (): string =>
+  `c.id, c.slug,
+   COALESCE(ct.title, c.title) AS title,
+   COALESCE(ct.description, c.description) AS description,
+   c.season, c.days_count, c.tasks_count, c.cover_url`;
+
+const challengeTranslationJoin = (localePlaceholder: string): string =>
+  `LEFT JOIN challenge_translations ct
+          ON ct.challenge_id = c.id AND ct.locale = ${localePlaceholder}`;
 
 /** Опубликованный челлендж текущего сезона. */
 const findSeasonChallenge = async (
-  season: Season
+  season: Season,
+  locale: ContentLocale,
 ): Promise<ChallengeRow | null> => {
   const result = await pool.query<ChallengeRow>(
-    `SELECT ${CHALLENGE_COLUMNS}
-       FROM challenges
-      WHERE season = $1 AND is_published = TRUE
-      ORDER BY position, id
+    `SELECT ${challengeColumns()}
+       FROM challenges c
+       ${challengeTranslationJoin('$2')}
+      WHERE c.season = $1 AND c.is_published = TRUE
+      ORDER BY c.position, c.id
       LIMIT 1`,
-    [season]
+    [season, locale]
   );
 
   return result.rows[0] ?? null;
@@ -169,11 +201,15 @@ const findSeasonChallenge = async (
 /** Список опубликованных челленджей. */
 router.get('/', async (req: Request, res: Response) => {
   try {
+    const locale = resolveContentLocale(req);
+
     const result = await pool.query<ChallengeRow>(
-      `SELECT ${CHALLENGE_COLUMNS}
-         FROM challenges
-        WHERE is_published = TRUE
-        ORDER BY position, id`
+      `SELECT ${challengeColumns()}
+         FROM challenges c
+         ${challengeTranslationJoin('$1')}
+        WHERE c.is_published = TRUE
+        ORDER BY c.position, c.id`,
+      [locale]
     );
 
     res.json(result.rows);
@@ -191,6 +227,8 @@ router.get('/', async (req: Request, res: Response) => {
  */
 router.get('/active', authMiddleware, async (req: Request, res: Response) => {
   try {
+    const locale = resolveContentLocale(req);
+
     const userChallenge = await pool.query<
       UserChallengeRow & {
         challenge_id: number;
@@ -204,14 +242,17 @@ router.get('/active', authMiddleware, async (req: Request, res: Response) => {
       }
     >(
       `SELECT uc.id, uc.status, uc.started_at, uc.finished_at, uc.completed_at,
-              c.id AS challenge_id, c.slug, c.title, c.description, c.season,
-              c.days_count, c.tasks_count, c.cover_url
+              c.id AS challenge_id, c.slug,
+              COALESCE(ct.title, c.title) AS title,
+              COALESCE(ct.description, c.description) AS description,
+              c.season, c.days_count, c.tasks_count, c.cover_url
          FROM user_challenges uc
          JOIN challenges c ON c.id = uc.challenge_id
+         ${challengeTranslationJoin('$2')}
         WHERE uc.user_id = $1 AND uc.status = 'active'
         ORDER BY uc.started_at DESC
         LIMIT 1`,
-      [req.userId]
+      [req.userId, locale]
     );
 
     if (userChallenge.rows.length === 0) {
@@ -220,7 +261,7 @@ router.get('/active', authMiddleware, async (req: Request, res: Response) => {
     }
 
     const row = userChallenge.rows[0];
-    const days = await loadDays(row.challenge_id, row.id);
+    const days = await loadDays(row.challenge_id, row.id, locale);
     const progress = summarize(days);
 
     res.json({
@@ -272,8 +313,9 @@ router.get('/active', authMiddleware, async (req: Request, res: Response) => {
  */
 router.get('/current', optionalAuthMiddleware, async (req: Request, res: Response) => {
   try {
+    const locale = resolveContentLocale(req);
     const season = seasonForDate();
-    const challenge = await findSeasonChallenge(season);
+    const challenge = await findSeasonChallenge(season, locale);
 
     if (!challenge) {
       res.json({ status: 'none', season });
@@ -284,7 +326,7 @@ router.get('/current', optionalAuthMiddleware, async (req: Request, res: Respons
     const userId = req.userId ?? null;
 
     if (userId === null) {
-      const days = await loadDays(challenge.id, null);
+      const days = await loadDays(challenge.id, null, locale);
 
       res.json({
         status: 'available',
@@ -307,7 +349,7 @@ router.get('/current', optionalAuthMiddleware, async (req: Request, res: Respons
     const row = userChallenge.rows[0];
 
     if (!row) {
-      const days = await loadDays(challenge.id, null);
+      const days = await loadDays(challenge.id, null, locale);
 
       res.json({
         status: 'available',
@@ -329,7 +371,7 @@ router.get('/current', optionalAuthMiddleware, async (req: Request, res: Respons
       return;
     }
 
-    const days = await loadDays(challenge.id, row.id);
+    const days = await loadDays(challenge.id, row.id, locale);
 
     res.json({
       status: 'active',
@@ -349,11 +391,14 @@ router.get('/current', optionalAuthMiddleware, async (req: Request, res: Respons
 /** Детали челленджа: дни и задачи. Прогресс подмешивается, если пользователь вошёл. */
 router.get('/:slug', async (req: Request, res: Response) => {
   try {
+    const locale = resolveContentLocale(req);
+
     const challenge = await pool.query<ChallengeRow>(
-      `SELECT ${CHALLENGE_COLUMNS}
-         FROM challenges
-        WHERE slug = $1 AND is_published = TRUE`,
-      [req.params.slug]
+      `SELECT ${challengeColumns()}
+         FROM challenges c
+         ${challengeTranslationJoin('$2')}
+        WHERE c.slug = $1 AND c.is_published = TRUE`,
+      [req.params.slug, locale]
     );
 
     if (challenge.rows.length === 0) {
@@ -362,7 +407,7 @@ router.get('/:slug', async (req: Request, res: Response) => {
     }
 
     const row = challenge.rows[0];
-    const days = await loadDays(row.id, null);
+    const days = await loadDays(row.id, null, locale);
 
     res.json({ challenge: row, progress: summarize(days), days });
   } catch (err) {
@@ -520,7 +565,7 @@ router.patch('/tasks/:taskId', authMiddleware, async (req: Request, res: Respons
       [userChallengeId, taskId, isDone]
     );
 
-    const days = await loadDays(challengeId, userChallengeId);
+    const days = await loadDays(challengeId, userChallengeId, resolveContentLocale(req));
     const progress = summarize(days);
 
     // Отметка задачи в челлендже тоже двигает достижения.
@@ -715,7 +760,7 @@ router.post('/:slug/sync', authMiddleware, async (req: Request, res: Response) =
 
     await client.query('COMMIT');
 
-    const days = await loadDays(challengeId, userChallengeId);
+    const days = await loadDays(challengeId, userChallengeId, resolveContentLocale(req));
     const progress = summarize(days);
 
     // Перенос отметок — такая же активность, как обычная отметка задачи.

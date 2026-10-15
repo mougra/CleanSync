@@ -12,6 +12,7 @@
  * по коду или ссылке вида /household?code=XXXX.
  */
 const { t, locale } = useI18n();
+const { zoneLabel } = useZoneLabel();
 const localePath = useLocalePath();
 const route = useRoute();
 const auth = useAuthStore();
@@ -350,8 +351,8 @@ useSeoMeta({ title: () => t('household.title'), robots: 'noindex, nofollow' });
           <h2 class="card__title">{{ t('household.zones') }}</h2>
 
           <ul class="zones">
-            <li v-for="zone in zones" :key="zone.room" class="zone">
-              <span class="zone__name">{{ zone.room }}</span>
+            <li v-for="zone in zones" :key="zone.room ?? 'none'" class="zone">
+              <span class="zone__name">{{ zoneLabel(zone.room) ?? t('calendar.noRoom') }}</span>
               <span class="zone__count">{{ zone.done }} / {{ zone.total }}</span>
             </li>
           </ul>
@@ -374,7 +375,7 @@ useSeoMeta({ title: () => t('household.title'), robots: 'noindex, nofollow' });
               </label>
 
               <p class="task__meta">
-                <span v-if="task.room" class="task__chip">{{ task.room }}</span>
+                <span v-if="task.room" class="task__chip">{{ zoneLabel(task.room) }}</span>
                 <span v-if="task.estimated_minutes" class="task__chip">
                   {{ formatMinutes(task.estimated_minutes, locale) }}
                 </span>

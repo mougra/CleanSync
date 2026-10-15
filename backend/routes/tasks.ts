@@ -6,6 +6,8 @@ import { checkAndAwardAchievements } from '../services/achievementManager';
 import { canAccessSchedule } from '../services/household';
 import { DEFAULT_TASK_SOURCE, normalizeTaskTitle } from '../services/defaultTasks';
 import { HOME_PLAN_SOURCE } from '../services/homePlan';
+import { canonicalZone } from '../services/zones';
+import { resolveContentLocale, type ContentLocale } from '../services/contentLocale';
 
 const router = express.Router();
 
@@ -80,13 +82,19 @@ const isoDayOf = (timestamp: string): string => {
  * Правило целиком живёт в SQL (колонка `completed_for_day`), а не размазано по
  * вызывающим: «Сегодня» и календарь читают один и тот же признак.
  */
-const tasksDueOn = async (userId: string, date: Date) => {
+const tasksDueOn = async (userId: string, date: Date, locale: ContentLocale) => {
   const dayOfWeek = date.getUTCDay(); // 0-6, 0 — воскресенье
   const dayOfMonth = date.getUTCDate(); // 1-31
   const dayStr = date.toISOString().split('T')[0];
 
   const result = await pool.query(
-    `SELECT t.*, s.title as schedule_title,
+    `SELECT t.*,
+            -- Названия задач и расписаний отдаём на языке запроса. Английский
+            -- лежит в таблицах переводов, а ключом остаётся русское название:
+            -- по нему генератор набора и «Вернуть» находят уже созданные задачи,
+            -- поэтому подменять его в базе нельзя (правило про идемпотентность).
+            COALESCE(tt.title, t.title) AS localized_title,
+            COALESCE(st.title, s.title) as schedule_title,
             CASE
               -- Повторяющееся дело: результат строго на этот день.
               -- COALESCE: у задачи без частоты (NULL) условие дало бы NULL, и
@@ -101,6 +109,8 @@ const tasksDueOn = async (userId: string, date: Date) => {
             END AS completed_for_day
      FROM tasks t
      JOIN schedules s ON t.schedule_id = s.id
+     LEFT JOIN task_translations tt ON tt.task_id = t.id AND tt.locale = $6
+     LEFT JOIN schedule_translations st ON st.schedule_id = s.id AND st.locale = $6
      WHERE (
              s.user_id = $1
              -- Общий план дома: задачи мои или ничейные, чужие не показываем
@@ -147,16 +157,17 @@ const tasksDueOn = async (userId: string, date: Date) => {
      -- При равном или пустом времени Postgres не обещает порядок, и строки
      -- переставлялись после каждой отметки: идентификатор — устойчивый добор.
      ORDER BY t.time ASC NULLS LAST, t.id ASC`,
-    [userId, dayOfWeek, dayOfMonth, dayStr, RECURRING_FREQUENCIES]
+    [userId, dayOfWeek, dayOfMonth, dayStr, RECURRING_FREQUENCIES, locale]
   );
 
   /**
-   * Наружу уходит `is_completed` на запрошенный день, а служебная колонка
-   * `completed_for_day` — нет: форма ответа «Сегодня» и календаря остаётся
-   * прежней, меняется только смысл признака.
+   * Наружу уходит `is_completed` на запрошенный день, а служебные колонки
+   * `completed_for_day` и `localized_title` — нет: форма ответа «Сегодня»
+   * и календаря остаётся прежней, меняется только смысл признака и язык текста.
    */
-  return result.rows.map(({ completed_for_day, ...task }) => ({
+  return result.rows.map(({ completed_for_day, localized_title, ...task }) => ({
     ...task,
+    title: localized_title ?? task.title,
     is_completed: completed_for_day === true,
   }));
 };
@@ -165,7 +176,11 @@ const tasksDueOn = async (userId: string, date: Date) => {
 router.get('/today', authMiddleware, async (req: Request, res: Response) => {
 
   try {
-    const tasks = await tasksDueOn(req.userId as string, parseAppDay(appToday()) as Date);
+    const tasks = await tasksDueOn(
+      req.userId as string,
+      parseAppDay(appToday()) as Date,
+      resolveContentLocale(req),
+    );
     const totalTasks = tasks.length;
     const completedTasks = tasks.filter(t => t.is_completed).length;
     const totalMinutes = tasks.reduce((acc, t) => acc + (t.estimated_minutes || 0), 0);
@@ -214,7 +229,7 @@ router.get('/upcoming', authMiddleware, async (req: Request, res: Response) => {
 
     for (let offset = 1; offset <= days; offset += 1) {
       const date = new Date(start.getTime() + offset * 24 * 60 * 60 * 1000);
-      const tasks = await tasksDueOn(userId, date);
+      const tasks = await tasksDueOn(userId, date, resolveContentLocale(req));
 
       result.push({
         date: date.toISOString().split('T')[0],
@@ -384,7 +399,7 @@ router.get('/calendar', authMiddleware, async (req: Request, res: Response) => {
 
     for (let offset = 0; offset < span; offset += 1) {
       const date = new Date(from.getTime() + offset * DAY_MS);
-      const tasks = await tasksDueOn(userId, date);
+      const tasks = await tasksDueOn(userId, date, resolveContentLocale(req));
       const iso = date.toISOString().slice(0, 10);
 
       // Итоги дня считает сервер: шторка дня показывает по ним сводку
@@ -457,7 +472,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
     // воскресенье, и с `||` повтор на воскресенье сохранялся как «без дня».
     const result = await pool.query(
       'INSERT INTO tasks (schedule_id, title, frequency, day_of_week, day_of_month, due_date, time, estimated_minutes, room, interval_count) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id, title, frequency, interval_count, day_of_week, day_of_month, due_date, time, estimated_minutes, room, is_completed, created_at',
-      [schedule_id, title, frequency ?? null, day_of_week ?? null, day_of_month ?? null, schedule.dueDate, time ?? null, estimated_minutes ?? 0, room ?? null, schedule.interval]
+      [schedule_id, title, frequency ?? null, day_of_week ?? null, day_of_month ?? null, schedule.dueDate, time ?? null, estimated_minutes ?? 0, canonicalZone(room), schedule.interval]
     );
 
     res.status(201).json(result.rows[0]);
@@ -562,7 +577,7 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
         END
       WHERE id = $10
       RETURNING id, title, frequency, interval_count, day_of_week, day_of_month, due_date, time, estimated_minutes, room, is_completed, completed_at, created_at, assignee_id, completed_by`,
-      [title ?? null, frequency ?? null, day_of_week ?? null, day_of_month ?? null, schedule.dueDate, time ?? null, estimated_minutes ?? null, room ?? null, is_completed !== undefined ? is_completed : null, id, req.userId, schedule.storeInterval ? schedule.interval : null]
+      [title ?? null, frequency ?? null, day_of_week ?? null, day_of_month ?? null, schedule.dueDate, time ?? null, estimated_minutes ?? null, canonicalZone(room), is_completed !== undefined ? is_completed : null, id, req.userId, schedule.storeInterval ? schedule.interval : null]
     );
 
     const taskId = result.rows[0]?.id;
@@ -853,7 +868,7 @@ router.post('/restore', authMiddleware, async (req: Request, res: Response) => {
       [
         scheduleId,
         title,
-        restoreText(body.room),
+        restoreText(body.room) === null ? null : canonicalZone(body.room),
         restoreText(body.frequency),
         interval,
         restoreInt(body.day_of_week),

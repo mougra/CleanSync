@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import pool from '../db';
 import { authMiddleware } from '../auth';
 import { checkAndAwardAchievements } from '../services/achievementManager';
+import { resolveContentLocale } from '../services/contentLocale';
 import {
   INTERVAL_UNITS,
   currentStreak,
@@ -121,20 +122,29 @@ router.get('/categories', async (req: Request, res: Response) => {
 /** Каталог готовых привычек с поиском и фильтром по категории. */
 router.get('/templates', async (req: Request, res: Response) => {
   try {
+    const locale = resolveContentLocale(req);
     const category = typeof req.query.category === 'string' ? req.query.category : '';
     const query = typeof req.query.q === 'string' ? req.query.q.trim() : '';
 
+    // Поиск идёт по тому тексту, который человек видит: иначе на английском
+    // интерфейсе поиск «kitchen» не находил бы ничего, а «кухня» — находил бы.
     const result = await pool.query(
-      `SELECT id, slug, title, description, category, icon,
-              default_interval_count AS interval_count,
-              default_interval_unit AS interval_unit,
-              zone
-         FROM habit_templates
-        WHERE is_published = TRUE
-          AND ($1 = '' OR category = $1)
-          AND ($2 = '' OR title ILIKE '%' || $2 || '%' OR description ILIKE '%' || $2 || '%')
-        ORDER BY position, id`,
-      [category, query]
+      `SELECT h.id, h.slug,
+              COALESCE(tr.title, h.title) AS title,
+              COALESCE(tr.description, h.description) AS description,
+              h.category, h.icon,
+              h.default_interval_count AS interval_count,
+              h.default_interval_unit AS interval_unit,
+              COALESCE(tr.zone, h.zone) AS zone
+         FROM habit_templates h
+         LEFT JOIN habit_template_translations tr
+                ON tr.habit_template_id = h.id AND tr.locale = $3
+        WHERE h.is_published = TRUE
+          AND ($1 = '' OR h.category = $1)
+          AND ($2 = '' OR COALESCE(tr.title, h.title) ILIKE '%' || $2 || '%'
+                      OR COALESCE(tr.description, h.description) ILIKE '%' || $2 || '%')
+        ORDER BY h.position, h.id`,
+      [category, query, locale]
     );
 
     res.json(result.rows);
@@ -189,10 +199,22 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
     }
 
     if (body.templateId) {
+      /**
+       * Привычка из каталога копируется на языке запроса: дальше это уже
+       * собственная привычка человека, и подменять её текст при смене языка
+       * интерфейса было бы странно. Зона остаётся каноничной (русской): её
+       * переводит интерфейс по коду, поэтому группировки и фильтры не разъедутся.
+       */
+      const locale = resolveContentLocale(req);
       const template = await pool.query(
-        `SELECT id, title, zone, default_interval_count, default_interval_unit
-           FROM habit_templates WHERE id = $1 AND is_published = TRUE`,
-        [body.templateId]
+        `SELECT h.id,
+                COALESCE(tr.title, h.title) AS title,
+                h.zone, h.default_interval_count, h.default_interval_unit
+           FROM habit_templates h
+           LEFT JOIN habit_template_translations tr
+                  ON tr.habit_template_id = h.id AND tr.locale = $2
+          WHERE h.id = $1 AND h.is_published = TRUE`,
+        [body.templateId, locale]
       );
 
       if (template.rows.length === 0) {

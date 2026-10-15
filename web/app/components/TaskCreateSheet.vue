@@ -250,7 +250,11 @@ const submit = async () => {
     const body: TaskCreateInput = {
       schedule_id: scheduleId,
       title: title.value.trim(),
-      room: t(`tasks.zone.${zone.value}`),
+      // Код зоны, а не её подпись: в базе зона лежит русским названием словаря
+      // (по нему считаются срезы в статистике), и сервер сам переводит код
+      // в каноничное название. Раньше сюда уходила переведённая подпись, и
+      // в английском интерфейсе в базу попадало «Kitchen».
+      room: zone.value,
       due_date: dueDate.value || null,
       estimated_minutes: minutes,
       ...repeatFor(),

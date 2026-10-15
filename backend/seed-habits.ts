@@ -1,4 +1,7 @@
 import type { PoolClient } from 'pg';
+import { HABIT_TEMPLATE_EN } from './content/en/habits';
+import { zoneEn } from './content/en/zones';
+import { upsertTranslation } from './services/translations';
 
 /**
  * Каталог готовых привычек.
@@ -360,7 +363,13 @@ export const HABIT_TEMPLATES: HabitTemplateSeed[] = [
   },
 ];
 
-/** Идемпотентно: шаблон с существующим slug пропускается. */
+/**
+ * Идемпотентно: шаблон с существующим slug пропускается.
+ *
+ * Английский перевод при этом пишется всегда — и для нового шаблона, и для уже
+ * существующего. Иначе переводы появлялись бы только у привычек, добавленных
+ * после этой правки, а весь каталог, засеянный раньше, остался бы русским.
+ */
 export const seedHabitTemplates = async (
   client: PoolClient
 ): Promise<{ created: number; skipped: number }> => {
@@ -368,33 +377,53 @@ export const seedHabitTemplates = async (
   let skipped = 0;
 
   for (const [index, template] of HABIT_TEMPLATES.entries()) {
-    const existing = await client.query('SELECT id FROM habit_templates WHERE slug = $1', [
-      template.slug,
-    ]);
-
-    if (existing.rowCount) {
-      skipped += 1;
-      continue;
-    }
-
-    await client.query(
-      `INSERT INTO habit_templates
-         (slug, title, description, category, icon, default_interval_count, default_interval_unit, zone, position)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [
-        template.slug,
-        template.title,
-        template.description,
-        template.category,
-        template.icon,
-        template.intervalCount,
-        template.intervalUnit,
-        template.zone ?? null,
-        index + 1,
-      ]
+    const existing = await client.query<{ id: number }>(
+      'SELECT id FROM habit_templates WHERE slug = $1',
+      [template.slug]
     );
 
-    created += 1;
+    let templateId = existing.rows[0]?.id;
+
+    if (templateId) {
+      skipped += 1;
+    } else {
+      const inserted = await client.query<{ id: number }>(
+        `INSERT INTO habit_templates
+           (slug, title, description, category, icon, default_interval_count, default_interval_unit, zone, position)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         RETURNING id`,
+        [
+          template.slug,
+          template.title,
+          template.description,
+          template.category,
+          template.icon,
+          template.intervalCount,
+          template.intervalUnit,
+          template.zone ?? null,
+          index + 1,
+        ]
+      );
+
+      templateId = inserted.rows[0]?.id;
+      created += 1;
+    }
+
+    const translation = HABIT_TEMPLATE_EN[template.slug];
+
+    if (templateId && translation) {
+      await upsertTranslation(client, {
+        table: 'habit_template_translations',
+        keyColumn: 'habit_template_id',
+        key: templateId,
+        locale: 'en',
+        fields: {
+          title: translation.title,
+          description: translation.description,
+          zone: zoneEn(template.zone),
+        },
+      });
+    }
   }
 
   return { created, skipped };

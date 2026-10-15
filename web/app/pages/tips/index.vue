@@ -9,8 +9,30 @@ const localePath = useLocalePath();
 const route = useRoute();
 const router = useRouter();
 
-const { data: articles } = await useAsyncData('tips-list', () =>
-  queryCollection('tips').order('order', 'ASC').all(),
+/** Список показан на русском, потому что английского ещё нет. */
+const isFallback = ref(false);
+
+const { data: articles } = await useAsyncData(
+  () => `tips-list-${locale.value}`,
+  async () => {
+    isFallback.value = false;
+
+    const localized = await queryCollection(locale.value === 'en' ? 'tipsEn' : 'tips')
+      .order('order', 'ASC')
+      .all();
+
+    // Английских статей может ещё не быть (или появится новая, которую не успели
+    // перевести) — тогда показываем русский список и говорим об этом пометкой,
+    // а не оставляем пустую страницу.
+    if (localized.length > 0 || locale.value !== 'en') {
+      return localized;
+    }
+
+    isFallback.value = true;
+
+    return await queryCollection('tips').order('order', 'ASC').all();
+  },
+  { watch: [locale] },
 );
 
 const category = ref(typeof route.query.category === 'string' ? route.query.category : 'all');
@@ -104,7 +126,7 @@ useStructuredData(() => ({
     <h1 class="page__title">{{ t('nav.tips') }}</h1>
     <p class="page__lead">{{ t('tipsPage.lead') }}</p>
 
-    <p v-if="locale !== 'ru'" class="notice">{{ t('tipsPage.ruOnly') }}</p>
+    <p v-if="isFallback" class="notice">{{ t('tipsPage.ruOnly') }}</p>
 
     <div class="chips">
       <button

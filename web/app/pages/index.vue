@@ -41,6 +41,7 @@ interface TemplatesResponse {
 }
 
 const { t, locale } = useI18n();
+const { zoneLabel } = useZoneLabel();
 const localePath = useLocalePath();
 const auth = useAuthStore();
 const api = useApi();
@@ -315,12 +316,15 @@ const zones = computed(() => {
   const counts = new Map<string, number>();
 
   for (const task of day.value?.tasks ?? []) {
-    const zone = task.room?.trim() || t('calendar.noRoom');
+    // Ключ группировки — значение из базы (оно же ключ срезов в статистике),
+    // а на экран идёт переведённая подпись: иначе в английском интерфейсе
+    // зоны оставались бы русскими.
+    const zone = task.room?.trim() || '';
     counts.set(zone, (counts.get(zone) ?? 0) + 1);
   }
 
   return [...counts.entries()]
-    .map(([zone, count]) => ({ zone, count }))
+    .map(([zone, count]) => ({ zone: zoneLabel(zone) ?? t('calendar.noRoom'), count }))
     .sort((left, right) => right.count - left.count || left.zone.localeCompare(right.zone));
 });
 
@@ -384,7 +388,7 @@ const frequencyLabel = (task: {
 /** Подпись строки сегодняшнего дня: зона, источник (расписание), периодичность и время. */
 const taskHint = (task: TodayPlanTask): string =>
   [
-    task.room,
+    zoneLabel(task.room),
     task.schedule_title,
     frequencyLabel(task),
     task.estimated_minutes ? t('plan.minutes', { minutes: task.estimated_minutes }) : null,
@@ -400,7 +404,7 @@ const taskHint = (task: TodayPlanTask): string =>
  */
 const calendarTaskHint = (task: CalendarTask): string =>
   [
-    task.room,
+    zoneLabel(task.room),
     frequencyLabel(task),
     task.estimated_minutes ? t('plan.minutes', { minutes: task.estimated_minutes }) : null,
   ]
@@ -933,8 +937,16 @@ const toggleHabit = async (habit: { id: number }) => {
   }
 };
 
-const { data: tip } = await useAsyncData('tip-of-the-day', () =>
-  queryCollection('tips').order('order', 'ASC').first(),
+/** Совет дня: в английской локали берём английскую статью, иначе — русскую. */
+const { data: tip } = await useAsyncData(
+  () => `tip-of-the-day-${locale.value}`,
+  async () => {
+    const collection = locale.value === 'en' ? 'tipsEn' : 'tips';
+    const localized = await queryCollection(collection).order('order', 'ASC').first();
+
+    return localized ?? (await queryCollection('tips').order('order', 'ASC').first());
+  },
+  { watch: [locale] },
 );
 
 useSeoMeta({

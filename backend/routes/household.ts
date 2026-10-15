@@ -2,6 +2,8 @@ import express, { Request, Response } from 'express';
 import pool from '../db';
 import { authMiddleware } from '../auth';
 import { SQL_APP_TODAY } from '../services/appTime';
+import { resolveContentLocale, type ContentLocale } from '../services/contentLocale';
+import { PUSH_EN } from '../content/en/notifications';
 import { generateInviteCode, listMemberships, type Membership } from '../services/household';
 import { sendPushToUser } from '../services/push';
 
@@ -75,7 +77,7 @@ const resolveMembership = async (
   return membership;
 };
 
-const loadHousehold = async (householdId: number) => {
+const loadHousehold = async (householdId: number, locale: ContentLocale) => {
   const household = await pool.query<HouseholdRow>(
     'SELECT id, name, owner_id, invite_code FROM households WHERE id = $1',
     [householdId]
@@ -116,23 +118,37 @@ const loadHousehold = async (householdId: number) => {
   );
 
   const plan = await pool.query(
-    'SELECT id, title, description FROM schedules WHERE household_id = $1 ORDER BY id',
-    [householdId]
+    `SELECT s.id,
+            COALESCE(st.title, s.title) AS title,
+            COALESCE(st.description, s.description) AS description
+       FROM schedules s
+       LEFT JOIN schedule_translations st ON st.schedule_id = s.id AND st.locale = $2
+      WHERE s.household_id = $1
+      ORDER BY s.id`,
+    [householdId, locale]
   );
 
   const tasks = await pool.query(
-    `SELECT t.id, t.schedule_id, t.title, t.room, t.estimated_minutes, t.is_completed,
+    `SELECT t.id, t.schedule_id, COALESCE(tt.title, t.title) AS title, t.room,
+            t.estimated_minutes, t.is_completed,
             t.assignee_id, t.completed_by, t.completed_at::text AS completed_at
        FROM tasks t
        JOIN schedules s ON s.id = t.schedule_id
+       LEFT JOIN task_translations tt ON tt.task_id = t.id AND tt.locale = $2
       WHERE s.household_id = $1
       ORDER BY t.room NULLS LAST, t.id`,
-    [householdId]
+    [householdId, locale]
   );
 
-  // Зоны: сколько дел в каждой и сколько уже закрыто
+  /**
+   * Зоны: сколько дел в каждой и сколько уже закрыто.
+   *
+   * Задачи без зоны отдаём с `room = NULL`, а не с русской подписью «Без зоны»
+   * прямо в SQL: подпись — это текст интерфейса, и он должен быть на языке
+   * пользователя (клиент подставляет её сам).
+   */
   const zones = await pool.query(
-    `SELECT COALESCE(NULLIF(t.room, ''), 'Без зоны') AS room,
+    `SELECT NULLIF(t.room, '') AS room,
             COUNT(*)::int AS total,
             COUNT(*) FILTER (WHERE t.is_completed)::int AS done
        FROM tasks t
@@ -155,36 +171,36 @@ const loadHousehold = async (householdId: number) => {
 };
 
 /** Один дом списка: карточка, роль и всё содержимое. */
-const householdEntry = async (membership: Membership) => {
-  const data = await loadHousehold(membership.householdId);
+const householdEntry = async (membership: Membership, locale: ContentLocale) => {
+  const data = await loadHousehold(membership.householdId, locale);
 
   return data ? { ...data, role: membership.role } : null;
 };
 
 /** Все дома пользователя — единый формат ответа для чтения и изменений. */
-const allHouseholds = async (userId: string) => {
+const allHouseholds = async (userId: string, locale: ContentLocale) => {
   const entries = await Promise.all(
-    (await listMemberships(userId)).map((membership) => householdEntry(membership))
+    (await listMemberships(userId)).map((membership) => householdEntry(membership, locale))
   );
 
   return entries.filter((entry) => entry !== null);
 };
 
 /** Ответ после изменения: изменённый дом плюс актуальный список домов. */
-const mutationResult = async (userId: string, householdId: number) => {
+const mutationResult = async (userId: string, locale: ContentLocale, householdId: number) => {
   const memberships = await listMemberships(userId);
   const membership = memberships.find((item) => item.householdId === householdId);
 
   return {
-    household: membership ? await householdEntry(membership) : null,
-    households: await allHouseholds(userId),
+    household: membership ? await householdEntry(membership, locale) : null,
+    households: await allHouseholds(userId, locale),
   };
 };
 
 /** Мои дома: участники со статистикой, общий план и зоны по каждому. */
 router.get('/', authMiddleware, async (req: Request, res: Response) => {
   try {
-    res.json({ households: await allHouseholds(String(req.userId)) });
+    res.json({ households: await allHouseholds(String(req.userId), resolveContentLocale(req)) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch household' });
@@ -227,7 +243,7 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
       [householdId, req.userId]
     );
 
-    res.status(201).json(await mutationResult(String(req.userId), householdId));
+    res.status(201).json(await mutationResult(String(req.userId), resolveContentLocale(req), householdId));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to create household' });
@@ -263,7 +279,7 @@ router.post('/join', authMiddleware, async (req: Request, res: Response) => {
       [householdId, req.userId]
     );
 
-    res.status(201).json(await mutationResult(String(req.userId), householdId));
+    res.status(201).json(await mutationResult(String(req.userId), resolveContentLocale(req), householdId));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to join household' });
@@ -295,7 +311,7 @@ router.patch('/', authMiddleware, async (req: Request, res: Response) => {
       name.slice(0, 120),
     ]);
 
-    res.json(await mutationResult(String(req.userId), membership.householdId));
+    res.json(await mutationResult(String(req.userId), resolveContentLocale(req), membership.householdId));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to rename household' });
@@ -344,7 +360,7 @@ router.post('/leave', authMiddleware, async (req: Request, res: Response) => {
     res.json({
       left: true,
       householdId: membership.householdId,
-      ...(await mutationResult(String(req.userId), membership.householdId)),
+      ...(await mutationResult(String(req.userId), resolveContentLocale(req), membership.householdId)),
     });
   } catch (err) {
     console.error(err);
@@ -390,7 +406,7 @@ router.delete('/members/:userId', authMiddleware, async (req: Request, res: Resp
       return;
     }
 
-    res.json(await mutationResult(String(req.userId), membership.householdId));
+    res.json(await mutationResult(String(req.userId), resolveContentLocale(req), membership.householdId));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to remove member' });
@@ -418,7 +434,7 @@ router.post('/plan', authMiddleware, async (req: Request, res: Response) => {
       [title.slice(0, 255), String(req.body?.description ?? '').slice(0, 500) || null, membership.householdId]
     );
 
-    res.status(201).json(await mutationResult(String(req.userId), membership.householdId));
+    res.status(201).json(await mutationResult(String(req.userId), resolveContentLocale(req), membership.householdId));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to create household list' });
@@ -484,7 +500,7 @@ router.post('/plan/:scheduleId/tasks', authMiddleware, async (req: Request, res:
       ]
     );
 
-    res.status(201).json(await mutationResult(String(req.userId), membership.householdId));
+    res.status(201).json(await mutationResult(String(req.userId), resolveContentLocale(req), membership.householdId));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to add task' });
@@ -571,7 +587,7 @@ router.patch('/tasks/:taskId', authMiddleware, async (req: Request, res: Respons
     values.push(req.params.taskId);
     await pool.query(`UPDATE tasks SET ${fields.join(', ')} WHERE id = $${values.length}`, values);
 
-    res.json(await mutationResult(String(req.userId), householdId));
+    res.json(await mutationResult(String(req.userId), resolveContentLocale(req), householdId));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to update task' });
@@ -615,7 +631,7 @@ router.delete('/tasks/:taskId', authMiddleware, async (req: Request, res: Respon
     }
 
     await pool.query('DELETE FROM tasks WHERE id = $1', [req.params.taskId]);
-    res.json(await mutationResult(String(req.userId), householdId));
+    res.json(await mutationResult(String(req.userId), resolveContentLocale(req), householdId));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to delete task' });
@@ -660,11 +676,23 @@ router.post('/nudge/:userId', authMiddleware, async (req: Request, res: Response
       [req.userId]
     );
 
-    const who = me.rows[0]?.username || me.rows[0]?.email || 'Кто-то из дома';
+    /**
+     * Текст push — на языке получателя, а не отправителя: у каждого он свой,
+     * поэтому смотрим профиль того, кому напоминаем.
+     */
+    const targetLocale = await pool.query<{ locale: string | null }>(
+      'SELECT locale FROM users WHERE id = $1',
+      [target]
+    );
+    const lang = resolveContentLocale(req, targetLocale.rows[0]?.locale ?? null);
+    const who = me.rows[0]?.username || me.rows[0]?.email || (lang === 'en' ? 'Someone from your home' : 'Кто-то из дома');
 
     const delivered = await sendPushToUser(target, {
-      title: `${who} напоминает про уборку`,
-      body: `Общий план дома ждёт: загляните в «Дом» и отметьте своё.`,
+      title: lang === 'en' ? PUSH_EN.nudgeTitle(who) : `${who} напоминает про уборку`,
+      body:
+        lang === 'en'
+          ? PUSH_EN.nudgeBody
+          : 'Общий план дома ждёт: загляните в «Дом» и отметьте своё.',
       url: '/household',
       tag: `nudge-${membership.householdId}`,
     });

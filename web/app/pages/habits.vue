@@ -11,6 +11,7 @@ const localePath = useLocalePath();
 const auth = useAuthStore();
 const api = useApi();
 const { intervalLabel, categoryLabel } = useHabitLabels();
+const { zoneLabel } = useZoneLabel();
 const { show: showAchievements } = useAchievementToast();
 
 const { habits, dueToday, doneToday, week, today, catalog, categories, refreshMine } =
@@ -63,7 +64,7 @@ const rowMeta = (habit: Habit) =>
   [
     categoryLabel(habit.category),
     intervalLabel(habit.intervalCount, habit.intervalUnit),
-    habit.zone,
+    zoneLabel(habit.zone),
     habit.streak > 0 ? t('habits.streak', { count: habit.streak }) : null,
   ]
     .filter(Boolean)

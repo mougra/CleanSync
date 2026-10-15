@@ -9,8 +9,36 @@ const route = useRoute();
 
 const slug = String(route.params.slug);
 
-const { data: article } = await useAsyncData(`tip-${slug}`, () =>
-  queryCollection('tips').path(`/tips/${slug}`).first(),
+/**
+ * Статьи лежат в двух коллекциях: русская — `tips` (content/tips/*.md),
+ * английская — `tipsEn` (content/en/tips/*.md). Пути в них совпадают с адресами
+ * страниц (`/tips/<slug>` и `/en/tips/<slug>`), поэтому ищем по `route.path`.
+ *
+ * Если перевода ещё нет, показываем русский оригинал: для англоязычного
+ * читателя это полезнее, чем 404, — о том, что статья только на русском,
+ * страница сообщает отдельной пометкой (`isFallback`).
+ */
+const collection = computed<'tips' | 'tipsEn'>(() => (locale.value === 'en' ? 'tipsEn' : 'tips'));
+const isFallback = ref(false);
+
+const { data: article } = await useAsyncData(
+  () => `tip-${locale.value}-${slug}`,
+  async () => {
+    isFallback.value = false;
+
+    const localized = await queryCollection(collection.value).path(route.path).first();
+
+    if (localized || collection.value === 'tips') {
+      return localized;
+    }
+
+    const original = await queryCollection('tips').path(`/tips/${slug}`).first();
+
+    isFallback.value = Boolean(original);
+
+    return original;
+  },
+  { watch: [locale] },
 );
 
 if (!article.value) {
@@ -53,7 +81,9 @@ useStructuredData(() => {
     return null;
   }
 
-  const url = `${site.url}/tips/${slug}`;
+  // Адрес статьи берём из маршрута, а не собираем из слага: у английской версии
+  // путь другой (`/en/tips/...`), и разметка обязана указывать на саму себя.
+  const url = `${site.url}${route.path}`;
 
   const graph: Record<string, unknown>[] = [
     {
@@ -111,6 +141,7 @@ useStructuredData(() => {
 
     <AppBadge>{{ t(`tipsPage.category.${article.category}`) }}</AppBadge>
     <h1 class="title">{{ article.title }}</h1>
+    <p v-if="isFallback" class="notice">{{ t('tipsPage.ruOnly') }}</p>
     <p class="lead">{{ article.description }}</p>
     <p class="meta">{{ publishedLabel }} · {{ article.minutes }} {{ t('tipsPage.minutes') }}</p>
 
