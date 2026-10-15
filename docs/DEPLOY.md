@@ -282,6 +282,7 @@ gunzip -c /var/backups/cleansync/clean_planner-2026-10-08_03-00.sql.gz \
 | Caddy: `permission denied` на `/etc/caddy/Caddyfile` | SELinux в режиме Enforcing не дал контейнеру прочитать смонтированный файл. В compose у монтирования стоит метка `,z`; если её убрали — вернуть, либо разово поправить контекст: `sudo chcon -t container_file_t /srv/cleansync/Caddyfile`. Отключать SELinux (`setenforce 0`) не нужно |
 | `dnf install docker-ce`: 404 на репозитории | `$releasever` в AlmaLinux/Rocky равен `8.10`, а в репозитории Docker есть только `8`. Зафиксировать: `sudo sed -i 's|\$releasever|8|' /etc/yum.repos.d/docker-ce.repo && sudo dnf makecache` |
 | `swapon: /swapfile: swapon failed: Invalid argument` | Файл создан через `fallocate` на XFS. Пересоздать через `dd` (см. §1) и выполнить `restorecon /swapfile` |
+| `db:setup` падает: `sh: 1: node-pg-migrate: not found` | В образе backend нет CLI миграций: он стоял в `devDependencies`, а образ ставит только прод-зависимости (`npm ci --omit=dev`). Обновить образ (`docker compose pull backend`) — начиная с версии, где CLI лежит в `dependencies`, команда работает. Разово, без пересборки: `docker compose run --rm --entrypoint sh backend -c "npm install --no-save node-pg-migrate && npm run db:setup"` |
 
 ## 9. Юридические требования (152-ФЗ)
 
