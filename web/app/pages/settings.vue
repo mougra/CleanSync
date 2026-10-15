@@ -198,6 +198,38 @@ const saveName = async () => {
   }
 };
 
+/*
+ * Подтверждение почты. При регистрации письмо не уходит (см. сервер): человек
+ * сначала пользуется сервисом, а подтверждение — отдельное действие. Рядом со
+ * строкой видно состояние: иконка и подпись говорят, подтверждена почта или нет.
+ */
+const emailBusy = ref(false);
+const emailMessage = ref('');
+const emailError = ref(false);
+
+const resendConfirmation = async () => {
+  if (!auth.user?.email) {
+    return;
+  }
+
+  emailBusy.value = true;
+  emailMessage.value = '';
+  emailError.value = false;
+
+  try {
+    await api.request('/api/auth/resend-confirmation', {
+      method: 'POST',
+      body: { email: auth.user.email },
+    });
+    emailMessage.value = t('settings.emailConfirmSent');
+  } catch {
+    emailError.value = true;
+    emailMessage.value = t('state.error');
+  } finally {
+    emailBusy.value = false;
+  }
+};
+
 /* Напоминания: объект возвращает обычные refs и функции, деструктуризация безопасна. */
 const { supported, permission, devices, busy, refresh, enable, disable, sendTest } =
   usePushNotifications();
@@ -481,6 +513,36 @@ useSeoMeta({ title: () => t('nav.settings') });
 
         <template #body>
           <LocaleSwitch />
+        </template>
+      </SettingsRow>
+
+      <SettingsRow
+        v-if="auth.isAuthenticated"
+        :icon="auth.user?.is_email_confirmed ? 'pi-check-circle' : 'pi-envelope'"
+        :title="t('settings.email')"
+        :subtitle="
+          auth.user?.is_email_confirmed
+            ? t('settings.emailVerified')
+            : t('settings.emailNotVerified')
+        "
+        expandable
+      >
+        <template #body>
+          <p class="row-hint">{{ t('settings.emailHint') }}</p>
+
+          <AppButton
+            v-if="!auth.user?.is_email_confirmed"
+            variant="outline"
+            block
+            :disabled="emailBusy"
+            @click="resendConfirmation"
+          >
+            {{ t('settings.emailConfirmAction') }}
+          </AppButton>
+
+          <p v-if="emailMessage" class="row-hint" :class="{ 'row-hint--error': emailError }">
+            {{ emailMessage }}
+          </p>
         </template>
       </SettingsRow>
 

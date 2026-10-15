@@ -211,22 +211,14 @@ router.post('/register', async (req: Request, res: Response) => {
 
     const user = result.rows[0];
 
-    const confirmLink = appLink(`/confirm-email?token=${emailConfirmToken}`);
-    try {
-      const emailSent = await sendConfirmationEmail(email, emailConfirmToken);
-      if (!emailSent) {
-        console.warn(
-          'SMTP not configured — confirmation link logged in the backend console.',
-        );
-        console.log(`Confirmation link: ${confirmLink}`);
-      }
-    } catch (emailError) {
-      console.error('Failed to send confirmation email:', emailError);
-      console.log(`Confirmation link: ${confirmLink}`);
-    }
-
+    // Письмо подтверждения при регистрации не отправляем: человек сначала
+    // пользуется сервисом, а подтверждение почты — его отдельное действие в
+    // настройках, где рядом видно, подтверждена она или нет (кнопка там зовёт
+    // /auth/resend-confirmation). Так мы не тратим письма на тех, кто зашёл
+    // посмотреть, и не просим шаг, который ничего не открывает: вход, план и
+    // восстановление пароля доступны сразу.
     res.status(201).json({
-      message: 'Регистрация успешна. Пожалуйста, проверьте вашу почту и подтвердите email для входа в систему.',
+      message: 'Регистрация успешна. Можно входить.',
     });
   } catch (err) {
     console.error(err);
