@@ -377,11 +377,13 @@ router.post('/reset-password', async (req: Request, res: Response) => {
     // Hash new password
     const hashedPassword = await bcryptjs.hash(newPassword, 10);
 
-    // Update password
-    await pool.query('UPDATE users SET password = $1 WHERE id = $2', [
-      hashedPassword,
-      user_id,
-    ]);
+    // Update password. Переход по ссылке из письма доказывает владение ящиком,
+    // поэтому заодно отмечаем почту подтверждённой, а ненужный токен стираем:
+    // отдельного шага подтверждения в интерфейсе больше нет.
+    await pool.query(
+      'UPDATE users SET password = $1, is_email_confirmed = TRUE, email_confirm_token = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+      [hashedPassword, user_id],
+    );
 
     // Delete used token
     await pool.query('DELETE FROM password_reset_tokens WHERE token = $1', [

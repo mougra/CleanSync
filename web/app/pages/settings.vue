@@ -236,77 +236,12 @@ const testPush = async () => {
   }
 };
 
-/* Смена пароля. Сервер требует подтверждённую почту, поэтому при 403
-   предлагаем отправить письмо повторно, а не оставляем тупик. */
-const currentPassword = ref('');
-const newPassword = ref('');
-const repeatPassword = ref('');
+/* Смена пароля — только по ссылке из письма: личность подтверждает почта, а не
+   знание старого пароля. Ссылка одноразовая, живёт 15 минут и ведёт на страницу
+   /reset-password; пока она в пути, показываем сообщение. */
 const passwordBusy = ref(false);
 const passwordMessage = ref('');
 const passwordError = ref(false);
-const needsEmailConfirmation = ref(false);
-
-/** Подтверждение трогали: до первого ввода несоответствие не подсвечиваем. */
-const passwordRepeatTouched = ref(false);
-
-const passwordsMatch = computed(() => newPassword.value === repeatPassword.value);
-
-/** Та же проверка, что была раньше, плюс совпадение паролей: иначе кнопка
-    отправляла форму, и человек узнавал о несовпадении только по ошибке. */
-const canSubmitPassword = computed(
-  () =>
-    currentPassword.value.length > 0 &&
-    newPassword.value.length >= 8 &&
-    repeatPassword.value.length > 0 &&
-    passwordsMatch.value,
-);
-
-const passwordRepeatError = computed(() =>
-  passwordRepeatTouched.value && repeatPassword.value.length > 0 && !passwordsMatch.value
-    ? t('auth.passwordMismatch')
-    : '',
-);
-
-const changePassword = async () => {
-  passwordMessage.value = '';
-  passwordError.value = false;
-
-  if (newPassword.value !== repeatPassword.value) {
-    passwordRepeatTouched.value = true;
-    passwordError.value = true;
-    passwordMessage.value = t('auth.passwordMismatch');
-    return;
-  }
-
-  passwordBusy.value = true;
-  try {
-    await api.request('/api/auth/change-password', {
-      method: 'POST',
-      body: { currentPassword: currentPassword.value, newPassword: newPassword.value },
-    });
-
-    passwordMessage.value = t('settings.passwordChanged');
-    currentPassword.value = '';
-    newPassword.value = '';
-    repeatPassword.value = '';
-  } catch (err) {
-    const failure = err as { statusCode?: number; response?: { status?: number } };
-    const status = failure.statusCode ?? failure.response?.status;
-
-    passwordError.value = true;
-
-    if (status === 401) {
-      passwordMessage.value = t('settings.passwordWrong');
-    } else if (status === 403) {
-      needsEmailConfirmation.value = true;
-      passwordMessage.value = t('settings.passwordNeedsEmail');
-    } else {
-      passwordMessage.value = t('state.error');
-    }
-  } finally {
-    passwordBusy.value = false;
-  }
-};
 
 /**
  * Смена пароля по ссылке из письма: сервер отправляет ту же ссылку, что и
@@ -332,20 +267,6 @@ const sendPasswordLink = async () => {
   } catch {
     passwordError.value = true;
     passwordMessage.value = t('state.error');
-  } finally {
-    passwordBusy.value = false;
-  }
-};
-
-const resendConfirmation = async () => {
-  passwordBusy.value = true;
-  try {
-    await api.request('/api/auth/resend-confirmation', {
-      method: 'POST',
-      body: { email: auth.user?.email },
-    });
-    passwordError.value = false;
-    passwordMessage.value = t('settings.confirmationSent');
   } finally {
     passwordBusy.value = false;
   }
@@ -571,53 +492,15 @@ useSeoMeta({ title: () => t('nav.settings') });
         expandable
       >
         <template #body>
-          <form class="form" @submit.prevent="changePassword">
-            <PasswordField
-              v-model="currentPassword"
-              :label="t('settings.currentPassword')"
-              autocomplete="current-password"
-            />
+          <p class="row-hint">{{ t('settings.passwordLinkHint') }}</p>
 
-            <PasswordField
-              v-model="newPassword"
-              :label="t('settings.newPassword')"
-              autocomplete="new-password"
-              :minlength="8"
-              :hint="t('auth.passwordMinHint')"
-            />
-
-            <PasswordField
-              v-model="repeatPassword"
-              :label="t('settings.repeatPassword')"
-              autocomplete="new-password"
-              :minlength="8"
-              :error="passwordRepeatError"
-              @focus="passwordRepeatTouched = true"
-            />
-
-            <AppButton type="submit" variant="filled" block :disabled="passwordBusy || !canSubmitPassword">
-              {{ t('settings.passwordChange') }}
-            </AppButton>
-          </form>
+          <AppButton variant="outline" block :disabled="passwordBusy" @click="sendPasswordLink">
+            {{ t('settings.passwordLinkAction') }}
+          </AppButton>
 
           <p v-if="passwordMessage" class="row-hint" :class="{ 'row-hint--error': passwordError }">
             {{ passwordMessage }}
           </p>
-
-          <p class="row-hint">{{ t('settings.passwordLinkHint') }}</p>
-
-          <AppButton variant="outline" :disabled="passwordBusy" @click="sendPasswordLink">
-            {{ t('settings.passwordLinkAction') }}
-          </AppButton>
-
-          <AppButton
-            v-if="needsEmailConfirmation"
-            variant="outline"
-            :disabled="passwordBusy"
-            @click="resendConfirmation"
-          >
-            {{ t('settings.resendConfirmation') }}
-          </AppButton>
         </template>
       </SettingsRow>
     </section>
