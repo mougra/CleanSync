@@ -94,13 +94,15 @@ useStructuredData(() => {
       image: absolute(String(current.cover ?? '')),
       datePublished: current.publishedAt,
       dateModified: current.updatedAt ?? current.publishedAt,
-      inLanguage: 'ru-RU',
+      // Язык статьи, а не сайта: у английской версии он свой, иначе разметка
+      // говорит поисковику, что страница на русском.
+      inLanguage: locale.value === 'en' ? 'en-US' : 'ru-RU',
       mainEntityOfPage: url,
       keywords: (current.keywords ?? []).join(', '),
-      author: { '@type': 'Organization', name: 'Clean Planner', url: `${site.url}/about` },
+      author: { '@type': 'Organization', name: 'TidyPlan', url: `${site.url}/about` },
       publisher: {
         '@type': 'Organization',
-        name: 'Clean Planner',
+        name: 'TidyPlan',
         logo: { '@type': 'ImageObject', url: `${site.url}/icons/icon-512.png` },
       },
     },

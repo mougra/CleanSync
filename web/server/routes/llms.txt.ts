@@ -14,13 +14,24 @@ export default defineEventHandler(async (event) => {
   const config = useRuntimeConfig(event);
   const base = String(config.public.siteUrl ?? '').replace(/\/+$/, '');
 
-  const articles = await queryCollection(event, 'tips')
-    .select('path', 'title', 'description', 'publishedAt')
-    .all();
+  /**
+   * Статьи обеих коллекций: русские (`tips`) и английские (`tipsEn`).
+   * Английские лежат по адресам `/en/tips/...`, поэтому в списке для модели
+   * они выглядят так же, как обычные ссылки, — но не попадут в файл, если
+   * брать только русскую коллекцию.
+   */
+  const [articles, articlesEn] = await Promise.all([
+    queryCollection(event, 'tips').select('path', 'title', 'description', 'publishedAt').all(),
+    queryCollection(event, 'tipsEn').select('path', 'title', 'description', 'publishedAt').all(),
+  ]);
 
-  const sorted = [...articles].sort((left, right) =>
-    String(right.publishedAt ?? '').localeCompare(String(left.publishedAt ?? '')),
-  );
+  const byDate = (list: typeof articles) =>
+    [...list].sort((left, right) =>
+      String(right.publishedAt ?? '').localeCompare(String(left.publishedAt ?? '')),
+    );
+
+  const sorted = byDate(articles);
+  const sortedEn = byDate(articlesEn);
 
   const lines: string[] = [
     '# TidyPlan',
@@ -46,6 +57,10 @@ export default defineEventHandler(async (event) => {
     '## Статьи',
     '',
     ...sorted.map((article) => `- [${article.title}](${base}${article.path}): ${article.description ?? ''}`),
+    '',
+    '## Статьи (English)',
+    '',
+    ...sortedEn.map((article) => `- [${article.title}](${base}${article.path}): ${article.description ?? ''}`),
     '',
     '## Справочное',
     '',

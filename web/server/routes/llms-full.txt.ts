@@ -70,34 +70,60 @@ export default defineEventHandler(async (event) => {
   const config = useRuntimeConfig(event);
   const base = String(config.public.siteUrl ?? '').replace(/\/+$/, '');
 
-  const articles = await queryCollection(event, 'tips')
-    .select('path', 'title', 'description', 'keywords', 'publishedAt', 'body')
-    .all();
+  // Обе коллекции: русская и английская. Английские статьи живут по адресам
+  // `/en/tips/...`, и модель должна видеть их наравне с русскими.
+  const [articles, articlesEn] = await Promise.all([
+    queryCollection(event, 'tips')
+      .select('path', 'title', 'description', 'keywords', 'publishedAt', 'body')
+      .all(),
+    queryCollection(event, 'tipsEn')
+      .select('path', 'title', 'description', 'keywords', 'publishedAt', 'body')
+      .all(),
+  ]);
 
-  const sorted = [...articles].sort((left, right) =>
-    String(right.publishedAt ?? '').localeCompare(String(left.publishedAt ?? '')),
-  );
+  const byDate = (list: typeof articles) =>
+    [...list].sort((left, right) =>
+      String(right.publishedAt ?? '').localeCompare(String(left.publishedAt ?? '')),
+    );
+
+  const sorted = byDate(articles);
+  const sortedEn = byDate(articlesEn);
+
+  /** Одна статья в текстовом виде: ссылка, краткое описание, ключевые слова, текст. */
+  const renderArticle = (article: (typeof sorted)[number]): string[] => {
+    const lines = ['---', '', `# ${article.title}`, '', `URL: ${base}${article.path}`];
+
+    if (article.description) {
+      lines.push('', `Кратко: ${article.description}`);
+    }
+
+    if (Array.isArray(article.keywords) && article.keywords.length > 0) {
+      lines.push('', `Ключевые слова: ${article.keywords.join(', ')}`);
+    }
+
+    lines.push('', bodyToText(article.body).replace(/\n{3,}/g, '\n\n').trim(), '');
+
+    return lines;
+  };
 
   const parts: string[] = [
     '# TidyPlan — полный текст материалов',
     '',
-    `Источник: ${base}. Файл собран автоматически из статей раздела «Советы».`,
-    `Дата сборки: ${new Date().toISOString().slice(0, 10)}. Статей: ${sorted.length}.`,
+    `Источник: ${base}. Файл собран автоматически из статей раздела «Советы» — русских и английских.`,
+    `Дата сборки: ${new Date().toISOString().slice(0, 10)}. Статей: ${sorted.length + sortedEn.length} (ru ${sorted.length}, en ${sortedEn.length}).`,
+    '',
+    '## Русские статьи',
     '',
   ];
 
   for (const article of sorted) {
-    parts.push('---', '', `# ${article.title}`, '', `URL: ${base}${article.path}`);
+    parts.push(...renderArticle(article));
+  }
 
-    if (article.description) {
-      parts.push('', `Кратко: ${article.description}`);
-    }
+  parts.push('## English articles', '');
 
-    if (Array.isArray(article.keywords) && article.keywords.length > 0) {
-      parts.push('', `Ключевые слова: ${article.keywords.join(', ')}`);
-    }
-
-    parts.push('', bodyToText(article.body).replace(/\n{3,}/g, '\n\n').trim(), '');
+  for (const article of sortedEn) {
+    parts.push(...renderArticle(article));
   }
 
   setHeader(event, 'content-type', 'text/plain; charset=utf-8');

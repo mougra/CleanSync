@@ -12,7 +12,7 @@ export default defineSitemapEventHandler(async (event) => {
   const config = useRuntimeConfig(event);
 
   const articles = await queryCollection(event, 'tips')
-    .select('path', 'title', 'publishedAt')
+    .select('path', 'title', 'publishedAt', 'updatedAt')
     .all();
 
   // Юридические документы лежат в динамическом маршруте /privacy,
@@ -34,7 +34,12 @@ export default defineSitemapEventHandler(async (event) => {
     })),
     ...articles.map((article) => ({
       loc: article.path,
-      lastmod: article.publishedAt ?? undefined,
+      /**
+       * `lastmod` — дата последней правки: если статью дописали (например,
+       * добавили блок вопросов), поисковик должен увидеть это как обновление,
+       * а не как старую публикацию. Даты в будущем не ставим (правило 39).
+       */
+      lastmod: article.updatedAt ?? article.publishedAt ?? undefined,
       _i18nTransform: true,
     })),
     ...challenges.map((challenge) => ({
