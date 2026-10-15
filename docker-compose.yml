@@ -1,15 +1,18 @@
-# Продакшен-развёртывание: postgres + API (Express) + приложение (Nuxt).
+# Продакшен-развёртывание: postgres + API (Express) + приложение (Nuxt) + Caddy (HTTPS).
 #
-# Локальная разработка запускается иначе: `npm run dev` на хосте и
-# `docker compose up -d postgres` для базы. Здесь же всё в контейнерах,
-# с рестартом и проверками живости — это то, что поднимается на VPS.
+# Значения для прода живут в КОРНЕВОМ .env (шаблон — .env.example): docker compose
+# подставляет их в postgres, backend и web. Файл backend/.env описывает окружение
+# самого приложения (секреты, SMTP, VAPID) и локальную разработку.
 #
-# Перед первым запуском:
-#   cp backend/.env.example backend/.env   # и заполнить секреты
+# Первый запуск (два варианта, HTTPS и бэкапы — в docs/DEPLOY.md):
+#   cp .env.example .env                 # домен и пароль базы
+#   cp backend/.env.example backend/.env # секреты приложения
 #   docker compose up -d --build
 #   docker compose exec backend npm run db:setup
 #
-# Подробности, HTTPS и бэкапы — в docs/DEPLOY.md.
+# Локальная разработка этот файл не требует:
+#   docker compose up -d postgres          # только база, код на хосте (npm run dev)
+#   docker compose -f docker-compose.dev.yml up --build   # весь стек с hot-reload
 
 services:
   postgres:
@@ -17,6 +20,9 @@ services:
     container_name: clean_planner_db
     restart: unless-stopped
     environment:
+      # Значения приходят из корневого .env. env_file сервиса backend в подстановке
+      # ${...} НЕ участвует, поэтому смена пароля только в backend/.env даёт отказ
+      # аутентификации: пароль базы задаётся здесь (и в backend/.env — для dev).
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
       POSTGRES_DB: ${DB_NAME:-clean_planner}
@@ -37,6 +43,10 @@ services:
       - clean_planner_network
 
   backend:
+    # Имя образа нужно варианту «сборка в CI, на сервере только pull»: на сервере
+    # в .env задаются IMAGE_BACKEND/IMAGE_WEB из ghcr.io (см. docs/DEPLOY.md).
+    # При сборке на сервере `docker compose up -d --build` образ получит это же имя.
+    image: ${IMAGE_BACKEND:-cleansync-backend:latest}
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -46,9 +56,17 @@ services:
       - ./backend/.env
     environment:
       NODE_ENV: production
-      # Внутри compose база доступна по имени сервиса
+      # Перекрывает DB_* из backend/.env: в контейнере база живёт по имени сервиса
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-clean_planner}
       DB_HOST: postgres
       DB_PORT: 5432
+      # Миграции (node-pg-migrate) читают ТОЛЬКО эту строку и запускаются внутри
+      # контейнера, где localhost — сам backend. Поэтому хост здесь — имя сервиса,
+      # а не localhost из backend/.env (там оно нужно запуску кода на хосте).
+      # Пароль должен быть пригоден для URL: буквы и цифры, без спецсимволов.
+      DATABASE_URL: postgres://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-clean_planner}
       # За прокси реальный IP приходит в X-Forwarded-For
       TRUST_PROXY: 'true'
     expose:
@@ -60,6 +78,7 @@ services:
       - clean_planner_network
 
   web:
+    image: ${IMAGE_WEB:-cleansync-web:latest}
     build:
       context: ./web
       dockerfile: Dockerfile
@@ -75,38 +94,48 @@ services:
       NUXT_API_BASE: http://backend:5000
       # Тот же адрес в рантайме: llms.txt, RSS и запросы к своему origin
       NUXT_PUBLIC_SITE_URL: ${SITE_URL:-http://localhost:3000}
+    # Наружу смотрит только Caddy: он достаёт приложение по имени сервиса,
+    # поэтому в интернет порт не публикуем. Mapping на loopback оставлен
+    # для отладки с самого сервера (curl -I localhost:3000).
     ports:
-      - '3000:3000'
+      - '127.0.0.1:3000:3000'
     depends_on:
       - backend
     networks:
       - clean_planner_network
 
-  # Обратный прокси с автоматическим HTTPS. Раскомментировать, когда есть домен:
-  # Caddy сам получит сертификат Let's Encrypt и будет проксировать /api в backend,
-  # остальное — в web (см. Caddyfile).
-  #
-  # caddy:
-  #   image: caddy:2-alpine
-  #   container_name: clean_planner_caddy
-  #   restart: unless-stopped
-  #   ports:
-  #     - '80:80'
-  #     - '443:443'
-  #   volumes:
-  #     - ./Caddyfile:/etc/caddy/Caddyfile:ro
-  #     - caddy_data:/data
-  #     - caddy_config:/config
-  #   depends_on:
-  #     - web
-  #     - backend
-  #   networks:
-  #     - clean_planner_network
+  # Обратный прокси с автоматическим HTTPS: Caddy сам получает сертификат
+  # Let's Encrypt и продлевает его. Домен берётся из переменной SITE_DOMAIN
+  # (корневой .env), чтобы обновление через git pull не конфликтовало с
+  # правкой файла на сервере. Проксирование /api в backend — в Caddyfile.
+  caddy:
+    image: caddy:2-alpine
+    container_name: clean_planner_caddy
+    restart: unless-stopped
+    environment:
+      # Без SITE_DOMAIN подставится localhost: Caddy поднимет локальный
+      # сертификат и сайт будет доступен только как https://localhost.
+      SITE_DOMAIN: ${SITE_DOMAIN:-localhost}
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      # Метка z нужна SELinux (AlmaLinux/Rocky/CentOS включают его в режиме Enforcing):
+      # без неё контейнер не прочитает смонтированный файл и Caddy упадёт с
+      # permission denied. На системах без SELinux метка игнорируется.
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro,z
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+      - backend
+    networks:
+      - clean_planner_network
 
 volumes:
   postgres_data:
-  # caddy_data:
-  # caddy_config:
+  caddy_data:
+  caddy_config:
 
 networks:
   clean_planner_network:
