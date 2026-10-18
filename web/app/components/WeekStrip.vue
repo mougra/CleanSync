@@ -123,7 +123,13 @@ const selectDay = (iso: string) => {
         <i class="pi pi-chevron-left" aria-hidden="true" />
       </button>
 
-      <h1 class="week-strip__title">{{ monthTitle }}</h1>
+      <!--
+        Месяц — подпись календаря, а не заголовок страницы: H1 живёт на главной
+        (pages/index.vue) и рассказывает про продукт. Здесь раньше стоял `h1`,
+        и в разметке главной единственным заголовком первого уровня оказывалось
+        «октябрь 2026 г.».
+      -->
+      <p class="week-strip__title">{{ monthTitle }}</p>
 
       <button
         type="button"

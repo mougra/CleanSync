@@ -7,6 +7,13 @@ import { queryCollection } from '@nuxt/content/server';
  * обязательно — иначе материалы, на которые нет ссылок в навигации,
  * поисковик не увидит. `_i18nTransform` размножает адрес по локалям
  * и добавляет hreflang-альтернативы.
+ *
+ * Юридических документов здесь нет: файл `web/content/legal/privacy.md`
+ * живёт в коллекции по адресу `/legal/privacy`, но страницы с таким путём
+ * не существует — документ открывается по маршруту `/privacy` (pages/privacy.vue),
+ * а этот маршрут статический, и модуль добавляет его сам. Пока в карту
+ * попадал `document.path`, в ней висел адрес `/legal/privacy` с ответом 404,
+ * и поисковик видел ошибку в карте сайта.
  */
 export default defineSitemapEventHandler(async (event) => {
   const config = useRuntimeConfig(event);
@@ -14,10 +21,6 @@ export default defineSitemapEventHandler(async (event) => {
   const articles = await queryCollection(event, 'tips')
     .select('path', 'title', 'publishedAt', 'updatedAt')
     .all();
-
-  // Юридические документы лежат в динамическом маршруте /privacy,
-  // поэтому в карту их добавляем вручную.
-  const legal = await queryCollection(event, 'legal').select('path', 'updatedAt').all();
 
   let challenges: Array<{ slug: string }>;
   try {
@@ -28,10 +31,6 @@ export default defineSitemapEventHandler(async (event) => {
   }
 
   return [
-    ...legal.map((document) => ({
-      loc: document.path,
-      lastmod: document.updatedAt ?? undefined,
-    })),
     ...articles.map((article) => ({
       loc: article.path,
       /**

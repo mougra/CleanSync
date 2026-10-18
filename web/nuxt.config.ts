@@ -180,7 +180,6 @@ export default defineNuxtConfig({
       '/household',
       '/analytics',
       '/achievements',
-      '/guide',
       '/login',
       '/register',
       '/confirm-email',

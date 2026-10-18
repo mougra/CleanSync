@@ -17,7 +17,16 @@ const sections = [
   { key: 'notifications', icon: 'pi-bell' },
 ] as const;
 
-useSeoMeta({ title: () => t('guide.title'), robots: 'noindex, nofollow' });
+/**
+ * Страница открыта для индексации: это обычная справочная страница про сервис,
+ * на неё ссылаются подвал и настройки. Раньше здесь стоял `noindex, nofollow`
+ * (и `/guide` был закрыт в robots.txt), хотя содержимое страницы поисковику
+ * полезно: по сути это инструкция «с чего начать».
+ */
+useSeoMeta({
+  title: () => t('guide.title'),
+  description: () => t('guide.lead'),
+});
 </script>
 
 <template>
