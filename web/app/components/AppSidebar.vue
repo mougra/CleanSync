@@ -67,7 +67,12 @@ const isActive = (to: string) => {
     height: 100vh;
     padding: var(--space-5) var(--space-4);
     border-right: 1px solid var(--c-border);
-    background: var(--c-bg);
+    /*
+     * Панель просвечивает: фон приложения (decor.css, п. 7) проходит под меню,
+     * и левая колонка не выглядит плоской заплатой на градиенте. Плотность
+     * подобрана так, чтобы подписи пунктов не теряли контраст.
+     */
+    background: var(--c-sidebar-bg);
   }
 }
 
