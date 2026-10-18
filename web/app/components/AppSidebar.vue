@@ -1,16 +1,25 @@
 <script setup lang="ts">
-import { appNavItems } from '~/composables/useAppNav';
+import { appNavItems, appPath } from '~/composables/useAppNav';
 
 const { t } = useI18n();
 const route = useRoute();
+const localePath = useLocalePath();
 
-const isActive = (to: string) =>
-  to === '/' ? route.path === '/' : route.path === to || route.path.startsWith(`${to}/`);
+/**
+ * Ссылки собираем через `localePath`: в английской версии адреса живут под `/en`,
+ * а сырой `/habits` — это русский маршрут. Переход по нему переключал язык
+ * обратно на русский, хотя человек только что выбрал английский.
+ */
+const isActive = (to: string) => {
+  const path = appPath(route.path);
+
+  return to === '/' ? path === '/' : path === to || path.startsWith(`${to}/`);
+};
 </script>
 
 <template>
   <aside class="sidebar">
-    <NuxtLink to="/" class="sidebar__brand">
+    <NuxtLink :to="localePath('/')" class="sidebar__brand">
       <span class="sidebar__mark">
         <img class="sidebar__logo" src="/logo.svg" alt="" width="36" height="36" >
       </span>
@@ -21,7 +30,7 @@ const isActive = (to: string) =>
       <NuxtLink
         v-for="item in appNavItems"
         :key="item.key"
-        :to="item.to"
+        :to="localePath(item.to)"
         class="sidebar__item"
         :class="{ 'sidebar__item--active': isActive(item.to) }"
       >

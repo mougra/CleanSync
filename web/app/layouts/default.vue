@@ -7,13 +7,18 @@
  * чек-листах и статистике: выбирать день там нечего. Заказчик попросил оставить его
  * только на главной; в семейном режиме это будет решаться отдельно, когда станет
  * понятно, нужен ли там общий день.
- *
- * Английская версия живёт под префиксом `/en`, поэтому перед сравнением префикс
- * снимаем — иначе на `/en` календарь исчез бы.
  */
-const route = useRoute();
+import { appPath } from '~/composables/useAppNav';
 
-const showCalendar = computed(() => (route.path.replace(/^\/en(?=\/|$)/, '') || '/') === '/');
+const route = useRoute();
+const localePath = useLocalePath();
+
+/**
+ * Календарь показываем только на «Сегодня». Английская версия живёт под `/en`,
+ * поэтому перед сравнением префикс снимаем (`appPath`) — иначе на `/en`
+ * календарь исчез бы.
+ */
+const showCalendar = computed(() => appPath(route.path) === '/');
 </script>
 
 <template>
@@ -22,7 +27,7 @@ const showCalendar = computed(() => (route.path.replace(/^\/en(?=\/|$)/, '') || 
 
     <div class="shell__main">
       <div class="shell__topbar">
-        <NuxtLink to="/" class="shell__brand">
+        <NuxtLink :to="localePath('/')" class="shell__brand">
           <span class="shell__mark">
             <img class="shell__logo" src="/logo.svg" alt="" width="32" height="32" >
           </span>

@@ -6,6 +6,15 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
  */
 const LOCALE_COOKIE = 'tidyplan-locale';
 
+/**
+ * Английская версия живёт под префиксом `/en`, у русского (языка по умолчанию)
+ * префикса нет. Тот же признак читают навигация (`appPath`) и карта сайта.
+ */
+const EN_PATH = /^\/en(?=\/|$)/;
+
+const pathLocale = (path: string): string | null =>
+  EN_PATH.test(path.split('?')[0] ?? '') ? 'en' : null;
+
 /** Значение cookie без зависимостей от Nuxt: нужно и в SSR, и в браузере. */
 const cookieValue = (raw: string | undefined, name: string): string | null => {
   if (!raw) {
@@ -30,26 +39,22 @@ const cookieValue = (raw: string | undefined, name: string): string | null => {
  * достижений, привычек). Интерфейс переводят i18n на клиенте, а этот текст
  * приходит готовой строкой с сервера, поэтому язык едет в каждом запросе.
  *
- * Источник — то же cookie, что читает i18n: выбор человека важнее языка
- * браузера, и на сервере, и в браузере получается одно и то же значение.
- * Если cookie ещё нет (первый заход), SSR отвечает по `Accept-Language`
- * браузера, а клиент — по `navigator.language`.
+ * На сервере язык задаёт адрес страницы: `/en/...` i18n рендерит по-английски,
+ * остальные адреса — по-русски. Брать его из cookie или `Accept-Language`
+ * нельзя: страница `/en/tips`, открытая по прямой ссылке (cookie ещё нет,
+ * браузер русский), получала английский интерфейс с русскими названиями из базы.
+ *
+ * В браузере — cookie: `i18n` держит его равным языку открытой страницы, а сам
+ * `useApi()` создаётся один раз и переживает смену языка. Читаем значение
+ * на момент запроса, а не при создании: переключатель пишет cookie раньше,
+ * чем уходит запрос за новыми текстами.
  */
-const apiLocale = (forwardedCookie: string | undefined): string => {
-  const fromCookie = cookieValue(
-    import.meta.server ? forwardedCookie : document.cookie,
-    LOCALE_COOKIE,
-  );
-
-  if (fromCookie) {
-    return fromCookie;
-  }
-
+const apiLocale = (requestPath: string): string => {
   if (import.meta.server) {
-    return useRequestHeaders(['accept-language'])['accept-language'] ?? 'ru';
+    return pathLocale(requestPath) ?? 'ru';
   }
 
-  return navigator.language || 'ru';
+  return cookieValue(document.cookie, LOCALE_COOKIE) ?? (navigator.language || 'ru');
 };
 
 /** Тип опций берём у самого $fetch, чтобы не расходиться с версией Nitro. */
@@ -82,13 +87,19 @@ export const useApi = () => {
   const restoredAccessToken = isServer
     ? (useRequestEvent()?.context as { freshAccessToken?: string } | undefined)?.freshAccessToken
     : undefined;
+  /**
+   * Адрес текущей страницы: на сервере он и задаёт язык текстов из базы
+   * (см. `apiLocale`). Запоминаем сразу — внутри `request` контекст запроса
+   * уже может быть недоступен.
+   */
+  const requestPath = isServer ? (useRequestEvent()?.path ?? '') : '';
 
   const request = async <T>(path: string, options: ApiRequestOptions = {}): Promise<T> => {
     const method = String(options.method ?? 'GET').toUpperCase();
     const headers: Record<string, string> = {
       ...((options.headers as Record<string, string> | undefined) ?? {}),
       // Язык текстов из базы: интерфейс переводит i18n, а контент — сервер.
-      'Accept-Language': apiLocale(forwardedCookie),
+      'Accept-Language': apiLocale(requestPath),
     };
 
     if (!SAFE_METHODS.has(method)) {

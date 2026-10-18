@@ -25,3 +25,12 @@ export const appNavItems: AppNavItem[] = [
 
 /** Пункты для нижней навигации: без тех, что только в боковом меню. */
 export const bottomNavItems = appNavItems.filter((item) => !item.sidebarOnly);
+
+/**
+ * Адрес без языкового префикса.
+ *
+ * Английская версия живёт под `/en`, поэтому «свой» раздел надо сравнивать
+ * с путём без префикса: иначе на `/en/habits` активным не считался бы ни один
+ * пункт меню. Русский — язык по умолчанию, префикса у него нет.
+ */
+export const appPath = (path: string): string => path.replace(/^\/en(?=\/|$)/, '') || '/';

@@ -46,6 +46,7 @@ interface ToastItem {
  */
 export const useAchievementToast = () => {
   const api = useApi();
+  const { locale } = useI18n();
   const queue = useState<ToastItem[]>('achievement-toasts', () => []);
 
   const show = async (codes: string[] | undefined | null) => {
@@ -53,12 +54,18 @@ export const useAchievementToast = () => {
       return;
     }
 
-    let catalog = useState<Achievement[]>('achievement-toast-catalog', () => []).value;
+    /**
+     * Справочник кешируем, но отдельно для каждого языка: название и описание
+     * приходят из API уже переведёнными, и общий кеш показал бы в английском
+     * интерфейсе русскую карточку.
+     */
+    const catalogKey = `achievement-toast-catalog-${locale.value}`;
+    let catalog = useState<Achievement[]>(catalogKey, () => []).value;
 
     if (catalog.length === 0) {
       try {
         catalog = await api.request<Achievement[]>('/api/achievements');
-        useState<Achievement[]>('achievement-toast-catalog', () => []).value = catalog;
+        useState<Achievement[]>(catalogKey, () => []).value = catalog;
       } catch {
         catalog = [];
       }

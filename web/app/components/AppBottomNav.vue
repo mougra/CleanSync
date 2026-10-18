@@ -1,11 +1,16 @@
 <script setup lang="ts">
-import { bottomNavItems } from '~/composables/useAppNav';
+import { bottomNavItems, appPath } from '~/composables/useAppNav';
 
 const { t } = useI18n();
 const route = useRoute();
+const localePath = useLocalePath();
 
-const isActive = (to: string) =>
-  to === '/' ? route.path === '/' : route.path === to || route.path.startsWith(`${to}/`);
+/** Ссылки — через `localePath`, иначе с `/en/...` человек падал на русский адрес. */
+const isActive = (to: string) => {
+  const path = appPath(route.path);
+
+  return to === '/' ? path === '/' : path === to || path.startsWith(`${to}/`);
+};
 </script>
 
 <template>
@@ -13,7 +18,7 @@ const isActive = (to: string) =>
     <NuxtLink
       v-for="item in bottomNavItems"
       :key="item.key"
-      :to="item.to"
+      :to="localePath(item.to)"
       class="bottom-nav__item"
       :class="{ 'bottom-nav__item--active': isActive(item.to) }"
     >
