@@ -62,6 +62,26 @@ const place = () => {
   };
 };
 
+/**
+ * Список может быть шире кнопки (в нём длинные подписи), поэтому после
+ * отрисовки подтягиваем его влево, если правый край уехал за экран.
+ */
+const keepInsideViewport = () => {
+  const list = popup.value;
+
+  if (!list) return;
+
+  const margin = 12;
+  const overflow = position.value.left + list.offsetWidth - (window.innerWidth - margin);
+
+  if (overflow > 0) {
+    position.value = {
+      ...position.value,
+      left: Math.max(margin, position.value.left - overflow),
+    };
+  }
+};
+
 const openList = () => {
   if (props.disabled) return;
 
@@ -71,6 +91,8 @@ const openList = () => {
   );
   place();
   open.value = true;
+  // Настоящая ширина списка известна только после отрисовки.
+  void nextTick(keepInsideViewport);
 };
 
 const closeList = () => {
@@ -146,15 +168,32 @@ const onPointerDown = (event: PointerEvent) => {
   closeList();
 };
 
+/**
+ * Прокрутка страницы закрывает список, а прокрутка самого списка — нет.
+ *
+ * Событие `scroll` приходит от любого прокручиваемого элемента, и на фазе
+ * перехвата его видно на `window`. Раньше колесо внутри списка тут же его
+ * закрывало: длинный справочник нельзя было пролистать мышью.
+ */
+const onAnyScroll = (event: Event) => {
+  const target = event.target;
+
+  if (target instanceof Node && popup.value?.contains(target)) {
+    return;
+  }
+
+  closeList();
+};
+
 onMounted(() => {
   document.addEventListener('pointerdown', onPointerDown);
-  window.addEventListener('scroll', closeList, true);
+  window.addEventListener('scroll', onAnyScroll, true);
   window.addEventListener('resize', closeList);
 });
 
 onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', onPointerDown);
-  window.removeEventListener('scroll', closeList, true);
+  window.removeEventListener('scroll', onAnyScroll, true);
   window.removeEventListener('resize', closeList);
 });
 </script>
@@ -278,7 +317,7 @@ onBeforeUnmount(() => {
 .select--compact {
   /*
    * Компактный вид занимает место по содержимому, а не всю строку: у счётчика
-   * «дня в неделю» широкая кнопка во всю карточку выглядела пустой полосой.
+   * «5 дней в неделю» широкая кнопка во всю карточку выглядела пустой полосой.
    */
   width: auto;
   max-width: 100%;
@@ -307,6 +346,37 @@ onBeforeUnmount(() => {
   border-radius: var(--r-row);
   background: var(--c-bg);
   box-shadow: var(--shadow-lift);
+  /*
+   * Полоса прокрутки: без кнопок-стрелок сверху и снизу — в системном виде они
+   * выглядели как отдельные кнопки списка и воровали по 16px высоты. Оставляем
+   * тонкий ползунок и не даём прокрутке списка утаскивать страницу за собой.
+   */
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--c-border) transparent;
+}
+
+.select__list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.select__list::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.select__list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.select__list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--c-border);
+}
+
+.select__list::-webkit-scrollbar-thumb:hover {
+  background: var(--c-text-muted);
 }
 
 .select__option {

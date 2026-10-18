@@ -485,10 +485,14 @@ useSeoMeta({ title: () => t('nav.settings') });
       <!--
         Режим отпуска. Пока он включён, на главной вместо задач — состояние
         отпуска с выходом из него, а серия за пропущенные дни не рвётся.
+
+        Переключатель — именно `<label>`: сам чекбокс спрятан (1px, прозрачный),
+        а видимая дорожка — соседний узел. Без label клик по дорожке до поля
+        не доходил, и строка выглядела неактивной.
       -->
       <SettingsRow icon="pi-sun" :title="t('vacation.settingsTitle')" :subtitle="t('vacation.settingsHint')">
         <template #control>
-          <span class="switch" role="presentation" :class="{ 'switch--on': vacationOn }">
+          <label class="switch" :class="{ 'switch--on': vacationOn }">
             <input
               class="switch__input"
               type="checkbox"
@@ -498,13 +502,13 @@ useSeoMeta({ title: () => t('nav.settings') });
               @change="toggleVacation"
             >
             <span class="switch__track"><span class="switch__thumb" /></span>
-          </span>
+          </label>
         </template>
       </SettingsRow>
 
       <SettingsRow icon="pi-bell" :title="t('settings.notifications')" expandable>
         <template #control>
-          <span class="switch" role="presentation" :class="{ 'switch--on': notificationsOn }">
+          <label class="switch" :class="{ 'switch--on': notificationsOn }">
             <input
               class="switch__input"
               type="checkbox"
@@ -514,7 +518,7 @@ useSeoMeta({ title: () => t('nav.settings') });
               @change="toggleNotifications"
             >
             <span class="switch__track"><span class="switch__thumb" /></span>
-          </span>
+          </label>
         </template>
 
         <template #body>
@@ -907,6 +911,8 @@ useSeoMeta({ title: () => t('nav.settings') });
 .switch {
   display: inline-flex;
   align-items: center;
+  /* Дорожка — это и есть кнопка: чекбокс спрятан, клик идёт через label */
+  cursor: pointer;
 }
 
 .switch__input {
@@ -914,6 +920,11 @@ useSeoMeta({ title: () => t('nav.settings') });
   width: 1px;
   height: 1px;
   opacity: 0;
+}
+
+/* Видимый фокус достаётся дорожке: сам чекбокс невидим */
+.switch__input:focus-visible + .switch__track {
+  box-shadow: 0 0 0 3px var(--c-accent-soft);
 }
 
 .switch__track {

@@ -58,11 +58,16 @@ const progress = computed(() => {
 /**
  * Варианты недельной цели: «1 день в неделю» … «7 дней в неделю».
  *
- * Склонение считает `goalWord`, а рисует список наш AppSelect: нативный `<select>`
- * в тёмной теме показывал светлый системный список с чужим шрифтом.
+ * Число — часть подписи, а не украшение: без него «день в неделю», «дня
+ * в неделю» и «дней в неделю» отличались только склонением, и в списке стояли
+ * три одинаковые строки — по ним нельзя было выбрать цель.
  */
 const goalOptions = computed(() =>
-  Array.from({ length: 7 }, (_, index) => ({ value: index + 1, label: goalWord(index + 1) }))
+  Array.from({ length: 7 }, (_, index) => {
+    const value = index + 1;
+
+    return { value, label: `${value} ${goalWord(value)}` };
+  })
 );
 
 const changeTarget = async (value: string | number) => {
