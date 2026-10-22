@@ -12,11 +12,13 @@ import { dayBudget } from '../services/dailyBudget';
 import { resolveContentLocale, type ContentLocale } from '../services/contentLocale';
 import { relocalizeGeneratedContent } from '../services/generatedContent';
 import { getTaskCatalog } from '../services/taskCatalog';
+import { catalogTitle as localCatalogTitle, catalogZone as localZoneTitle, catalogCadence as localCadenceTitle } from '../services/catalogLocale';
 import {
   CLEANING_LEVELS,
   CLEANING_STYLES,
   COMPOSITIONS,
   DAILY_MINUTES_OPTIONS,
+  DEFAULT_HOME_ANSWERS,
   DRYING_OPTIONS,
   HARDEST_ZONES,
   HOUSING_TYPES,
@@ -852,6 +854,86 @@ const toMyTasksResponse = (saved: SyncResult, set: DefaultTaskSet, merge?: Merge
   maxDailyMinutes: set.summary.maxDailyMinutes,
   notes: set.summary.notes,
   ...(merge ? { merged: merge } : {}),
+});
+
+/**
+ * POST /api/home-profile/preview — собрать набор по ответам **без аккаунта**.
+ *
+ * Зачем. Анкета и генератор — самая ценная часть продукта, а увидеть их можно
+ * было только после регистрации. Гость, пришедший из поиска, уходил, не поняв,
+ * что здесь вообще происходит. Этот маршрут отдаёт готовый набор сразу: он
+ * ничего не пишет в базу, не знает пользователя и работает на тех же правилах,
+ * что и `buildDefaultTasks` для вошедшего.
+ *
+ * Что дальше с прогрессом. Отметки гостя живут на устройстве (localStorage,
+ * см. `web/app/composables/useGuestPlan.ts`): серверу нечего хранить, пока у
+ * человека нет аккаунта. Ответы и отметки переезжают в аккаунт одной кнопкой —
+ * клиент вызывает `PUT /api/home-profile` с `complete: true`, затем
+ * `POST /api/home-profile/plan`, и набор создаётся заново по тем же ответам
+ * (генератор детерминирован, поэтому это тот же самый набор).
+ *
+ * Ответ намеренно содержит `dayOfWeek`/`dayOfMonth`/`intervalCount`: по ним
+ * клиент строит файл календаря, не забирая план второй раз.
+ */
+router.post('/preview', async (req: Request, res: Response) => {
+  const parsed = parseAnswers(req.body);
+
+  if (parsed.error) {
+    res.status(400).json({ error: parsed.error });
+    return;
+  }
+
+  // Пустой запрос — это не «дом по умолчанию», а забытые ответы: молча отдать
+  // план типовой квартиры значило бы показать не то, что человек выбрал.
+  if (parsed.provided === 0) {
+    res.status(400).json({ error: 'Пришлите хотя бы один ответ анкеты' });
+    return;
+  }
+
+  try {
+    const answers: HomeAnswers = { ...DEFAULT_HOME_ANSWERS, ...parsed.answers };
+    const set = buildDefaultTasks(answers);
+    const locale = resolveContentLocale(req);
+
+    res.json({
+      answers,
+      plan: {
+        tasks: set.tasks.map((task) => ({
+          title: localCatalogTitle(task.title, locale),
+          room: localZoneTitle(task.room, locale),
+          minutes: task.minutes,
+          level: task.level,
+          cadence: task.cadence,
+          /** Опора для календаря: день недели (0 — воскресенье) или число месяца. */
+          dayOfWeek: task.dayOfWeek,
+          dayOfMonth: task.dayOfMonth,
+          intervalCount: task.intervalCount,
+        })),
+        /**
+         * Подписи периодичностей — с сервера: словарь уже есть в каталоге, а
+         * дублировать полтора десятка строк в двух файлах i18n незачем.
+         */
+        cadences: [...new Set(set.tasks.map((task) => task.cadence))].reduce<
+          Record<string, string>
+        >((labels, cadence) => {
+          labels[cadence] = localCadenceTitle(cadence, locale);
+          return labels;
+        }, {}),
+        summary: {
+          totalTasks: set.summary.totalTasks,
+          totalMinutes: set.summary.totalMinutes,
+          weeklyTasks: set.summary.weeklyTasks,
+          monthlyTasks: set.summary.monthlyTasks,
+          maxDailyMinutes: set.summary.maxDailyMinutes,
+          dailyLimit: set.summary.dailyLimit,
+          rooms: set.summary.rooms.map((room) => localZoneTitle(room, locale)),
+        },
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to preview home plan' });
+  }
 });
 
 /**

@@ -1237,11 +1237,11 @@ useStructuredData(() => ({
           </div>
 
           <div class="plan__guest-actions">
-            <AppButton variant="accent" :to="localePath('/register')">
-              {{ t('plan.guestRegister') }}
+            <AppButton variant="accent" :to="localePath('/plan')">
+              {{ t('plan.guestBuild') }}
             </AppButton>
-            <AppButton variant="outline" :to="localePath('/login')">
-              {{ t('auth.login') }}
+            <AppButton variant="outline" :to="localePath('/register')">
+              {{ t('plan.guestRegister') }}
             </AppButton>
           </div>
         </div>
