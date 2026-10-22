@@ -396,9 +396,10 @@
     "notFound": "Document not found"
   },
   "cookies": {
-    "text": "We use only strictly necessary cookies: sign-in, request protection, theme and language.",
+    "text": "Technical cookies are needed for signing in, the theme and the language — the site does not work without them. Analytics (Yandex Metrika) is loaded only with your consent.",
     "more": "Learn more",
-    "accept": "Got it"
+    "accept": "Accept analytics",
+    "essential": "Essential only"
   },
   "achievements": {
     "title": "Achievements",
@@ -525,7 +526,7 @@
     "build": "Build the plan",
     "building": "Building…",
     "resultTitle": "Your plan",
-    "resultLead": "{tasks} chores, about {minutes} minutes a month",
+    "resultLead": "{tasks} chores — {minutes} minutes of work to go through the whole list once",
     "progress": "{done} of {total} done",
     "errorBuild": "Could not build the plan — please try again",
     "errorTransfer": "Could not move the plan into your account — please try again",

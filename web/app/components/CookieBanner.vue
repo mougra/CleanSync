@@ -1,46 +1,43 @@
 <script setup lang="ts">
 /**
- * Уведомление об использовании cookie.
+ * Баннер cookie и согласие на аналитику.
  *
- * У нас только технически необходимые cookie (авторизация, CSRF, тема, язык),
- * поэтому баннер информирует, а не спрашивает разрешение. Показываем его один
- * раз: выбор хранится в localStorage, и до монтирования баннер скрыт, чтобы
- * не мигал при серверном рендере и не попадал в HTML для поисковиков.
+ * Раньше баннер только информировал: на сайте были исключительно технические
+ * cookie (вход, CSRF, тема, язык). С Метрикой появилась третья сторона, поэтому
+ * теперь это выбор из двух кнопок, а не «Понятно»: аналитический скрипт грузится
+ * только после явного согласия (`composables/useCookieConsent.ts`).
+ *
+ * Баннер скрыт до монтирования: иначе он мигал бы при серверном рендере и
+ * попадал в HTML для поисковиков.
  */
 const { t } = useI18n();
 const localePath = useLocalePath();
+const { consent, ready, load, accept } = useCookieConsent();
 
-const STORAGE_KEY = 'tidyplan-cookies-notice';
-const hidden = ref(true);
+onMounted(load);
 
-onMounted(() => {
-  try {
-    hidden.value = window.localStorage.getItem(STORAGE_KEY) === 'accepted';
-  } catch {
-    // Приватный режим может запрещать localStorage — тогда просто не показываем повторно
-    hidden.value = true;
-  }
-});
+/** Показываем, только когда выбор ещё не сделан и мы уже знаем об этом. */
+const visible = computed(() => ready.value && consent.value === null);
 
-const accept = () => {
-  hidden.value = true;
-  try {
-    window.localStorage.setItem(STORAGE_KEY, 'accepted');
-  } catch {
-    // Игнорируем: уведомление и так скрыто до следующего визита
-  }
-};
+const choose = (value: 'essential' | 'all') => accept(value);
 </script>
 
 <template>
   <Transition name="banner">
-    <aside v-if="!hidden" class="banner" role="status" aria-live="polite">
+    <aside v-if="visible" class="banner" role="dialog" aria-live="polite">
       <p class="banner__text">
         {{ t('cookies.text') }}
         <NuxtLink :to="localePath('/privacy')" class="banner__link">{{ t('cookies.more') }}</NuxtLink>
       </p>
 
-      <AppButton variant="filled" @click="accept">{{ t('cookies.accept') }}</AppButton>
+      <div class="banner__actions">
+        <AppButton variant="outline" @click="choose('essential')">
+          {{ t('cookies.essential') }}
+        </AppButton>
+        <AppButton variant="filled" @click="choose('all')">
+          {{ t('cookies.accept') }}
+        </AppButton>
+      </div>
     </aside>
   </Transition>
 </template>
@@ -76,6 +73,12 @@ const accept = () => {
 .banner__link {
   color: var(--c-brand);
   text-underline-offset: 3px;
+}
+
+.banner__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 
 @media (min-width: 768px) {

@@ -316,6 +316,17 @@ export default defineNuxtConfig({
       // NUXT_PUBLIC_SENTRY_DSN и NUXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE)
       sentryDsn: '',
       sentryTracesSampleRate: 0.1,
+      /**
+       * Номер счётчика Яндекс Метрики. Пусто = счётчика нет: скрипт не грузится
+       * вовсе, ни одного запроса на mc.yandex.ru. Тот же принцип, что у Sentry.
+       *
+       * Номер — не секрет (он виден в HTML), но живёт в окружении, а не в коде:
+       * у локальной и боевой сборки они разные, и включать аналитику правкой
+       * файла не нужно.
+       *
+       * Переопределяется переменной NUXT_PUBLIC_YANDEX_METRIKA_ID.
+       */
+      yandexMetrikaId: process.env.NUXT_PUBLIC_YANDEX_METRIKA_ID || '',
     },
   },
 

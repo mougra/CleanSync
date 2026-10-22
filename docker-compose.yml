@@ -95,6 +95,9 @@ services:
       NUXT_API_BASE: http://backend:5000
       # Тот же адрес в рантайме: llms.txt, RSS и запросы к своему origin
       NUXT_PUBLIC_SITE_URL: ${SITE_URL:-http://localhost:3000}
+      # Номер счётчика Яндекс Метрики. Пусто = аналитики нет: скрипт счётчика
+      # не загружается, и ни один запрос на mc.yandex.ru не уходит.
+      NUXT_PUBLIC_YANDEX_METRIKA_ID: ${YANDEX_METRIKA_ID:-}
     # Наружу смотрит только Caddy: он достаёт приложение по имени сервиса,
     # поэтому в интернет порт не публикуем. Mapping на loopback оставлен
     # для отладки с самого сервера (curl -I localhost:3000).

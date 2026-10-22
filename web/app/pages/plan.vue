@@ -344,27 +344,40 @@ useSeoMeta({
         {{ t('planPage.progress', { done: doneCount, total: totalCount }) }}
       </p>
 
-      <div v-for="group in groups" :key="group.cadence" class="plan-group">
-        <h3 class="plan-group__title">
-          {{ group.label }}
-          <span class="plan-group__meta">{{ taskMinutes(group.tasks) }} {{ t('zonesPage.minutes') }}</span>
-        </h3>
+      <div v-for="(group, index) in groups" :key="group.cadence" class="plan-group">
+        <!--
+          Первый блок (недельные дела) раскрыт, остальные свёрнуты: в наборе
+          типового дома 150-180 задач, и развёрнутый список целиком превращал
+          страницу в бесконечную ленту на телефоне. `<details>` выбран вместо
+          своей кнопки: раскрытие бесплатно доступно с клавиатуры и скринридеру.
+        -->
+        <details :open="index === 0">
+          <summary class="plan-group__title">
+            {{ group.label }}
+            <span class="plan-group__meta">
+              {{ group.tasks.length }} · {{ taskMinutes(group.tasks) }} {{ t('zonesPage.minutes') }}
+            </span>
+          </summary>
 
-        <ul class="plan-group__list">
-          <li v-for="task in group.tasks" :key="task.title">
-            <label class="plan-task">
-              <input
-                type="checkbox"
-                :checked="plan.done.includes(task.title)"
-                @change="toggle(task.title)"
-              >
-              <span class="plan-task__title" :class="{ 'plan-task__title--done': plan.done.includes(task.title) }">
-                {{ task.title }}
-              </span>
-              <span class="plan-task__meta">{{ task.minutes }} {{ t('zonesPage.minutes') }}</span>
-            </label>
-          </li>
-        </ul>
+          <ul class="plan-group__list">
+            <li v-for="task in group.tasks" :key="task.title">
+              <label class="plan-task">
+                <input
+                  type="checkbox"
+                  :checked="plan.done.includes(task.title)"
+                  @change="toggle(task.title)"
+                >
+                <span
+                  class="plan-task__title"
+                  :class="{ 'plan-task__title--done': plan.done.includes(task.title) }"
+                >
+                  {{ task.title }}
+                </span>
+                <span class="plan-task__meta">{{ task.minutes }} {{ t('zonesPage.minutes') }}</span>
+              </label>
+            </li>
+          </ul>
+        </details>
       </div>
 
       <section class="plan-result__save">
@@ -526,8 +539,29 @@ useSeoMeta({
   gap: var(--space-2);
   align-items: baseline;
   justify-content: space-between;
+  min-height: var(--tap-min);
   font-size: var(--fs-body);
   font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+/* Свой маркер вместо треугольника браузера: он не зависит от темы и читается. */
+.plan-group__title::-webkit-details-marker {
+  display: none;
+}
+
+.plan-group__title::after {
+  content: '+';
+  color: var(--c-text-muted);
+  font-weight: 400;
+}
+
+.plan-group details[open] > .plan-group__title::after {
+  content: '−';
+}
+
+.plan-group details[open] > .plan-group__title {
   margin-bottom: var(--space-2);
 }
 
