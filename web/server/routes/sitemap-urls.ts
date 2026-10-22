@@ -30,6 +30,20 @@ export default defineSitemapEventHandler(async (event) => {
     challenges = [];
   }
 
+  /**
+   * Зоны дома: адреса собираются из каталога задач, а не перечислены руками.
+   * Список короткий (около дюжины), поэтому отдельного запроса на каждую зону не
+   * делаем — хватает ответа `/api/catalog/zones`.
+   */
+  let zones: Array<{ slug: string }>;
+  try {
+    zones = (
+      await $fetch<{ zones: Array<{ slug: string }> }>(`${config.apiBase}/api/catalog/zones`)
+    ).zones;
+  } catch {
+    zones = [];
+  }
+
   return [
     ...articles.map((article) => ({
       loc: article.path,
@@ -43,6 +57,10 @@ export default defineSitemapEventHandler(async (event) => {
     })),
     ...challenges.map((challenge) => ({
       loc: `/challenges/${challenge.slug}`,
+      _i18nTransform: true,
+    })),
+    ...zones.map((zone) => ({
+      loc: `/zones/${zone.slug}`,
       _i18nTransform: true,
     })),
   ];
