@@ -3,21 +3,23 @@
  * План уборки без регистрации.
  *
  * Экран собран вокруг одной мысли: показать ценность до того, как человек что-то
- * отдаст. Поэтому здесь нет ни почты, ни пароля — только семь вопросов о доме,
- * собранный набор и отметки, которые живут на устройстве
- * (`composables/useGuestPlan.ts`).
+ * отдаст. Поэтому здесь нет ни почты, ни пароля — только шесть вопросов о доме и
+ * короткая сводка того, что получится: сколько дел, сколько времени, что делать
+ * каждую неделю, а что раз в месяц и реже.
+ *
+ * Списка дел с галочками здесь больше нет: человек пришёл узнать, что войдёт в
+ * план, а не отмечать чужой набор. Отметки живут в приложении, после регистрации.
  *
  * Перенос в аккаунт — отдельная кнопка, а не автоматика: человек должен видеть,
- * что его план переезжает, и понимать, зачем (синхронизация и статистика).
+ * что его ответы переезжают, и понимать, зачем.
  */
-import type { GuestAnswers, GuestTask } from '~/composables/useGuestPlan';
+import type { GuestAnswers } from '~/composables/useGuestPlan';
 import { buildPlanCalendar, downloadCalendar } from '~/utils/planIcs';
 
 const { t } = useI18n();
 const localePath = useLocalePath();
 const auth = useAuthStore();
-const { plan, loading, failure, load, build, toggle, transferToAccount, doneCount, totalCount } =
-  useGuestPlan();
+const { plan, loading, failure, load, build, transferToAccount } = useGuestPlan();
 
 /**
  * Форма с разумными умолчаниями: пустая анкета заставляет заполнять всё ради
@@ -87,36 +89,6 @@ const togglePet = (pet: string) => {
 
   form.pets = [...set];
 };
-
-/** Порядок блоков тот же, что в каталоге: от частого к редкому. */
-const cadenceOrder = [
-  'weekly',
-  'biweekly',
-  'threeWeeks',
-  'sixWeeks',
-  'monthly',
-  'twoMonths',
-  'quarterly',
-  'fourMonths',
-  'semiannual',
-  'yearly',
-  'daily',
-];
-
-const groups = computed(() => {
-  const tasks = plan.value?.tasks ?? [];
-  const labels = plan.value?.cadences ?? {};
-
-  return cadenceOrder
-    .map((cadence) => ({
-      cadence,
-      label: labels[cadence] ?? cadence,
-      tasks: tasks.filter((task) => task.cadence === cadence),
-    }))
-    .filter((group) => group.tasks.length > 0);
-});
-
-const taskMinutes = (tasks: GuestTask[]) => tasks.reduce((total, task) => total + task.minutes, 0);
 
 const onBuild = async () => {
   await build({ ...form });
@@ -270,55 +242,49 @@ useSeoMeta({
     <section v-if="plan" class="plan-result">
       <header class="plan-result__head">
         <h2 class="plan-result__title">{{ t('planPage.resultTitle') }}</h2>
-        <span class="plan-result__lead">
-          {{
-            t('planPage.resultLead', {
-              tasks: plan.summary.totalTasks,
-              minutes: plan.summary.totalMinutes,
-            })
-          }}
-        </span>
+        <span class="plan-result__lead">{{ t('planPage.resultLead') }}</span>
       </header>
 
-      <p class="plan-result__progress">
-        {{ t('planPage.progress', { done: doneCount, total: totalCount }) }}
-      </p>
+      <!--
+        Короткая сводка вместо списка дел.
 
-      <div v-for="(group, index) in groups" :key="group.cadence" class="plan-group">
-        <!--
-          Первый блок (недельные дела) раскрыт, остальные свёрнуты: в наборе
-          типового дома 150-180 задач, и развёрнутый список целиком превращал
-          страницу в бесконечную ленту на телефоне. `<details>` выбран вместо
-          своей кнопки: раскрытие бесплатно доступно с клавиатуры и скринридеру.
-        -->
-        <details :open="index === 0">
-          <summary class="plan-group__title">
-            {{ group.label }}
-            <span class="plan-group__meta">
-              {{ group.tasks.length }} · {{ taskMinutes(group.tasks) }} {{ t('zonesPage.minutes') }}
-            </span>
-          </summary>
+        Раньше здесь был весь набор с галочками: 150-180 строк, которые человек
+        листал, ничего с ними не делая. Смысл гостевого экрана — показать, что
+        получится, а не заставить отметить чужой план. Поэтому — три числа и
+        распределение по периодичности, как на финальном экране мастера у
+        вошедшего (HomeSetupWizard).
+      -->
+      <ul class="plan-summary">
+        <li>
+          <span>{{ t('planPage.resultTasks') }}</span>
+          <strong>{{ plan.summary.totalTasks }}</strong>
+        </li>
+        <li>
+          <span>{{ t('planPage.resultMinutes') }}</span>
+          <strong>{{ plan.summary.totalMinutes }} {{ t('zonesPage.minutes') }}</strong>
+        </li>
+        <li>
+          <span>{{ t('planPage.resultBusiest') }}</span>
+          <strong>
+            {{ plan.summary.maxDailyMinutes }} / {{ plan.summary.dailyLimit }}
+            {{ t('zonesPage.minutes') }}
+          </strong>
+        </li>
+        <li>
+          <span>{{ t('planPage.resultWeekly') }}</span>
+          <strong>{{ plan.summary.weeklyTasks }}</strong>
+        </li>
+        <li>
+          <span>{{ t('planPage.resultMonthly') }}</span>
+          <strong>{{ plan.summary.monthlyTasks }}</strong>
+        </li>
+      </ul>
 
-          <ul class="plan-group__list">
-            <li v-for="task in group.tasks" :key="task.title">
-              <label class="plan-task">
-                <input
-                  type="checkbox"
-                  :checked="plan.done.includes(task.title)"
-                  @change="toggle(task.title)"
-                >
-                <span
-                  class="plan-task__title"
-                  :class="{ 'plan-task__title--done': plan.done.includes(task.title) }"
-                >
-                  {{ task.title }}
-                </span>
-                <span class="plan-task__meta">{{ task.minutes }} {{ t('zonesPage.minutes') }}</span>
-              </label>
-            </li>
-          </ul>
-        </details>
-      </div>
+      <p class="plan-result__rooms">{{ plan.summary.rooms.join(' · ') }}</p>
+
+      <AppButton :to="localePath('/')" variant="filled" block>
+        {{ t('planPage.resultHome') }}
+      </AppButton>
 
       <section class="plan-result__save">
         <h2 class="plan-result__save-title">{{ t('planPage.calendarTitle') }}</h2>
@@ -386,6 +352,16 @@ useSeoMeta({
   background: var(--c-surface);
 }
 
+/*
+ * Расстояние между вопросами больше, чем внутри вопроса: иначе «Сколько комнат»
+ * визуально прилипает к предыдущим вариантам и читается как часть прошлого
+ * вопроса. Внутри вопроса подпись отделена от вариантов 12px — на телефоне это
+ * заметно, на десктопе не разваливает блок.
+ */
+.plan-form {
+  gap: var(--space-4);
+}
+
 .plan-form__title,
 .plan-result__save-title {
   font-size: var(--fs-title);
@@ -395,7 +371,7 @@ useSeoMeta({
 .plan-form__field {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3);
   margin: 0;
   padding: 0;
   border: 0;
@@ -455,82 +431,46 @@ useSeoMeta({
   font-weight: 600;
 }
 
-.plan-result__lead,
-.plan-result__progress,
-.plan-group__meta,
-.plan-task__meta {
+.plan-result__lead {
   color: var(--c-text-muted);
   font-size: var(--fs-caption);
 }
 
-.plan-group {
+/*
+ * Сводка плана: строка «подпись — значение», как в финальном экране мастера.
+ * Числа выделены, подписи приглушены: человек смотрит на числа.
+ */
+.plan-summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
   padding: var(--space-4);
   border-radius: var(--r-card);
   background: var(--c-surface);
+  list-style: none;
 }
 
-.plan-group__title {
+.plan-summary li {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
   align-items: baseline;
   justify-content: space-between;
-  min-height: var(--tap-min);
-  font-size: var(--fs-body);
+}
+
+.plan-summary span {
+  color: var(--c-text-muted);
+}
+
+.plan-summary strong {
   font-weight: 600;
-  cursor: pointer;
-  list-style: none;
 }
 
-/* Свой маркер вместо треугольника браузера: он не зависит от темы и читается. */
-.plan-group__title::-webkit-details-marker {
-  display: none;
-}
-
-.plan-group__title::after {
-  content: '+';
-  color: var(--c-text-muted);
-  font-weight: 400;
-}
-
-.plan-group details[open] > .plan-group__title::after {
-  content: '−';
-}
-
-.plan-group details[open] > .plan-group__title {
-  margin-bottom: var(--space-2);
-}
-
-.plan-group__list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  list-style: none;
+.plan-result__rooms {
   margin: 0;
-  padding: 0;
-}
-
-.plan-task {
-  display: flex;
-  gap: var(--space-3);
-  align-items: baseline;
-  min-height: var(--tap-min);
-  cursor: pointer;
-}
-
-.plan-task input {
-  width: 20px;
-  height: 20px;
-  accent-color: var(--c-brand);
-}
-
-.plan-task__title {
-  flex: 1;
-}
-
-.plan-task__title--done {
   color: var(--c-text-muted);
-  text-decoration: line-through;
+  font-size: var(--fs-caption);
 }
 
 .plan-result__save-text {

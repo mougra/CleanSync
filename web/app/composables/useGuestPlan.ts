@@ -66,8 +66,6 @@ export interface GuestPlan {
   /** Подписи периодичностей с сервера: `{ weekly: 'Раз в неделю', … }`. */
   cadences: Record<string, string>;
   summary: GuestSummary;
-  /** Названия отмеченных дел. Название — ключ набора (правило 41). */
-  done: string[];
   /** Когда план собран: по нему видно, стоит ли предлагать пересобрать. */
   builtAt: string;
 }
@@ -77,7 +75,7 @@ const isGuestPlan = (value: unknown): value is GuestPlan => {
 
   const plan = value as Partial<GuestPlan>;
 
-  return Array.isArray(plan.tasks) && Array.isArray(plan.done) && typeof plan.answers === 'object';
+  return Boolean(plan.tasks) && Array.isArray(plan.tasks) && typeof plan.answers === 'object';
 };
 
 export const useGuestPlan = () => {
@@ -120,10 +118,7 @@ export const useGuestPlan = () => {
     }
   };
 
-  /**
-   * Собрать план по ответам. Отметки сохраняются у дел с тем же названием:
-   * человек, который поменял «сколько минут в день», не должен терять прогресс.
-   */
+  /** Собрать план по ответам: короткая сводка вместо списка дел с галочками. */
   const build = async (answers: GuestAnswers): Promise<boolean> => {
     loading.value = true;
     failure.value = null;
@@ -136,15 +131,11 @@ export const useGuestPlan = () => {
         body: { ...answers },
       });
 
-      const previousDone = new Set(plan.value?.done ?? []);
-      const titles = new Set(response.plan.tasks.map((task) => task.title));
-
       plan.value = {
         answers,
         tasks: response.plan.tasks,
         cadences: response.plan.cadences ?? {},
         summary: response.plan.summary,
-        done: [...previousDone].filter((title) => titles.has(title)),
         builtAt: new Date().toISOString(),
       };
 
@@ -159,23 +150,6 @@ export const useGuestPlan = () => {
     }
   };
 
-  const toggle = (title: string) => {
-    if (!plan.value) return;
-
-    const done = new Set(plan.value.done);
-
-    if (done.has(title)) {
-      done.delete(title);
-    } else {
-      done.add(title);
-    }
-
-    plan.value = { ...plan.value, done: [...done] };
-    save();
-  };
-
-  const isDone = (title: string): boolean => plan.value?.done.includes(title) ?? false;
-
   const reset = () => {
     plan.value = null;
     save();
@@ -184,10 +158,6 @@ export const useGuestPlan = () => {
   /**
    * Переезд плана в аккаунт: те же ответы сохраняются в профиль, набор
    * создаётся на сервере, локальная копия удаляется.
-   *
-   * Отметки сюда не переносятся намеренно: после регистрации «сегодня» — это
-   * первый день в приложении, и серия должна начаться с него, а не с
-   * случайных галочек, поставленных до знакомства с продуктом.
    */
   const transferToAccount = async (): Promise<boolean> => {
     if (!plan.value) return false;
@@ -215,20 +185,13 @@ export const useGuestPlan = () => {
     }
   };
 
-  const doneCount = computed(() => plan.value?.done.length ?? 0);
-  const totalCount = computed(() => plan.value?.tasks.length ?? 0);
-
   return {
     plan,
     loading,
     failure,
     load,
     build,
-    toggle,
-    isDone,
     reset,
     transferToAccount,
-    doneCount,
-    totalCount,
   };
 };
