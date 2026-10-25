@@ -3,6 +3,7 @@ import request from 'supertest';
 import app from '../app';
 import pool from '../db';
 import { generateTokens } from '../auth';
+import { appToday } from '../services/appTime';
 
 /**
  * Календарь задач: `GET /api/tasks/calendar?from=…&to=…`.
@@ -33,12 +34,17 @@ const dbReady = await pool
 
 const createdUserIds: number[] = [];
 
-/** Сдвиг даты на N суток от сегодняшнего UTC-дня: так же считает и сам эндпоинт. */
+/**
+ * Сдвиг даты на N суток от **сегодняшнего дня приложения**.
+ *
+ * Раньше здесь был сегодняшний UTC-день, и в окне между московской полуночью и
+ * полуночью UTC тесты падали: сервер уже считал новый день, а ожидание в тесте
+ * оставалось на старом. Теперь день берётся из того же `appToday`, что и в
+ * маршруте.
+ */
 const shiftDays = (days: number): Date => {
-  const today = new Date();
-  const base = new Date(
-    Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())
-  );
+  const base = new Date(`${appToday()}T00:00:00Z`);
+
   return new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
 };
 

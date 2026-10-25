@@ -1,5 +1,5 @@
 import pool from '../db';
-import { SQL_APP_TODAY, appToday, sqlAppDate } from './appTime';
+import { appToday, type RequestClock } from './appTime';
 
 /**
  * Личная серия, заморозки и недельная цель.
@@ -29,6 +29,25 @@ const FREEZES_PER_MONTH = 2;
 const FREEZES_MAX = 3;
 const ACTIVITY_WINDOW_DAYS = 400;
 
+/**
+ * Часы запроса по умолчанию: день и пояс приложения.
+ *
+ * Нужны для вызовов без запроса (тесты, фоновые задачи). Снаружи часы приходят из
+ * `requestClock` — день устройства и смещение его пояса.
+ */
+const appClock = (): RequestClock => ({ today: appToday(), offsetMinutes: 0 });
+
+/**
+ * День момента отметки в поясе человека.
+ *
+ * `completed_at` лежит в UTC (`timestamp without time zone`), поэтому день — это
+ * момент плюс смещение пояса. Смещение приходит из запроса и подставляется
+ * параметром, а не литералом: так DST у клиента учитывается сам собой, а в SQL не
+ * попадает ничего из заголовков напрямую.
+ */
+const dayOfMoment = (column: string, offsetParam: string): string =>
+  `((${column} + ${offsetParam}::int * interval '1 minute'))::date`;
+
 const toIso = (date: Date): string => {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
@@ -47,42 +66,45 @@ const diffDays = (from: string, to: string): number =>
 /**
  * Дни, когда пользователь что-то закрыл.
  *
- * Задачи считаются по **моменту отметки**, а не по дню дела: человек теперь может
+ * Задачи считаются по **моменту отметки**, а не по дню дела: человек может
  * отметить задачу за прошлый или будущий день (`completed_on`), и если считать по
  * нему, серия «уезжала» в прошлое, а сегодняшний день оставался пустым. Поэтому
- * для задач день активности — `task_completions.completed_at` в поясе приложения:
- * он пишется в момент нажатия и от дня задачи не зависит.
+ * для задач день активности — `task_completions.completed_at`, переведённый в пояс
+ * человека (смещение приходит из запроса): отметка в 00:30 по Владивостоку — это
+ * сегодняшний день у него, хотя по Москве ещё вчера.
  *
- * У привычек и челленджей отметка всегда «сейчас», поэтому там достаточно
- * `completed_on` / `done_at`. Условие авторства прежнее: закрыл я
- * (`completed_by`) либо закрыто без автора в моём личном расписании (старые
- * отметки до появления колонки).
+ * У привычек `completed_on` — уже дата, её переводить не нужно. У челленджей
+ * момент `done_at` переводится тем же смещением.
+ *
+ * Условие авторства прежнее: закрыл я (`completed_by`) либо закрыто без автора в
+ * моём личном расписании (старые отметки до появления колонки).
  */
-const loadActivity = async (userId: string): Promise<Set<string>> => {
-  const window = `${SQL_APP_TODAY} - ($2 || ' days')::interval`;
+const loadActivity = async (userId: string, clock: RequestClock): Promise<Set<string>> => {
+  const since = shift(clock.today, -ACTIVITY_WINDOW_DAYS);
+  const momentDay = dayOfMoment('c.completed_at', '$2');
 
   const result = await pool.query<{ day: string }>(
     `SELECT day::text AS day FROM (
-       SELECT ${sqlAppDate('c.completed_at')} AS day
+       SELECT ${momentDay} AS day
          FROM task_completions c
          JOIN tasks t ON t.id = c.task_id
          JOIN schedules s ON s.id = t.schedule_id
         WHERE (c.completed_by = $1 OR (c.completed_by IS NULL AND s.user_id = $1))
-          AND ${sqlAppDate('c.completed_at')} >= (${window})::date
+          AND ${momentDay} >= $3::date
        UNION
-       SELECT ${sqlAppDate('p.done_at')} AS day
+       SELECT ${dayOfMoment('p.done_at', '$2')} AS day
          FROM user_task_progress p
          JOIN user_challenges uc ON uc.id = p.user_challenge_id
         WHERE uc.user_id = $1 AND p.is_done
-          AND ${sqlAppDate('p.done_at')} >= (${window})::date
+          AND ${dayOfMoment('p.done_at', '$2')} >= $3::date
        UNION
        SELECT c.completed_on AS day
          FROM habit_completions c
          JOIN user_habits h ON h.id = c.user_habit_id
         WHERE h.user_id = $1
-          AND c.completed_on >= (${window})::date
+          AND c.completed_on >= $3::date
      ) AS activity`,
-    [userId, ACTIVITY_WINDOW_DAYS]
+    [userId, clock.offsetMinutes, since]
   );
 
   return new Set(result.rows.map((row) => row.day));
@@ -98,21 +120,21 @@ const loadActivity = async (userId: string): Promise<Set<string>> => {
  * Дни разворачиваем из периодов в окне активности: держать в памяти месяцы
  * отпуска незачем, а серия всё равно считается не дальше этого окна.
  */
-const loadVacationDays = async (userId: string): Promise<Set<string>> => {
+const loadVacationDays = async (userId: string, clock: RequestClock): Promise<Set<string>> => {
   const result = await pool.query<{ day: string }>(
     `SELECT series.day::text AS day
        FROM vacation_periods v
        CROSS JOIN LATERAL (
          SELECT generate_series(
-                  GREATEST(v.started_on, (${SQL_APP_TODAY} - ($2 || ' days')::interval)::date),
-                  LEAST(COALESCE(v.ended_on, ${SQL_APP_TODAY}), ${SQL_APP_TODAY}),
+                  GREATEST(v.started_on, ($3::date - ($2 || ' days')::interval)::date),
+                  LEAST(COALESCE(v.ended_on, $3::date), $3::date),
                   INTERVAL '1 day'
                 )::date AS day
        ) AS series
       WHERE v.user_id = $1
-        AND v.started_on <= ${SQL_APP_TODAY}
-        AND COALESCE(v.ended_on, ${SQL_APP_TODAY}) >= (${SQL_APP_TODAY} - ($2 || ' days')::interval)::date`,
-    [userId, ACTIVITY_WINDOW_DAYS]
+        AND v.started_on <= $3::date
+        AND COALESCE(v.ended_on, $3::date) >= ($3::date - ($2 || ' days')::interval)::date`,
+    [userId, ACTIVITY_WINDOW_DAYS, clock.today]
   );
 
   return new Set(result.rows.map((row) => row.day));
@@ -274,11 +296,21 @@ export interface StreakState {
   };
 }
 
-export const getStreakState = async (userId: string): Promise<StreakState> => {
-  const today = appToday();
-  const activity = await loadActivity(userId);
+/**
+ * Состояние серии на часы запроса.
+ *
+ * `clock` необязателен: без него считаем по поясу приложения (тесты, фоновые
+ * задачи). Снаружи он приходит из `requestClock` — день человека и смещение его
+ * пояса, и тогда «сегодня» в серии совпадает с тем, что человек видит на экране.
+ */
+export const getStreakState = async (
+  userId: string,
+  clock: RequestClock = appClock(),
+): Promise<StreakState> => {
+  const today = clock.today;
+  const activity = await loadActivity(userId, clock);
   const covered = await loadCovered(userId);
-  const vacationDays = await loadVacationDays(userId);
+  const vacationDays = await loadVacationDays(userId, clock);
   const freezes = await ensureFreezes(userId, today);
 
   /**
@@ -357,24 +389,30 @@ export const getStreakState = async (userId: string): Promise<StreakState> => {
  * Идемпотентно: частичный уникальный индекс (миграция 0021) не даёт завести второй
  * открытый отпуск, поэтому повторное нажатие ничего не ломает и не плодит строк.
  */
-export const startVacation = async (userId: string): Promise<void> => {
+export const startVacation = async (
+  userId: string,
+  clock: RequestClock = appClock(),
+): Promise<void> => {
   await pool.query(
     `INSERT INTO vacation_periods (user_id, started_on)
-     SELECT $1, ${SQL_APP_TODAY}
+     SELECT $1, $2::date
       WHERE NOT EXISTS (
         SELECT 1 FROM vacation_periods WHERE user_id = $1 AND ended_on IS NULL
       )`,
-    [userId]
+    [userId, clock.today]
   );
 };
 
 /** Выключить режим отпуска: открытый период закрывается сегодняшним днём. */
-export const endVacation = async (userId: string): Promise<void> => {
+export const endVacation = async (
+  userId: string,
+  clock: RequestClock = appClock(),
+): Promise<void> => {
   await pool.query(
     `UPDATE vacation_periods
-        SET ended_on = ${SQL_APP_TODAY}
+        SET ended_on = $2::date
       WHERE user_id = $1 AND ended_on IS NULL`,
-    [userId]
+    [userId, clock.today]
   );
 };
 

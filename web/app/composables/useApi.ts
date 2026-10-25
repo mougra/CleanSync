@@ -122,6 +122,12 @@ export const useApi = () => {
   // Заголовки входящего запроса забираем синхронно: дальше контекст может потеряться.
   const forwardedCookie = isServer ? useRequestHeaders(['cookie']).cookie : undefined;
   /**
+   * Смещение пояса устройства: сервер по нему понимает, какой день у человека
+   * «сегодня», и считает отметки серии в его поясе. На клиенте его знает браузер,
+   * на сервере — cookie, которую поставил `plugins/timezone.client.ts`.
+   */
+  const deviceOffset = useDeviceOffset();
+  /**
    * Свежий access-токен, если серверный плагин `restore-session` успел обновить
    * сессию до рендера: тогда вместо просроченного токена в cookie едет новый.
    */
@@ -166,12 +172,14 @@ export const useApi = () => {
       'Accept-Language': apiLocale(requestPath),
     };
 
-    // День устройства: им сервер заменяет «сегодня» приложения в дневных запросах.
+    // День и пояс устройства: ими сервер заменяет «сегодня» приложения.
     const day = clientDay();
 
     if (day) {
       headers['X-Client-Date'] = day;
     }
+
+    headers['X-Client-Offset'] = String(deviceOffset);
 
     if (!SAFE_METHODS.has(method)) {
       headers['X-CSRF-Token'] = await auth.ensureCsrf();

@@ -1,13 +1,24 @@
 import express, { Request, Response } from 'express';
 import { authMiddleware } from '../auth';
+import { requestClock } from '../services/appTime';
 import { endVacation, getStreakState, setWeeklyGoal, startVacation } from '../services/streak';
 
 const router = express.Router();
 
+/**
+ * Часы запроса: день человека и смещение его пояса.
+ *
+ * Серия считается по дням, и «сегодня» в ней обязано совпадать с тем, что человек
+ * видит на экране. Поэтому день приходит из заголовков
+ * (`X-Client-Date` / `X-Client-Offset`), а без них берётся день приложения.
+ */
+const clockOf = (req: Request) =>
+  requestClock(req.headers['x-client-date'], req.headers['x-client-offset']);
+
 /** Состояние серии: текущая, лучшая, заморозки и недельная цель. */
 router.get('/', authMiddleware, async (req: Request, res: Response) => {
   try {
-    res.json(await getStreakState(String(req.userId)));
+    res.json(await getStreakState(String(req.userId), clockOf(req)));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch streak' });
@@ -25,7 +36,7 @@ router.patch('/goal', authMiddleware, async (req: Request, res: Response) => {
     }
 
     await setWeeklyGoal(String(req.userId), weeklyDays);
-    res.json(await getStreakState(String(req.userId)));
+    res.json(await getStreakState(String(req.userId), clockOf(req)));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to update weekly goal' });
@@ -45,8 +56,8 @@ router.patch('/goal', authMiddleware, async (req: Request, res: Response) => {
  */
 router.post('/vacation', authMiddleware, async (req: Request, res: Response) => {
   try {
-    await startVacation(String(req.userId));
-    res.json(await getStreakState(String(req.userId)));
+    await startVacation(String(req.userId), clockOf(req));
+    res.json(await getStreakState(String(req.userId), clockOf(req)));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to start vacation' });
@@ -55,8 +66,8 @@ router.post('/vacation', authMiddleware, async (req: Request, res: Response) => 
 
 router.delete('/vacation', authMiddleware, async (req: Request, res: Response) => {
   try {
-    await endVacation(String(req.userId));
-    res.json(await getStreakState(String(req.userId)));
+    await endVacation(String(req.userId), clockOf(req));
+    res.json(await getStreakState(String(req.userId), clockOf(req)));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to end vacation' });

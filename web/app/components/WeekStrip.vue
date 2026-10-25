@@ -23,15 +23,25 @@ import type { CalendarResponse } from '~/types/task';
  */
 const { t, locale } = useI18n();
 
-const selectedDate = useState<string>('selected-date', () => toISODate(new Date()));
-const weekStart = useState<string>('week-start', () => toISODate(startOfWeek(new Date())));
+/**
+ * Смещение пояса устройства: на клиенте — из браузера, на сервере — из cookie,
+ * которую ставит `plugins/timezone.client.ts`. Им считается «сегодня», чтобы
+ * первый кадр совпадал с тем, что человек видит в своих часах.
+ */
+const deviceOffset = useState<number>('device-offset', () => useDeviceOffset());
+const deviceToday = () => dayWithOffset(deviceOffset.value);
 
-// Серверная отрисовка может знать другую дату, чем браузер пользователя:
+const selectedDate = useState<string>('selected-date', () => deviceToday());
+const weekStart = useState<string>('week-start', () =>
+  toISODate(startOfWeek(fromISODate(deviceToday()))),
+);
+
+// Клиент может знать другую дату, чем серверный рендер (если cookie ещё не было):
 // после гидратации подтягиваем локальный день без ошибок гидратации.
 onMounted(() => {
-  const today = new Date();
-  selectedDate.value = toISODate(today);
-  weekStart.value = toISODate(startOfWeek(today));
+  const today = deviceToday();
+  selectedDate.value = today;
+  weekStart.value = toISODate(startOfWeek(fromISODate(today)));
 });
 
 const start = computed(() => fromISODate(weekStart.value));
@@ -51,7 +61,7 @@ const days = computed(() =>
   }),
 );
 
-const todayISO = computed(() => toISODate(new Date()));
+const todayISO = computed(() => deviceToday());
 
 /**
  * Прогресс дней полосы: по кольцу вокруг числа видно, где план закрыт, а где нет.

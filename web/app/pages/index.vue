@@ -102,8 +102,13 @@ const { data: today } = await useAsyncData('today-plan', () =>
 /**
  * Выбранный в календаре день — тот же ключ состояния, что ставит `WeekStrip`
  * в раскладке: клик по числу меняет его, а карточка плана перечитывает день.
+ *
+ * Начальное значение — день устройства, а не сервера: иначе первый кадр рисовал
+ * «сегодня» по поясу сервера и у человека в другом поясе показывал чужой день.
  */
-const selectedDate = useState<string>('selected-date', () => toISODate(new Date()));
+const selectedDate = useState<string>('selected-date', () =>
+  dayWithOffset(useDeviceOffset()),
+);
 
 /**
  * Сегодняшний день — **по часам устройства**.
@@ -113,10 +118,12 @@ const selectedDate = useState<string>('selected-date', () => toISODate(new Date(
  * браузера, а карточка плана сравнивала её с московской. После местной полуночи
  * человек видел выбранным сегодняшний день, а подпись говорила «завтра».
  *
- * Теперь источник один — устройство. Сервер узнаёт этот же день заголовком
- * `X-Client-Date` (composables/useApi.ts) и считает отметки по нему.
+ * Теперь источник один — устройство: смещение пояса приходит из браузера (на
+ * сервере — из cookie), а день считается по нему же. Тот же день сервер получает
+ * заголовками `X-Client-Date` / `X-Client-Offset` (composables/useApi.ts).
  */
-const localToday = () => toISODate(new Date());
+const deviceOffset = useState<number>('device-offset', () => useDeviceOffset());
+const localToday = () => dayWithOffset(deviceOffset.value);
 
 /** Выбран сегодняшний день: по нему решаем, показывать ли подпись «сегодня». */
 const isToday = computed(() => selectedDate.value === localToday());

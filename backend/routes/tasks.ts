@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
 import pool from '../db';
-import { appDay, appToday, clientToday, parseAppDay } from '../services/appTime';
+import { appDay, appToday, parseAppDay, requestClock } from '../services/appTime';
 import { authMiddleware } from '../auth';
 import { checkAndAwardAchievements } from '../services/achievementManager';
 import { canAccessSchedule } from '../services/household';
@@ -177,13 +177,16 @@ router.get('/today', authMiddleware, async (req: Request, res: Response) => {
 
   try {
     /**
-     * «Сегодня» берём из устройства (`X-Client-Date`), а не из пояса приложения:
-     * календарь в интерфейсе рисует дату браузера, и после местной полуночи
-     * список отвечал «завтра». Без заголовка остаётся день приложения.
+     * «Сегодня» берём из устройства (`X-Client-Date` / `X-Client-Offset`), а не из
+     * пояса приложения: календарь в интерфейсе рисует дату браузера, и после
+     * местной полуночи список отвечал «завтра». Без заголовков остаётся день
+     * приложения.
      */
+    const clock = requestClock(req.headers['x-client-date'], req.headers['x-client-offset']);
+
     const tasks = await tasksDueOn(
       req.userId as string,
-      parseAppDay(clientToday(req.headers['x-client-date'])) as Date,
+      parseAppDay(clock.today) as Date,
       resolveContentLocale(req),
     );
     const totalTasks = tasks.length;
@@ -566,7 +569,7 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
      */
     const completedOn =
       parseAppDay(completed_on)?.toISOString().slice(0, 10) ??
-      clientToday(req.headers['x-client-date']);
+      requestClock(req.headers['x-client-date'], req.headers['x-client-offset']).today;
 
     await client.query('BEGIN');
 
