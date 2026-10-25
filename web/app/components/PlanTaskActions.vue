@@ -31,7 +31,7 @@ const props = withDefaults(
   { pending: false },
 );
 
-const emit = defineEmits<{ edit: []; delete: [] }>();
+const emit = defineEmits<{ edit: []; delete: []; move: [] }>();
 
 const { t } = useI18n();
 
@@ -75,15 +75,20 @@ const deleteLabel = computed(() => (props.generated ? t('plan.forgetConfirm') : 
 
 const deleteIcon = computed(() => (props.generated ? 'pi-ban' : 'pi-trash'));
 
+/** «Перенести на другой день» — перенос всей серии, а не одной отметки. */
+const moveLabel = computed(() => t('plan.moveHint'));
+
 /**
  * Действия в порядке сверху вниз: удаление стоит выше всех — дальше от места
- * нажатия, — а «Изменить» прижато к триггеру как основное действие.
+ * нажатия, — а «Изменить» прижато к триггеру как основное действие. «Перенести»
+ * в середине: это изменение расписания, но не удаление.
  *
  * Разметка идёт в этом же порядке, поэтому Tab идёт от «⋯» вверх по стопке, а
  * задержка появления считается от конца списка: снизу вверх, как она и растёт.
  */
 const actions = computed(() => [
-  { key: 'delete', icon: deleteIcon.value, label: deleteLabel.value, danger: true, delay: 1 },
+  { key: 'delete', icon: deleteIcon.value, label: deleteLabel.value, danger: true, delay: 2 },
+  { key: 'move', icon: 'pi-calendar-plus', label: moveLabel.value, danger: false, delay: 1 },
   { key: 'edit', icon: 'pi-pencil', label: editLabel.value, danger: false, delay: 0 },
 ] as const);
 
@@ -97,6 +102,18 @@ const chooseEdit = () => {
 const chooseDelete = () => {
   close();
   emit('delete');
+};
+
+/** Выбрали перенос: страница откроет календарь. */
+const chooseMove = () => {
+  close();
+  emit('move');
+};
+
+const choose = (key: 'edit' | 'move' | 'delete') => {
+  if (key === 'edit') chooseEdit();
+  else if (key === 'move') chooseMove();
+  else chooseDelete();
 };
 
 /**
@@ -190,7 +207,7 @@ watch(
           :aria-label="action.label"
           :disabled="pending"
           :style="{ animationDelay: `calc(${action.delay} * 70ms)` }"
-          @click="action.key === 'edit' ? chooseEdit() : chooseDelete()"
+          @click="choose(action.key)"
         >
           <i class="pi" :class="action.icon" aria-hidden="true" />
 

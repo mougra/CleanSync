@@ -4,7 +4,7 @@ import app from '../app';
 import pool from '../db';
 import { generateTokens } from '../auth';
 import { DEFAULT_TASKS_SCHEDULE_TITLE, cadenceRule, normalizeTaskTitle } from '../services/defaultTasks';
-import { orderWeekDays } from '../services/homePlan';
+import { DEFAULT_HOME_ANSWERS, orderWeekDays } from '../services/homePlan';
 import { HOME_PLAN_SCHEDULE_TITLE, mergePlanIntoTasks } from '../services/mergePlanIntoTasks';
 import { getTaskCatalog, type CatalogTask } from '../services/taskCatalog';
 
@@ -203,13 +203,14 @@ describe.skipIf(!dbReady)('mergePlanIntoTasks: перенос задач нед�
 
     const movedWeekly = after.find((task) => task.title === weekly.task);
     const weeklyRule = cadenceRule('weekly');
-    // День недели — первый из выбранных дней уборки: их порядок задаёт
-    // orderWeekDays, как и в самом наборе.
-    const cleaningDays = await pool.query<{ cleaning_days: number[] }>(
-      'SELECT cleaning_days FROM home_profiles WHERE user_id = $1',
-      [user.userId]
-    );
-    const expectedWeekday = orderWeekDays(cleaningDays.rows[0].cleaning_days)[0];
+    /**
+     * День недели — первый из дней уборки. Дни теперь всегда все семь
+     * (`withDefaultAnswers` игнорирует сохранённый ответ), поэтому берём их из
+     * значений по умолчанию, а не из `home_profiles.cleaning_days`: там у
+     * пользователя может лежать старый ответ на три дня, и он больше ни на что
+     * не влияет.
+     */
+    const expectedWeekday = orderWeekDays(DEFAULT_HOME_ANSWERS.cleaningDays)[0];
 
     expect(movedWeekly?.frequency).toBe(weeklyRule.frequency);
     expect(movedWeekly?.interval_count).toBe(weeklyRule.intervalCount);

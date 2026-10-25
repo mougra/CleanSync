@@ -106,19 +106,20 @@ const { data: today } = await useAsyncData('today-plan', () =>
 const selectedDate = useState<string>('selected-date', () => toISODate(new Date()));
 
 /**
- * Сегодняшний день считаем в поясе приложения (`APP_TIME_ZONE`, по умолчанию
- * Москва) — ровно так же, как сервер.
+ * Сегодняшний день — **по часам устройства**.
  *
- * Раньше здесь был UTC, и после местной полуночи «сегодня» на экране расходилось
- * с серверным: вчерашний день выглядел сегодняшним, а отметка уходила на чужую
- * дату. Пояс приходит из runtimeConfig, то есть один и тот же у клиента и
- * сервера.
+ * Раньше «сегодня» считалось в поясе приложения (`APP_TIME_ZONE`, Москва), как
+ * на сервере, и это расходилось с календарём: полоса недели выбирает дату из
+ * браузера, а карточка плана сравнивала её с московской. После местной полуночи
+ * человек видел выбранным сегодняшний день, а подпись говорила «завтра».
+ *
+ * Теперь источник один — устройство. Сервер узнаёт этот же день заголовком
+ * `X-Client-Date` (composables/useApi.ts) и считает отметки по нему.
  */
-const { appTimeZone } = useRuntimeConfig().public;
-const todayInAppZone = () => appToday(appTimeZone);
+const localToday = () => toISODate(new Date());
 
-/** Отмечать можно только сегодня: прошлое и будущее — только просмотр. */
-const isToday = computed(() => selectedDate.value === todayInAppZone());
+/** Выбран сегодняшний день: по нему решаем, показывать ли подпись «сегодня». */
+const isToday = computed(() => selectedDate.value === localToday());
 
 /** День не загрузился: показываем строку ошибки, а не пустой список. */
 const dayFailed = ref(false);
@@ -294,7 +295,7 @@ const dayTitle = computed(() => {
     return t('calendar.today');
   }
 
-  const start = todayInAppZone();
+  const start = localToday();
 
   if (target === toISODate(addDays(fromISODate(start), -1))) {
     return t('calendar.yesterday');
@@ -338,10 +339,11 @@ const doneLabel = computed(() => {
 });
 
 /**
- * Будущий день: отметок ещё не было по определению, поэтому «выполнено» и «факт»
- * не показываем вовсе — иначе строка «выполнено 0» выглядела бы как результат.
+ * «Выполнено» и «факт» показываем для любого дня, включая будущий: с тех пор как
+ * отмечать можно заранее, ноль на завтра — это настоящий ноль, а не «ещё не
+ * наступило».
  */
-const showFact = computed(() => selectedDate.value <= todayInAppZone());
+const showFact = computed(() => true);
 
 /** «план 45 мин · факт 30 мин»: остаток показываем, только когда он ненулевой. */
 const minutesLabel = computed(() => {
@@ -612,6 +614,54 @@ const closeTaskActions = () => {
   taskSheetError.value = '';
 };
 
+/**
+ * Перенос дела на другой день: открытый лист и выбранная в нём дата.
+ *
+ * Переносится вся серия (меняется день недели или число месяца), поэтому лист не
+ * спрашивает «на один раз или навсегда»: ответ один — серия. Так дело сохраняет
+ * периодичность, а не превращается в разовое.
+ */
+const moveTask = ref<PlanDayRow | null>(null);
+const moveDate = ref('');
+const moveBusy = ref(false);
+const moveError = ref('');
+
+const openMove = (task: PlanDayRow) => {
+  moveTask.value = task;
+  moveDate.value = selectedDate.value;
+  moveError.value = '';
+};
+
+const closeMove = () => {
+  moveTask.value = null;
+  moveError.value = '';
+};
+
+const confirmMove = async () => {
+  const task = moveTask.value;
+
+  if (!task || !moveDate.value || moveBusy.value) {
+    return;
+  }
+
+  moveBusy.value = true;
+  moveError.value = '';
+
+  try {
+    await api.request(`/api/tasks/${task.id}/move`, {
+      method: 'POST',
+      body: { toDate: moveDate.value },
+    });
+
+    closeMove();
+    await refreshNuxtData(['today-plan', 'calendar-day', 'calendar-week', 'streak']);
+  } catch {
+    moveError.value = t('plan.moveFailed');
+  } finally {
+    moveBusy.value = false;
+  }
+};
+
 /** Лист «Изменить задачу» открыт для этой строки: `null` — закрыт. */
 const editingTask = ref<PlanDayRow | null>(null);
 
@@ -699,7 +749,7 @@ const editRepeat = (task: PlanDayRow, unit: TaskRepeatUnit): TaskRepeat => {
     return { frequency: 'daily', day_of_week: null, day_of_month: null };
   }
 
-  const today = appToday(appTimeZone);
+  const today = localToday();
   const anchor = fromISODate(dueDay(task.dueDate) ?? today);
 
   if (unit === 'week') {
@@ -813,7 +863,7 @@ const saveTaskEdit = async (input: TaskEditInput) => {
 
   // Данные уже перечитаны — прежняя строка (её id) больше не нужна в списке скрытых.
   closeTaskEdit();
-  await refreshNuxtData(['today-plan', 'calendar-day', 'streak', 'achievements-progress']);
+  await refreshNuxtData(['today-plan', 'calendar-day', 'calendar-week', 'streak', 'achievements-progress']);
   planRemoved.value = planRemoved.value.filter((id) => id !== task.id);
 };
 
@@ -886,22 +936,25 @@ const serverHasMark = (id: number, value: boolean): boolean =>
     .some((task) => task.id === id && task.is_completed === value);
 
 /**
- * Отметка задачи в один тап — и только для сегодняшнего дня.
+ * Отметка задачи в один тап — для любого открытого дня.
  *
  * Оптимистично: строка перечёркивается сразу, затем уходит `PUT /api/tasks/:id`
  * (он же считает серию и достижения). Кольцо, счётчики и минуты обновляем
  * отдельным запросом — они считаются на сервере. Если запрос не прошёл,
  * отметку откатываем и говорим об этом строкой, а не молчанием.
  *
- * Правило «только сегодня» стоит и здесь, а не только в разметке: строки чужих
- * дней неинтерактивны, но решение о записи обязано жить на уровне действия.
+ * Можно отмечать и прошлые, и будущие дни: человек возвращается к вчерашней
+ * уборке или закрывает дело заранее. День едет в теле запроса (`completed_on`),
+ * а серия считает момент нажатия, а не день дела (services/streak.ts).
  */
 const togglePlanTask = async (task: { id: number; done: boolean }) => {
-  if (!isToday.value || planBusy.value.includes(task.id)) {
+  if (planBusy.value.includes(task.id)) {
     return;
   }
 
   const next = !task.done;
+  // День, открытый в календаре: отметка относится к нему, а не к «сегодня».
+  const completedOn = selectedDate.value;
 
   planMarks.value = { ...planMarks.value, [task.id]: next };
   planBusy.value = [...planBusy.value, task.id];
@@ -912,7 +965,7 @@ const togglePlanTask = async (task: { id: number; done: boolean }) => {
   try {
     const response = await api.request<{ awarded?: string[] }>(`/api/tasks/${task.id}`, {
       method: 'PUT',
-      body: { is_completed: next },
+      body: { is_completed: next, completed_on: completedOn },
     });
 
     awarded = response.awarded ?? [];
@@ -927,7 +980,7 @@ const togglePlanTask = async (task: { id: number; done: boolean }) => {
   try {
     // Отметка сохранена: подтягиваем план, день карточки, серию и достижения,
     // чтобы числа на экране совпали с сервером.
-    await refreshNuxtData(['today-plan', 'calendar-day', 'streak', 'achievements-progress']);
+    await refreshNuxtData(['today-plan', 'calendar-day', 'calendar-week', 'streak', 'achievements-progress']);
   } catch {
     // Обновление не прошло — отметку ниже оставим: она уже верна.
   }
@@ -1118,25 +1171,14 @@ useStructuredData(() => ({
         <p v-if="dayFailed" class="plan__error" role="alert">{{ t('state.error') }}</p>
 
         <!--
-          Прошлое и будущее — только просмотр: об этом говорим прямо. Заголовок
-          дня уже показывает, что открыт не сегодняшний день.
-        -->
-        <p v-if="!isToday" class="plan__view-only">
-          <i class="pi pi-eye" aria-hidden="true" />
-          {{ t('calendar.viewOnly') }}
-        </p>
-
-        <!--
-          Пункты дня. Сегодня строки интерактивны: отметка в один тап, а справа —
-          «⋯», из которого вверх раскрываются круглые действия (правка и
-          удаление). Отдельная кнопка, а не часть строки: удаление не должно
-          случаться от промаха по ней. У другого дня строки только показывают
-          название, зону и минуты — действий там нет вовсе.
+          Пункты дня. Отмечать можно любой открытый день: человек возвращается к
+          вчерашней уборке или закрывает дело заранее, поэтому строки
+          интерактивны везде. Справа — «⋯» с правкой и удалением; отдельная
+          кнопка, а не часть строки: удаление не должно случаться от промаха.
         -->
         <ul v-if="dayRows.length" class="plan__list">
           <li v-for="task in dayRows" :key="task.id">
             <TaskRow
-              v-if="isToday"
               interactive
               :title="task.title"
               :hint="task.hint"
@@ -1144,29 +1186,35 @@ useStructuredData(() => ({
               :disabled="planBusy.includes(task.id)"
               @toggle="togglePlanTask(task)"
             >
-              <!--
-                «⋯» раскрывает вверх круглые действия: «Изменить» и удаление.
-                Сами окна открывает страница — ей принадлежат запросы и последствия.
-              -->
               <PlanTaskActions
                 :generated="task.generated"
                 :pending="actionsPending"
                 @edit="openTaskEditFrom(task)"
                 @delete="openTaskActions(task)"
+                @move="openMove(task)"
               />
             </TaskRow>
-
-            <TaskRow
-              v-else
-              :title="task.title"
-              :hint="task.hint"
-              :done="task.done"
-            />
           </li>
         </ul>
 
+        <!--
+          Строка «Добавить задачу» в конце списка: плюсик в углу экрана оказался
+          неочевидным (его не замечали), а конец списка — то место, где человек
+          дочитывает план и вспоминает про своё дело. Только для сегодняшнего
+          дня: задача создаётся на сегодня, и на чужом дне она была бы обманом.
+        -->
+        <button
+          v-if="dayRows.length && isToday"
+          type="button"
+          class="plan__add-row"
+          @click="openTaskSheet"
+        >
+          <i class="pi pi-plus" aria-hidden="true" />
+          {{ t('plan.addTask') }}
+        </button>
+
         <!-- Сегодня пусто: добавляем задачу или проходим настройку по дому -->
-        <div v-else-if="isToday" class="plan__empty">
+        <div v-if="!dayRows.length && isToday" class="plan__empty">
           <p class="plan__empty-title">{{ t('plan.empty') }}</p>
           <p class="plan__empty-hint">{{ t('plan.emptyHint') }}</p>
 
@@ -1184,7 +1232,9 @@ useStructuredData(() => ({
         </div>
 
         <!-- Другой день пуст: это не ошибка, а факт — сообщаем коротко -->
-        <p v-else-if="!dayFailed" class="plan__empty-day">{{ t('calendar.emptyDay') }}</p>
+        <p v-if="!dayRows.length && !isToday && !dayFailed" class="plan__empty-day">
+          {{ t('calendar.emptyDay') }}
+        </p>
 
         <!-- Ошибка отметки: строка, а не молчаливый откат -->
         <p v-if="planError" class="plan__error" role="alert">{{ planError }}</p>
@@ -1217,6 +1267,33 @@ useStructuredData(() => ({
           @close="closeTaskEdit"
           @save="saveTaskEdit"
         />
+
+        <!--
+          Перенос дела на другой день. Переносится вся серия: меняется день
+          недели или число месяца, а периодичность остаётся прежней — поэтому в
+          листе только календарь и кнопка, без выбора «один раз или навсегда».
+        -->
+        <AppSheet :open="moveTask !== null" @close="closeMove">
+          <template #header>
+            <h2 class="plan__sheet-title">{{ t('plan.moveTitle') }}</h2>
+          </template>
+
+          <p class="plan__sheet-task">{{ moveTask?.title }}</p>
+
+          <AppDateField v-model="moveDate" :label="t('plan.moveDate')" :clearable="false" />
+
+          <p v-if="moveError" class="plan__error" role="alert">{{ moveError }}</p>
+
+          <AppButton
+            variant="filled"
+            block
+            :disabled="moveBusy || !moveDate"
+            class="plan__sheet-submit"
+            @click="confirmMove"
+          >
+            {{ moveBusy ? t('state.loading') : t('plan.moveConfirm') }}
+          </AppButton>
+        </AppSheet>
       </template>
 
       <!--
@@ -1673,17 +1750,48 @@ useStructuredData(() => ({
   white-space: nowrap;
 }
 
-/* Другой день — только просмотр: пометка стоит прямо над списком */
-.plan__view-only {
+/*
+ * Строка «Добавить задачу» в конце списка: тихая, но заметная — та же высота,
+ * что у строки задачи, пунктирная рамка вместо заливки, чтобы не выглядела как
+ * ещё одна задача.
+ */
+.plan__add-row {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: var(--space-2);
-  margin: 0;
+  width: 100%;
+  min-height: var(--tap-min);
+  margin-top: var(--space-2);
   padding: var(--space-2) var(--space-3);
-  border-radius: var(--r-chip);
-  background: var(--c-surface-sunken);
+  border: 1px dashed var(--c-border);
+  border-radius: var(--r-row);
+  background: transparent;
   color: var(--c-text-muted);
+  font: inherit;
   font-size: var(--fs-caption);
+  cursor: pointer;
+}
+
+.plan__add-row:hover {
+  border-color: var(--c-brand);
+  color: var(--c-brand);
+}
+
+/* Заголовок и содержимое листа переноса задачи */
+.plan__sheet-title {
+  margin: 0;
+  font-size: var(--fs-title);
+  font-weight: 600;
+}
+
+.plan__sheet-task {
+  margin: 0 0 var(--space-3);
+  color: var(--c-text-muted);
+}
+
+.plan__sheet-submit {
+  margin-top: var(--space-4);
 }
 
 /* Пустой чужой день: короткая строка вместо блока с кнопками */

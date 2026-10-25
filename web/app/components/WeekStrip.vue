@@ -1,11 +1,14 @@
 <script setup lang="ts">
+import type { CalendarResponse } from '~/types/task';
+
 /**
  * Компактная календарная полоса недели: месяц/год со стрелками листания и семь
  * чисел, где сегодняшний день обведён кружком.
  *
  * Календарь — это навигация по дням: клик по числу выбирает день, и карточка
- * плана на главной показывает план именно этого дня. Отметки при этом доступны
- * только для сегодняшнего дня — решает это карточка плана, а не календарь.
+ * плана на главной показывает план именно этого дня. Отмечать можно любой день
+ * (решает карточка плана), а вокруг числа рисуется кольцо прогресса — по нему
+ * видно, где план закрыт, не открывая день.
  *
  * Окно едет за выбором: клик по крайнему числу подкручивает полосу на сутки, а
  * не на неделю. Шаг в семь дней перепрыгивал бы шесть чисел, до которых человек
@@ -49,6 +52,59 @@ const days = computed(() =>
 );
 
 const todayISO = computed(() => toISODate(new Date()));
+
+/**
+ * Прогресс дней полосы: по кольцу вокруг числа видно, где план закрыт, а где нет.
+ *
+ * Данные берём у сервера (`GET /api/tasks/calendar`) на весь видимый диапазон
+ * одним запросом: он же отдаёт итоги дня для карточки плана, поэтому второго
+ * источника правды не появляется. Ключ включает начало полосы — при листании
+ * недель данные перезапрашиваются.
+ *
+ * У гостя плана нет, поэтому запрос не уходит вовсе.
+ */
+const auth = useAuthStore();
+const api = useApi();
+
+const range = computed(() => ({
+  from: days.value[0]?.iso ?? weekStart.value,
+  to: days.value[days.value.length - 1]?.iso ?? weekStart.value,
+}));
+
+const { data: weekData } = await useAsyncData(
+  () => `calendar-week-${range.value.from}`,
+  () =>
+    auth.isAuthenticated
+      ? api.request<CalendarResponse>(
+          `/api/tasks/calendar?from=${range.value.from}&to=${range.value.to}`,
+        )
+      : Promise.resolve(null),
+  { watch: [() => range.value.from] },
+);
+
+/** Доля закрытых дел дня: `null` — дел нет, кольцо не рисуем. */
+const dayPercent = (iso: string): number | null => {
+  const day = weekData.value?.days.find((entry) => entry.date === iso);
+
+  if (!day || day.total_tasks === 0) {
+    return null;
+  }
+
+  return Math.round((day.completed_tasks / day.total_tasks) * 100);
+};
+
+/** Длина окружности кольца: радиус 16 в системе координат 36×36. */
+const RING_LENGTH = 2 * Math.PI * 16;
+
+const ringDash = (percent: number) => `${(RING_LENGTH * percent) / 100} ${RING_LENGTH}`;
+
+/** Цвет кольца по доле: пусто — приглушённый, половина — бренд, всё — акцент. */
+const ringTone = (percent: number): string => {
+  if (percent >= 100) return 'week-strip__ring--full';
+  if (percent >= 50) return 'week-strip__ring--mid';
+
+  return 'week-strip__ring--low';
+};
 
 /**
  * «октябрь 2026» — месяц и год одной строкой без предлога, как в макетах.
@@ -157,7 +213,32 @@ const selectDay = (iso: string) => {
           @click="selectDay(day.iso)"
         >
           <span class="week-strip__weekday" aria-hidden="true">{{ weekdayLabel(day.date) }}</span>
-          <span class="week-strip__number">{{ day.dayNumber }}</span>
+
+          <span class="week-strip__number">
+            <!--
+              Кольцо прогресса вокруг числа: его видно, не открывая день, и по
+              цвету понятно, закрыт план или нет. `aria-hidden` — у кнопки уже
+              есть подпись с полной датой.
+            -->
+            <svg
+              v-if="dayPercent(day.iso) !== null"
+              class="week-strip__ring"
+              :class="ringTone(dayPercent(day.iso) as number)"
+              viewBox="0 0 36 36"
+              aria-hidden="true"
+            >
+              <circle class="week-strip__ring-track" cx="18" cy="18" r="16" />
+              <circle
+                class="week-strip__ring-fill"
+                cx="18"
+                cy="18"
+                r="16"
+                :stroke-dasharray="ringDash(dayPercent(day.iso) as number)"
+              />
+            </svg>
+
+            {{ day.dayNumber }}
+          </span>
         </button>
       </li>
     </ul>
@@ -237,7 +318,8 @@ const selectDay = (iso: string) => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0;
+  /* Отступ между подписью дня недели и числом: без него они слипались в строку */
+  gap: 3px;
   /* Кружок не должен упираться в края ячейки на узком экране */
   padding: 2px var(--space-1);
   border: 1.5px solid transparent;
@@ -255,6 +337,7 @@ const selectDay = (iso: string) => {
 }
 
 .week-strip__number {
+  position: relative;
   display: grid;
   place-items: center;
   width: 28px;
@@ -263,6 +346,48 @@ const selectDay = (iso: string) => {
   font-size: 0.9375rem;
   font-weight: 600;
   line-height: 1;
+}
+
+/*
+ * Кольцо прогресса: чуть больше числа и повёрнуто на -90°, чтобы заполнение
+ * начиналось сверху. Линия тонкая (2 px): на 28-пиксельном кружке толще —
+ * значит спорить с цифрой.
+ */
+.week-strip__ring {
+  position: absolute;
+  inset: -4px;
+  width: 36px;
+  height: 36px;
+  transform: rotate(-90deg);
+  overflow: visible;
+  pointer-events: none;
+}
+
+.week-strip__ring-track,
+.week-strip__ring-fill {
+  fill: none;
+  stroke-width: 2;
+}
+
+.week-strip__ring-track {
+  stroke: var(--c-border);
+}
+
+.week-strip__ring-fill {
+  stroke-linecap: round;
+  transition: stroke-dasharray var(--dur-base) var(--ease-out);
+}
+
+.week-strip__ring--low .week-strip__ring-fill {
+  stroke: var(--c-text-muted);
+}
+
+.week-strip__ring--mid .week-strip__ring-fill {
+  stroke: var(--c-brand);
+}
+
+.week-strip__ring--full .week-strip__ring-fill {
+  stroke: var(--c-accent);
 }
 
 .week-strip__day--weekend .week-strip__number {
