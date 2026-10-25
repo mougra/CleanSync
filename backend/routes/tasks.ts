@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
 import pool from '../db';
-import { appDay, appToday, parseAppDay } from '../services/appTime';
+import { appDay, appToday, clientToday, parseAppDay } from '../services/appTime';
 import { authMiddleware } from '../auth';
 import { checkAndAwardAchievements } from '../services/achievementManager';
 import { canAccessSchedule } from '../services/household';
@@ -176,9 +176,14 @@ const tasksDueOn = async (userId: string, date: Date, locale: ContentLocale) => 
 router.get('/today', authMiddleware, async (req: Request, res: Response) => {
 
   try {
+    /**
+     * «Сегодня» берём из устройства (`X-Client-Date`), а не из пояса приложения:
+     * календарь в интерфейсе рисует дату браузера, и после местной полуночи
+     * список отвечал «завтра». Без заголовка остаётся день приложения.
+     */
     const tasks = await tasksDueOn(
       req.userId as string,
-      parseAppDay(appToday()) as Date,
+      parseAppDay(clientToday(req.headers['x-client-date'])) as Date,
       resolveContentLocale(req),
     );
     const totalTasks = tasks.length;
@@ -509,7 +514,7 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
 
   try {
     const { id } = req.params;
-    const { title, frequency, day_of_week, day_of_month, due_date, time, estimated_minutes, room, is_completed, interval_count } = req.body;
+    const { title, frequency, day_of_week, day_of_month, due_date, time, estimated_minutes, room, is_completed, interval_count, completed_on } = req.body;
 
     // Check ownership via schedule
     const taskResult = await pool.query(
@@ -547,8 +552,21 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
       });
     }
 
-    /** Сегодняшний день в UTC: отметка ставится именно на него. */
-    const completedOn = appToday();
+    /**
+     * День, к которому относится отметка.
+     *
+     * Раньше это всегда был «сегодня» приложения, поэтому отметить дело за
+     * прошлый или будущий день было нельзя: галочка ставилась только на текущую
+     * дату. Теперь клиент присылает `completed_on` — день, который человек
+     * смотрит в календаре. Если поля нет (старый клиент, правка названия), день
+     * берётся из `X-Client-Date`, иначе — день приложения.
+     *
+     * Момент отметки при этом остаётся настоящим: `completed_at` пишет Postgres
+     * сейчас, и серия считает именно его, а не день дела (см. services/streak.ts).
+     */
+    const completedOn =
+      parseAppDay(completed_on)?.toISOString().slice(0, 10) ??
+      clientToday(req.headers['x-client-date']);
 
     await client.query('BEGIN');
 
@@ -623,6 +641,65 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Failed to update task' });
   } finally {
     client.release();
+  }
+});
+
+/**
+ * POST /api/tasks/:id/move — перенести дело на другой день.
+ *
+ * Переносится **вся серия**, а не одно вхождение: у недельной задачи меняется
+ * `day_of_week`, у месячной — `day_of_month`, а `due_date` становится новой
+ * опорой цикла (правило 33). Так дело сохраняет свою периодичность и просто
+ * встаёт на другой день — это и просил заказчик.
+ *
+ * Периодичность не пересчитывается и интервал не меняется: «раз в две недели»
+ * остаётся «раз в две недели», сдвигается только день.
+ *
+ * Через `PUT /api/tasks/:id` это сделать нельзя: клиенту пришлось бы знать,
+ * какое поле менять для каждой частоты, и правило расползлось бы по интерфейсу.
+ */
+router.post('/:id/move', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const target = parseAppDay(req.body?.toDate ?? req.body?.to_date);
+
+    if (!target) {
+      return res.status(400).json({ error: 'toDate must be a date in YYYY-MM-DD format' });
+    }
+
+    const found = await pool.query<{ schedule_id: number; frequency: string | null }>(
+      'SELECT schedule_id, frequency FROM tasks WHERE id = $1',
+      [id]
+    );
+
+    if (found.rows.length === 0) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    const access = await canAccessSchedule(String(req.userId), found.rows[0].schedule_id);
+
+    if (!access.allowed) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const frequency = found.rows[0].frequency;
+    const iso = target.toISOString().slice(0, 10);
+
+    const updated = await pool.query(
+      `UPDATE tasks SET
+         day_of_week = CASE WHEN $2 = 'weekly' THEN $3::int ELSE day_of_week END,
+         day_of_month = CASE WHEN $2 = 'monthly' THEN $4::int ELSE day_of_month END,
+         -- Опора цикла переезжает вместе с делом: по ней считается «раз в N дней»
+         due_date = $5::date
+       WHERE id = $1
+       RETURNING ${TASK_PAYLOAD_COLUMNS}`,
+      [id, frequency, target.getUTCDay(), target.getUTCDate(), iso]
+    );
+
+    res.json({ ...updated.rows[0], movedTo: iso });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to move task' });
   }
 });
 

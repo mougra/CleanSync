@@ -57,6 +57,27 @@ const apiLocale = (requestPath: string): string => {
   return cookieValue(document.cookie, LOCALE_COOKIE) ?? (navigator.language || 'ru');
 };
 
+/**
+ * Сегодняшний день **устройства** в виде `YYYY-MM-DD`.
+ *
+ * Зачем серверу знать день браузера: календарь рисует дату из устройства, а
+ * сервер считал «сегодня» по поясу приложения (Москва). У человека в другом
+ * поясе после местной полуночи это расходилось, и список задач отвечал
+ * «завтра». Для SSR дня устройства не существует — там остаётся пустая строка,
+ * и сервер берёт свой день.
+ */
+const clientDay = (): string => {
+  if (import.meta.server) {
+    return '';
+  }
+
+  const now = new Date();
+
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(
+    now.getDate(),
+  ).padStart(2, '0')}`;
+};
+
 /** Тип опций берём у самого $fetch, чтобы не расходиться с версией Nitro. */
 type ApiRequestOptions = Parameters<typeof $fetch>[1];
 
@@ -144,6 +165,13 @@ export const useApi = () => {
       // Язык текстов из базы: интерфейс переводит i18n, а контент — сервер.
       'Accept-Language': apiLocale(requestPath),
     };
+
+    // День устройства: им сервер заменяет «сегодня» приложения в дневных запросах.
+    const day = clientDay();
+
+    if (day) {
+      headers['X-Client-Date'] = day;
+    }
 
     if (!SAFE_METHODS.has(method)) {
       headers['X-CSRF-Token'] = await auth.ensureCsrf();

@@ -47,22 +47,28 @@ const diffDays = (from: string, to: string): number =>
 /**
  * Дни, когда пользователь что-то закрыл.
  *
- * Задачи считаются по журналу отметок: `task_completions.completed_on` — это
- * календарный день в поясе приложения, и в нём сохраняются все дни, а не только
- * последний. Условие авторства прежнее: закрыл я (`completed_by`) либо закрыто
- * без автора в моём личном расписании (старые отметки до появления колонки).
+ * Задачи считаются по **моменту отметки**, а не по дню дела: человек теперь может
+ * отметить задачу за прошлый или будущий день (`completed_on`), и если считать по
+ * нему, серия «уезжала» в прошлое, а сегодняшний день оставался пустым. Поэтому
+ * для задач день активности — `task_completions.completed_at` в поясе приложения:
+ * он пишется в момент нажатия и от дня задачи не зависит.
+ *
+ * У привычек и челленджей отметка всегда «сейчас», поэтому там достаточно
+ * `completed_on` / `done_at`. Условие авторства прежнее: закрыл я
+ * (`completed_by`) либо закрыто без автора в моём личном расписании (старые
+ * отметки до появления колонки).
  */
 const loadActivity = async (userId: string): Promise<Set<string>> => {
   const window = `${SQL_APP_TODAY} - ($2 || ' days')::interval`;
 
   const result = await pool.query<{ day: string }>(
     `SELECT day::text AS day FROM (
-       SELECT c.completed_on AS day
+       SELECT ${sqlAppDate('c.completed_at')} AS day
          FROM task_completions c
          JOIN tasks t ON t.id = c.task_id
          JOIN schedules s ON s.id = t.schedule_id
         WHERE (c.completed_by = $1 OR (c.completed_by IS NULL AND s.user_id = $1))
-          AND c.completed_on >= (${window})::date
+          AND ${sqlAppDate('c.completed_at')} >= (${window})::date
        UNION
        SELECT ${sqlAppDate('p.done_at')} AS day
          FROM user_task_progress p
