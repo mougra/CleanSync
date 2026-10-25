@@ -51,7 +51,13 @@ export interface ActiveChallenge {
 }
 
 export interface ActiveChallengeResponse {
+  /**
+   * Первый активный челлендж — оставлен ради совместимости.
+   * У человека может быть несколько незакрытых, полный список — в `actives`.
+   */
   active: ActiveChallenge | null;
+  /** Все незакрытые челленджи: прошлый сезон не закрыт, новый уже начат. */
+  actives?: ActiveChallenge[];
 }
 
 export interface ChallengeDetail {

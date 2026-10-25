@@ -26,6 +26,12 @@ const isActive = (to: string) => {
       <span class="sidebar__name">TidyPlan</span>
     </NuxtLink>
 
+    <!--
+      Слоган переехал сюда с главной: на странице он занимал первый экран и
+      ничего не объяснял, а под логотипом читается как подпись бренда.
+    -->
+    <p class="sidebar__tagline">{{ t('home.tagline') }}</p>
+
     <nav class="sidebar__nav" aria-label="TidyPlan">
       <NuxtLink
         v-for="item in appNavItems"
@@ -102,6 +108,18 @@ const isActive = (to: string) => {
 
 .sidebar__name {
   font-weight: 700;
+}
+
+/*
+ * Подпись бренда под логотипом. Отступ сверху отрицательный: `.sidebar` даёт
+ * `gap: var(--space-5)` между детьми, и без этого слоган отрывался бы от
+ * названия на полсотни пикселей, читаясь как отдельный блок.
+ */
+.sidebar__tagline {
+  margin: calc(var(--space-4) * -1) 0 0;
+  color: var(--c-text-muted);
+  font-size: var(--fs-caption);
+  line-height: 1.35;
 }
 
 .sidebar__nav {

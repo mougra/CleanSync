@@ -8,6 +8,7 @@
  */
 
 import type { AchievementProgress } from '~/types/achievement';
+import type { ChallengeProgress } from '~/types/challenge';
 import type { TaskFrequency } from '~/types/checklist';
 import type { StatsPeriod } from '~/types/stats';
 import type {
@@ -52,7 +53,7 @@ const { openSheet: openTaskSheet } = useTaskSheet();
 /** Анкета «Настройка по дому»: пока она не пройдена, пустой план предлагает её пройти. */
 const { completed: homeProfileDone } = await useHomeProfile();
 
-const { active, current, seasonChallenge, seasonGuestProgress, guestCompletedSlug } =
+const { actives, current, seasonChallenge, seasonGuestProgress, guestCompletedSlug } =
   await useChallenges();
 
 /**
@@ -209,6 +210,60 @@ const seasonCardNote = computed(() => {
   }
 
   return t('home.dayLeft', { day: progress.currentDay, minutes: progress.minutesLeft });
+});
+
+interface HomeChallengeCard {
+  slug: string;
+  title: string;
+  description: string | null;
+  badge: string;
+  progress: ChallengeProgress | null;
+  note: string | null;
+  cover: string | null;
+}
+
+const dayNote = (progress: ChallengeProgress | null) =>
+  progress?.currentDay
+    ? t('home.dayLeft', { day: progress.currentDay, minutes: progress.minutesLeft })
+    : null;
+
+/**
+ * Карточки челленджей для главной.
+ *
+ * Их может быть несколько: прошлый сезон человек не закрыл, а новый уже начал —
+ * в базе тогда две активные записи. Показываем все активные подряд, а сезонный
+ * «ещё не начатый» добавляем только если он не дублирует уже показанный.
+ */
+const challengeCards = computed<HomeChallengeCard[]>(() => {
+  const cards: HomeChallengeCard[] = actives.value.map((item) => ({
+    slug: item.challenge.slug,
+    title: item.challenge.title,
+    description: item.challenge.description ?? null,
+    badge: t('home.inProgress'),
+    progress: item.progress,
+    note: dayNote(item.progress),
+    cover: item.challenge.cover_url ?? null,
+  }));
+
+  const seasonal = seasonChallenge.value;
+
+  if (
+    seasonal &&
+    !challengeCompleted.value &&
+    !cards.some((card) => card.slug === seasonal.slug)
+  ) {
+    cards.push({
+      slug: seasonal.slug,
+      title: seasonal.title,
+      description: seasonal.description ?? null,
+      badge: t('home.challenges'),
+      progress: seasonCardProgress.value,
+      note: seasonCardNote.value,
+      cover: seasonal.cover_url ?? null,
+    });
+  }
+
+  return cards;
 });
 
 /**
@@ -897,18 +952,6 @@ const { overview: statsOverview } = await useStats(statsPeriod);
 const statsValue = computed(() => statsOverview.value?.last7.tasks ?? 0);
 const statsNote = computed(() => formatClock(statsOverview.value?.last7.minutes ?? 0));
 
-/** «День 3: осталось 55 мин» для карточки активного челленджа. */
-const currentDayNote = computed(() => {
-  const state = active.value;
-  if (!state?.progress.currentDay) {
-    return null;
-  }
-  return t('home.dayLeft', {
-    day: state.progress.currentDay,
-    minutes: state.progress.minutesLeft,
-  });
-});
-
 const habitMeta = (habit: { category: string | null; intervalCount: number; intervalUnit: string; streak: number }) =>
   [
     categoryLabel(habit.category),
@@ -989,47 +1032,12 @@ useStructuredData(() => ({
 
 <template>
   <div class="home">
-    <!--
-      Единственный H1 главной. Календарь недели живёт в раскладке и рисует
-      месяц мелкой подписью (WeekStrip), заголовком он больше не считается:
-      «октябрь 2026 г.» в H1 ничего не говорил ни человеку, ни поисковику.
-      Строка стоит первой в контенте страницы, потому что выше неё только
-      календарь, а контент главной начинается отсюда.
-    -->
-    <h1 class="home__title">{{ t('home.tagline') }}</h1>
+    <h1 class="visually-hidden">{{ t('home.h1') }}</h1>
 
     <p v-if="templatesError" class="state state--error">
       {{ t('state.error') }}<br >
       <small>{{ t('state.errorHint') }}</small>
     </p>
-
-    <!-- Челлендж, который пользователь проходит: прогресс, полоса и текущий день -->
-    <ChallengeCard
-      v-if="active"
-      :title="active.challenge.title"
-      :badge-label="t('home.inProgress')"
-      :progress="active.progress"
-      :note="currentDayNote"
-      :cover-url="active.challenge.cover_url"
-      :to="localePath(`/challenges/${active.challenge.slug}`)"
-    />
-
-    <!--
-      Сезонный челлендж, который ещё не начат: кнопки «начать» нет — задачи
-      отмечаются сразу на экране челленджа, поэтому карточка просто ведёт туда.
-      Гость видит её наравне с вошедшим: если он уже отметил что-то в этом
-      браузере, карточка показывает его локальный прогресс.
-    -->
-    <ChallengeCard
-      v-else-if="seasonChallenge && !challengeCompleted"
-      :title="seasonChallenge.title"
-      :description="seasonChallenge.description"
-      :badge-label="t('home.challenges')"
-      :progress="seasonCardProgress"
-      :note="seasonCardNote"
-      :cover-url="seasonChallenge.cover_url"
-      :to="localePath(`/challenges/${seasonChallenge.slug}`)"
-    />
 
     <!--
       Приглашение пройти анкету о доме: только вошедшему и только пока анкета
@@ -1040,14 +1048,6 @@ useStructuredData(() => ({
       v-if="auth.isAuthenticated && !homeProfileDone"
       :to="localePath('/settings?setup=1')"
     />
-
-    <div class="section-head">
-      <h2 class="section-head__title">{{ t('home.readyToStart') }}</h2>
-      <NuxtLink :to="localePath('/challenges')" class="section-head__link">
-        {{ t('home.allChallenges') }}
-        <i class="pi pi-chevron-right" aria-hidden="true" />
-      </NuxtLink>
-    </div>
 
     <!--
       Режим отпуска: вместо плана — состояние отпуска и выход из него.
@@ -1361,6 +1361,34 @@ useStructuredData(() => ({
 
     </div>
 
+    <!--
+      Челленджи переехали сюда с первого экрана: главная открывается ради дел на
+      сегодня, а челлендж — дополнительная программа, поэтому он стоит после
+      достижений. Карточек может быть несколько: прошлый сезон часто не закрыт,
+      когда начинается новый, и оба должны оставаться на виду.
+    -->
+    <template v-if="challengeCards.length > 0">
+      <div class="section-head">
+        <h2 class="section-head__title">{{ t('home.readyToStart') }}</h2>
+        <NuxtLink :to="localePath('/challenges')" class="section-head__link">
+          {{ t('home.allChallenges') }}
+          <i class="pi pi-chevron-right" aria-hidden="true" />
+        </NuxtLink>
+      </div>
+
+      <ChallengeCard
+        v-for="card in challengeCards"
+        :key="card.slug"
+        :title="card.title"
+        :description="card.description ?? undefined"
+        :badge-label="card.badge"
+        :progress="card.progress"
+        :note="card.note"
+        :cover-url="card.cover ?? undefined"
+        :to="localePath(`/challenges/${card.slug}`)"
+      />
+    </template>
+
     <!-- Совет дня: первый материал из web/content/tips -->
     <NuxtLink v-if="tip" class="card card--task tip" :to="localePath(tip.path)">
       <img class="tip__image" :src="tip.cover" :alt="tip.title" loading="lazy" >
@@ -1385,19 +1413,10 @@ useStructuredData(() => ({
 }
 
 /*
- * Заголовок главной — спокойная строка в ширину календаря и по центру.
- *
- * Он не должен спорить с карточкой челленджа ниже, поэтому набран тем же
- * приглушённым цветом, что и подпись месяца, а не как крупный заголовок.
+ * H1 главной скрыт визуально (`.visually-hidden` из decor.css) и поэтому своих
+ * стилей не имеет: на экране страница начинается с календаря, а заголовок
+ * остаётся в разметке для поисковика.
  */
-.home__title {
-  max-width: var(--content-narrow);
-  margin: 0 auto;
-  color: var(--c-text-muted);
-  font-size: var(--fs-body);
-  font-weight: 600;
-  text-align: center;
-}
 
 /*
  * Карточка челленджа на главной — уже остальных блоков и по центру.

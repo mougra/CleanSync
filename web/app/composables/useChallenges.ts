@@ -104,6 +104,23 @@ export const useChallenges = async () => {
   const current = computed<CurrentChallenge>(() => currentState.data.value ?? { status: 'none' });
   const active = computed<ActiveChallenge | null>(() => activeState.data.value?.active ?? null);
 
+  /**
+   * Все незакрытые челленджи. Прошлый сезон может быть не закрыт, когда человек
+   * уже начал новый: на главной тогда нужны обе карточки, а не одна.
+   *
+   * Запасной путь на случай старого ответа API без `actives` — один `active`:
+   * так главная не опустеет, если сервер ещё не обновлён.
+   */
+  const actives = computed<ActiveChallenge[]>(() => {
+    const list = activeState.data.value?.actives;
+
+    if (list && list.length > 0) {
+      return list;
+    }
+
+    return active.value ? [active.value] : [];
+  });
+
   /** Сезонный челлендж из ответа — для карточки и проверок на странице челленджа. */
   const seasonChallenge = computed<ChallengeSummary | null>(() =>
     'challenge' in current.value && current.value.challenge ? current.value.challenge : null,
@@ -438,6 +455,7 @@ export const useChallenges = async () => {
     list,
     current,
     active,
+    actives,
     seasonChallenge,
     seasonGuestProgress,
     guestCompletedSlug,

@@ -220,16 +220,22 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 /**
- * Активный челлендж пользователя с прогрессом.
+ * Активные челленджи пользователя с прогрессом.
  *
  * Объявлен до `/:slug`, иначе 'active' попадёт в параметр.
  * Завершённые сюда не попадают: их место — `GET /api/challenges/current`.
+ *
+ * Почему список, а не одна запись. Челлендж идёт сезоном, но человек может
+ * начать новый, не закрыв прошлый: в `user_challenges` тогда две строки со
+ * статусом `active`. Пока маршрут отдавал `LIMIT 1`, второй челлендж исчезал с
+ * главной, хотя отметки в нём продолжали копиться. Теперь отдаём все активные,
+ * а `active` оставлен первым элементом ради совместимости с прежним клиентом.
  */
 router.get('/active', authMiddleware, async (req: Request, res: Response) => {
   try {
     const locale = resolveContentLocale(req);
 
-    const userChallenge = await pool.query<
+    const userChallenges = await pool.query<
       UserChallengeRow & {
         challenge_id: number;
         slug: string;
@@ -250,39 +256,35 @@ router.get('/active', authMiddleware, async (req: Request, res: Response) => {
          JOIN challenges c ON c.id = uc.challenge_id
          ${challengeTranslationJoin('$2')}
         WHERE uc.user_id = $1 AND uc.status = 'active'
-        ORDER BY uc.started_at DESC
-        LIMIT 1`,
+        ORDER BY uc.started_at DESC`,
       [req.userId, locale]
     );
 
-    if (userChallenge.rows.length === 0) {
-      res.json({ active: null });
-      return;
-    }
+    const actives = await Promise.all(
+      userChallenges.rows.map(async (row) => {
+        const days = await loadDays(row.challenge_id, row.id, locale);
 
-    const row = userChallenge.rows[0];
-    const days = await loadDays(row.challenge_id, row.id, locale);
-    const progress = summarize(days);
+        return {
+          userChallengeId: row.id,
+          status: row.status,
+          startedAt: row.started_at,
+          challenge: {
+            id: row.challenge_id,
+            slug: row.slug,
+            title: row.title,
+            description: row.description,
+            season: row.season,
+            days_count: row.days_count,
+            tasks_count: row.tasks_count,
+            cover_url: row.cover_url,
+          },
+          progress: summarize(days),
+          days,
+        };
+      })
+    );
 
-    res.json({
-      active: {
-        userChallengeId: row.id,
-        status: row.status,
-        startedAt: row.started_at,
-        challenge: {
-          id: row.challenge_id,
-          slug: row.slug,
-          title: row.title,
-          description: row.description,
-          season: row.season,
-          days_count: row.days_count,
-          tasks_count: row.tasks_count,
-          cover_url: row.cover_url,
-        },
-        progress,
-        days,
-      },
-    });
+    res.json({ active: actives[0] ?? null, actives });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch active challenge' });
