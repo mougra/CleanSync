@@ -60,6 +60,26 @@ const apiLocale = (requestPath: string): string => {
 /** Тип опций берём у самого $fetch, чтобы не расходиться с версией Nitro. */
 type ApiRequestOptions = Parameters<typeof $fetch>[1];
 
+/** 401 приходит от API, когда access-cookie просрочена. */
+const isUnauthorized = (error: unknown): boolean => {
+  const status =
+    (error as { statusCode?: number }).statusCode ??
+    (error as { status?: number }).status ??
+    (error as { response?: { status?: number } }).response?.status;
+
+  return status === 401;
+};
+
+/**
+ * Общий на всё приложение запрос обновления сессии.
+ *
+ * Почему общий: за один тик могут упасть параллельно пять запросов (план дня,
+ * статистика, привычки, достижения, челлендж). Без этого промиса каждый пошёл бы
+ * обновлять токен сам, а сервер меняет строку в `refresh_tokens` — второй запрос
+ * пришёл бы с уже недействительным токеном и «разлогинил» бы человека.
+ */
+let refreshing: Promise<boolean> | null = null;
+
 /**
  * Обёртка над $fetch для обращений к нашему API.
  *
@@ -94,6 +114,29 @@ export const useApi = () => {
    */
   const requestPath = isServer ? (useRequestEvent()?.path ?? '') : '';
 
+  /**
+   * Обновить сессию один раз на всех.
+   *
+   * Возвращает `true`, если токен обновился и запрос стоит повторить. Ошибку не
+   * пробрасываем: неудачное обновление — это «гость», а не падение страницы.
+   */
+  const refreshSession = async (csrf: string): Promise<boolean> => {
+    if (!refreshing) {
+      refreshing = $fetch(`${base}/api/auth/refresh`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'X-CSRF-Token': csrf, 'Accept-Language': apiLocale(requestPath) },
+      })
+        .then(() => true)
+        .catch(() => false)
+        .finally(() => {
+          refreshing = null;
+        });
+    }
+
+    return await refreshing;
+  };
+
   const request = async <T>(path: string, options: ApiRequestOptions = {}): Promise<T> => {
     const method = String(options.method ?? 'GET').toUpperCase();
     const headers: Record<string, string> = {
@@ -113,11 +156,39 @@ export const useApi = () => {
           : forwardedCookie;
     }
 
-    return await $fetch<T>(`${base}${path}`, {
-      ...options,
-      headers,
-      credentials: 'include',
-    });
+    const send = () =>
+      $fetch<T>(`${base}${path}`, {
+        ...options,
+        headers,
+        credentials: 'include',
+      });
+
+    try {
+      return await send();
+    } catch (error) {
+      /**
+       * Access-токен живёт 15 минут, и в открытой вкладке или установленной PWA
+       * обновлять его было некому: `/api/auth/refresh` вызывала только серверная
+       * обёртка при полной загрузке страницы. Через 15 минут первый же запрос
+       * получал 401, а стор выставлял `user = null` — человек «вылетал» из
+       * аккаунта, хотя refresh-cookie жива.
+       *
+       * Здесь обновляем сессию и повторяем запрос ровно один раз. Маршруты
+       * `/api/auth/*` исключены: у них своя логика ответа на 401, и повторять
+       * туда запрос нельзя — цикл.
+       */
+      if (isServer || path.startsWith('/api/auth/') || !isUnauthorized(error)) {
+        throw error;
+      }
+
+      const refreshed = await refreshSession(headers['X-CSRF-Token'] ?? (await auth.ensureCsrf()));
+
+      if (!refreshed) {
+        throw error;
+      }
+
+      return await send();
+    }
   };
 
   return { request };

@@ -20,7 +20,13 @@ export const CSRF_COOKIE = 'cp_csrf';
 export const CSRF_HEADER = 'x-csrf-token';
 
 const FIFTEEN_MINUTES = 15 * 60 * 1000;
-const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * Срок жизни refresh-cookie — 30 дней, как и у самого токена (`REFRESH_TOKEN_EXPIRY`).
+ *
+ * Числа обязаны совпадать: если cookie живёт меньше токена, браузер выбросит её
+ * раньше, чем истечёт подпись, и человек выйдет из аккаунта без причины.
+ */
+const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
 
 const httpOnlyBase = {
   httpOnly: true,
@@ -41,7 +47,7 @@ export const setAuthCookies = (
   res.cookie(REFRESH_COOKIE, tokens.refreshToken, {
     ...httpOnlyBase,
     path: '/api/auth',
-    maxAge: SEVEN_DAYS,
+    maxAge: THIRTY_DAYS,
   });
 };
 
@@ -58,7 +64,9 @@ export const issueCsrfToken = (res: Response): string => {
     secure: isProduction,
     sameSite: 'lax',
     path: '/',
-    maxAge: SEVEN_DAYS,
+    // CSRF живёт столько же, сколько refresh-сессия: иначе он истекал бы
+    // посреди работы, и первый же изменяющий запрос получал бы 403.
+    maxAge: THIRTY_DAYS,
   });
   return token;
 };

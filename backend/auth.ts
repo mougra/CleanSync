@@ -19,7 +19,15 @@ export interface TokenPayload extends JwtPayload {
 const ACCESS_TOKEN_SECRET = process.env.ACCESS_TOKEN_SECRET || 'your_access_secret_key';
 const REFRESH_TOKEN_SECRET = process.env.REFRESH_TOKEN_SECRET || 'your_refresh_secret_key';
 const ACCESS_TOKEN_EXPIRY = '15m';
-const REFRESH_TOKEN_EXPIRY = '7d';
+/**
+ * Срок refresh-токена.
+ *
+ * 30 дней вместо 7: приложение живёт как PWA на телефоне, и человек ждёт, что
+ * «вошёл один раз и остался». Каждый `/api/auth/refresh` выдаёт новый токен на
+ * те же 30 дней (скользящее продление), поэтому активный пользователь не
+ * выходит из аккаунта вовсе, а забытый на месяц телефон — выходит.
+ */
+const REFRESH_TOKEN_EXPIRY = '30d';
 
 export const generateTokens = (userId: string) => {
   const accessToken = jwt.sign({ userId }, ACCESS_TOKEN_SECRET, {

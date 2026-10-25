@@ -767,11 +767,23 @@ router.post('/refresh', async (req: Request, res: Response) => {
     const { accessToken: newAccessToken, refreshToken: newRefreshToken } =
       generateTokens(decoded.userId);
 
-    // Update refresh token in DB
-    await pool.query(
-      'UPDATE refresh_tokens SET token = $1 WHERE user_id = $2',
-      [newRefreshToken, decoded.userId],
+    /**
+     * Меняем **только тот токен, который пришёл**, а не все токены пользователя.
+     *
+     * Раньше здесь стояло `WHERE user_id = $2`, и обновление на телефоне
+     * перезаписывало строку, по которой жил компьютер: второе устройство
+     * переставало обновляться и «выбивало» из аккаунта. У пользователя может быть
+     * несколько живых сессий (`refresh_tokens` — обычная таблица, вход добавляет
+     * строку), и каждая должна меняться сама за себя.
+     */
+    const updated = await pool.query(
+      'UPDATE refresh_tokens SET token = $1 WHERE user_id = $2 AND token = $3',
+      [newRefreshToken, decoded.userId, refreshToken],
     );
+
+    if ((updated.rowCount ?? 0) === 0) {
+      return res.status(401).json({ error: 'Refresh token not found' });
+    }
 
     setAuthCookies(res, { accessToken: newAccessToken, refreshToken: newRefreshToken });
 
