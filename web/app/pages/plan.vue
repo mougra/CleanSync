@@ -13,7 +13,7 @@
 import type { GuestAnswers, GuestTask } from '~/composables/useGuestPlan';
 import { buildPlanCalendar, downloadCalendar } from '~/utils/planIcs';
 
-const { t, locale } = useI18n();
+const { t } = useI18n();
 const localePath = useLocalePath();
 const auth = useAuthStore();
 const { plan, loading, failure, load, build, toggle, transferToAccount, doneCount, totalCount } =
@@ -28,13 +28,7 @@ const form = reactive<
   Required<
     Pick<
       GuestAnswers,
-      | 'housingType'
-      | 'rooms'
-      | 'composition'
-      | 'pets'
-      | 'dailyMinutes'
-      | 'cleaningDays'
-      | 'cleaningLevel'
+      'housingType' | 'rooms' | 'composition' | 'pets' | 'dailyMinutes' | 'cleaningLevel'
     >
   >
 >({
@@ -43,7 +37,6 @@ const form = reactive<
   composition: 'alone',
   pets: [],
   dailyMinutes: '30to60',
-  cleaningDays: [1, 3, 6],
   cleaningLevel: 'normal',
 });
 
@@ -85,43 +78,6 @@ const minutesOptions = [
 ];
 
 const levels = [option('light', 'Light'), option('normal', 'Normal'), option('deep', 'Deep')];
-
-/** Дни недели: 1 — понедельник, 0 — воскресенье (как в анкете и в задачах). */
-const weekDays = [
-  { value: 1, key: 'mon' },
-  { value: 2, key: 'tue' },
-  { value: 3, key: 'wed' },
-  { value: 4, key: 'thu' },
-  { value: 5, key: 'fri' },
-  { value: 6, key: 'sat' },
-  { value: 0, key: 'sun' },
-] as const;
-
-/**
- * Короткие подписи дней недели. В словарь их не заводим: это две строки на два
- * языка, а ключи `planPage.dayMon`… в обоих файлах читались бы хуже, чем здесь.
- */
-const dayNames = computed(() =>
-  locale.value === 'en'
-    ? { mon: 'Mo', tue: 'Tu', wed: 'We', thu: 'Th', fri: 'Fr', sat: 'Sa', sun: 'Su' }
-    : { mon: 'Пн', tue: 'Вт', wed: 'Ср', thu: 'Чт', fri: 'Пт', sat: 'Сб', sun: 'Вс' },
-);
-
-const dayLabel = (key: string) => dayNames.value[key as keyof typeof dayNames.value] ?? key;
-
-const toggleDay = (day: number) => {
-  const set = new Set(form.cleaningDays);
-
-  if (set.has(day)) {
-    // Хотя бы один день должен остаться: без него генератору некуда ставить дела.
-    if (set.size === 1) return;
-    set.delete(day);
-  } else {
-    set.add(day);
-  }
-
-  form.cleaningDays = [...set].sort((left, right) => (left === 0 ? 7 : left) - (right === 0 ? 7 : right));
-};
 
 const togglePet = (pet: string) => {
   const set = new Set(form.pets);
@@ -284,22 +240,6 @@ useSeoMeta({
             @click="form.dailyMinutes = item.value"
           >
             {{ t(`planPage.minutes${item.key}`) }}
-          </button>
-        </div>
-      </fieldset>
-
-      <fieldset class="plan-form__field">
-        <legend class="plan-form__label">{{ t('planPage.days') }}</legend>
-        <div class="chips">
-          <button
-            v-for="day in weekDays"
-            :key="day.value"
-            type="button"
-            class="chip chip--day"
-            :class="{ 'chip--active': form.cleaningDays.includes(day.value) }"
-            @click="toggleDay(day.value)"
-          >
-            {{ dayLabel(day.key) }}
           </button>
         </div>
       </fieldset>
@@ -484,10 +424,6 @@ useSeoMeta({
   cursor: pointer;
 }
 
-.chip--day {
-  min-width: var(--tap-min);
-  padding: 0;
-}
 
 .chip--active {
   border-color: var(--c-brand);

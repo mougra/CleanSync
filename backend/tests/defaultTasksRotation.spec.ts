@@ -10,7 +10,7 @@ import { getTaskCatalog } from '../services/taskCatalog';
 import { orderWeekDays, type PartialHomeAnswers } from '../services/homePlan';
 
 /**
- * Дни плана: ротация по дням уборки вместо ежедневного минимума.
+ * Дни плана: ротация по всем дням недели вместо ежедневного минимума.
  *
  * История правки. Сначала заказчик пожаловался, что «на другие дни почти тот же
  * список, и кухни всегда 3», и ежедневный минимум разложили по дням уборки.
@@ -19,18 +19,20 @@ import { orderWeekDays, type PartialHomeAnswers } from '../services/homePlan';
  * заправить кровать, проветрить. Человек делает это и без плана, а в расписании
  * оно выглядело заданием и выпадало на каждый день.
  *
- * Поэтому ежедневных дел в каталоге больше нет, а дни формирует ротация:
- *  - в выбранные дни уборки задачи есть всегда, и наборы разных дней различаются;
- *  - дни вне расписания пусты: человек там не убирается, и придумывать ему дело
- *    на понедельник, когда он убирается по вторникам, четвергам и субботам, —
- *    ровно та жалоба, из-за которой правка и делалась;
+ * Потом убрали и вопрос «в какие дни убираетесь»: дела ставятся на каждый день
+ * (backend/services/homePlan.ts, `withDefaultAnswers`), а поле `cleaningDays`
+ * из анкеты генератор **игнорирует** — иначе у половины пользователей с
+ * сохранённым ответом план остался бы прежним.
+ *
+ * Отсюда нынешние правила:
+ *  - задачи есть во все семь дней, и наборы разных дней различаются;
  *  - одна зона не занимает день целиком (не больше MAX_ZONE_TASKS_PER_DAY);
  *  - дневной бюджет по ответу анкеты не пробит.
  *
  * Проверки не требуют базы: генератор — чистый модуль.
  */
 
-/** Профиль из трёх дней уборки: понедельник, среда, суббота — как в анкете. */
+/** Профиль с устаревшим ответом «пн, ср, сб»: генератор его больше не читает. */
 const THREE_DAYS: PartialHomeAnswers = {
   housingType: 'apartment',
   rooms: '3-4',
@@ -95,28 +97,33 @@ describe('дни плана: ротация вместо ежедневного 
     }
   });
 
-  it('каждый выбранный день уборки не пустой', () => {
+  it('каждый день недели не пустой — уборка стоит на каждый день', () => {
     const set = buildDefaultTasks(THREE_DAYS);
 
-    for (const dayOfWeek of THREE_DAYS.cleaningDays ?? []) {
+    for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek += 1) {
       const day = set.summary.days.find((entry) => entry.dayOfWeek === dayOfWeek);
 
       expect(day?.tasks.length ?? 0, `день ${dayOfWeek}`).toBeGreaterThan(0);
     }
   });
 
-  it('дни вне расписания пусты: человек там не убирается', () => {
-    const set = buildDefaultTasks(THREE_DAYS);
-    const outside = [0, 2, 4, 5].filter((weekday) => !(THREE_DAYS.cleaningDays ?? []).includes(weekday));
+  it('дни из анкеты игнорируются: старое поле больше не сужает план', () => {
+    /**
+     * Заказчик убрал вопрос «в какие дни убираетесь» и попросил ставить дела на
+     * каждый день. У людей, заполнивших анкету раньше, в базе остались два-три
+     * выбранных дня, и генератор обязан их **не читать** — иначе половина
+     * пользователей жила бы по старому правилу.
+     */
+    const threeDays = buildDefaultTasks(THREE_DAYS);
+    const sameButEveryDay = buildDefaultTasks({ ...THREE_DAYS, cleaningDays: [0, 1, 2, 3, 4, 5, 6] });
 
-    for (const weekday of outside) {
-      const day = set.summary.days.find((entry) => entry.dayOfWeek === weekday);
+    const daysOf = (set: DefaultTaskSet) =>
+      set.summary.days.map((day) => `${day.dayOfWeek}:${day.tasks.length}`).join(',');
 
-      expect(day?.tasks.length ?? 0, `день ${weekday}`).toBe(0);
-    }
+    expect(daysOf(threeDays)).toBe(daysOf(sameButEveryDay));
   });
 
-  it('понедельник, среда и суббота — разные наборы, а не один и тот же список', () => {
+  it('наборы разных дней различаются, а не повторяют один список', () => {
     const set = buildDefaultTasks(THREE_DAYS);
     const monday = titlesOf(set, 1);
     const wednesday = titlesOf(set, 3);
@@ -126,13 +133,6 @@ describe('дни плана: ротация вместо ежедневного 
     expect(differs(monday, wednesday), 'Пн и Ср совпали').toBe(true);
     expect(differs(monday, saturday), 'Пн и Сб совпали').toBe(true);
     expect(differs(wednesday, saturday), 'Ср и Сб совпали').toBe(true);
-
-    // Недельные дела лежат только в выбранных днях: иначе «день уборки» теряет смысл.
-    for (const task of set.tasks) {
-      if (task.frequency !== 'weekly') continue;
-
-      expect(THREE_DAYS.cleaningDays, task.title).toContain(task.dayOfWeek);
-    }
   });
 
   it('в дне не больше двух задач одной зоны', () => {

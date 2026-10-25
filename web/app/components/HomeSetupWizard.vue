@@ -1,10 +1,15 @@
 <script setup lang="ts">
 /**
- * Мастер «Настройка по дому» — 11 шагов в модалке (макеты «настройка по дому*.jpg»).
+ * Мастер «Настройка по дому» — 7 шагов в модалке (макеты «настройка по дому*.jpg»).
  *
- * Ответы сохраняются на каждом шаге, поэтому закрытая на середине модалка
- * ничего не теряет. На последнем шаге сервер собирает план по ответам и
- * возвращает его: интерфейс только показывает результат.
+ * Ответы копятся **на устройстве** и уходят на сервер одним `PUT` в конце.
+ * Так работают «Назад», «Пропустить» и крестик: до последнего шага на сервере
+ * ничего не меняется, и закрыть мастер — значит ничего не сохранить. Черновик
+ * лежит в localStorage, поэтому обрыв сети или закрытая вкладка не съедают
+ * ответы: при следующем открытии мастер вернётся на тот же шаг.
+ *
+ * На последнем шаге сервер собирает план по ответам и возвращает его:
+ * интерфейс только показывает результат.
  */
 import type { HomePlan, HomeProfile } from '~/types/homeProfile';
 import { HOME_SETUP_STEP_FIELDS, type HomeSetupField } from '~/utils/homeSetupSteps';
@@ -16,7 +21,7 @@ const { t, locale } = useI18n();
 const localePath = useLocalePath();
 const { profile, save, generatePlan } = await useHomeProfile();
 
-type StepKind = 'single' | 'multi' | 'days' | 'extra';
+type StepKind = 'single' | 'multi' | 'spaces';
 
 interface StepOption {
   value: string;
@@ -90,32 +95,24 @@ const steps: WizardStep[] = [
       { value: 'rodents', labelKey: 'optRodents', emoji: '🐹' },
     ],
   },
+  /**
+   * Один шаг вместо трёх.
+   *
+   * Раньше это были «есть балкон или двор?» (один из двух), «есть детская?» и
+   * «есть гараж?» (два переключателя да/нет) — три экрана ради одного смысла
+   * «какие ещё помещения есть в доме». Теперь это мультивыбор, как у питомцев:
+   * отметил — задача появится, не отметил — её нет.
+   */
   {
     section: 'home',
     titleKey: 'q5Title',
     hintKey: 'q5Hint',
-    kind: 'single',
+    kind: 'spaces',
     options: [
-      { value: 'none', labelKey: 'optOutdoorNone' },
-      { value: 'balcony', labelKey: 'optOutdoorBalcony' },
-      { value: 'yard', labelKey: 'optOutdoorYard' },
-    ],
-  },
-  {
-    section: 'home',
-    titleKey: 'q6Title',
-    hintKey: 'q6Hint',
-    kind: 'extra',
-  },
-  {
-    section: 'home',
-    titleKey: 'q7Title',
-    hintKey: 'q7Hint',
-    kind: 'single',
-    options: [
-      { value: 'dryer', labelKey: 'optDryer', hintKey: 'optDryerHint' },
-      { value: 'air', labelKey: 'optAir', hintKey: 'optAirHint' },
-      { value: 'washer_dryer', labelKey: 'optWasherDryer', hintKey: 'optWasherDryerHint' },
+      { value: 'kidsRoom', labelKey: 'optSpaceKidsRoom', emoji: '🧸' },
+      { value: 'balcony', labelKey: 'optSpaceBalcony', emoji: '🪴' },
+      { value: 'yard', labelKey: 'optSpaceYard', emoji: '🌳' },
+      { value: 'garage', labelKey: 'optSpaceGarage', emoji: '🚗' },
     ],
   },
   {
@@ -140,40 +137,71 @@ const steps: WizardStep[] = [
       { value: 'depends', labelKey: 'optTimeDepends' },
     ],
   },
-  {
-    section: 'rhythm',
-    titleKey: 'q10Title',
-    hintKey: 'q10Hint',
-    kind: 'single',
-    options: [
-      { value: 'often_small', labelKey: 'optStyleOftenSmall' },
-      { value: 'all_at_once', labelKey: 'optStyleAllAtOnce' },
-      { value: 'when_energy', labelKey: 'optStyleWhenEnergy' },
-      { value: 'varies', labelKey: 'optStyleVaries' },
-    ],
-  },
-  {
-    section: 'rhythm',
-    titleKey: 'q11Title',
-    hintKey: 'q11Hint',
-    kind: 'days',
-  },
 ];
-
-/** Дни недели в порядке отображения: понедельник … воскресенье. */
-const weekdayKeys = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-
-/**
- * Значение дня для `tasks.day_of_week`: 0 — воскресенье, 1 — понедельник.
- * Порядок отображения (с понедельника) и хранение (с воскресенья) не совпадают.
- */
-const weekdayValues = [1, 2, 3, 4, 5, 6, 0];
 
 const index = ref(0);
 const answers = reactive<Record<string, unknown>>({});
 const planning = ref(false);
 const plan = ref<HomePlan | null>(null);
 const failure = ref(false);
+
+/**
+ * Черновик ответов: переживает закрытие вкладки и обрыв сети.
+ *
+ * Ключ версионирован — при смене набора шагов старый черновик должен быть
+ * проигнорирован целиком, а не прочитан наполовину.
+ */
+const DRAFT_KEY = 'tidyplan-setup-draft-v2';
+
+interface SetupDraft {
+  step: number;
+  answers: Record<string, unknown>;
+}
+
+const saveDraft = () => {
+  if (!import.meta.client) return;
+
+  try {
+    const draft: SetupDraft = { step: index.value, answers: { ...answers } };
+
+    window.localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  } catch {
+    // Приватный режим: мастер работает, просто без черновика.
+  }
+};
+
+const clearDraft = () => {
+  if (!import.meta.client) return;
+
+  try {
+    window.localStorage.removeItem(DRAFT_KEY);
+  } catch {
+    // Нечего чистить — и хорошо.
+  }
+};
+
+const readDraft = (): SetupDraft | null => {
+  if (!import.meta.client) return null;
+
+  try {
+    const raw = window.localStorage.getItem(DRAFT_KEY);
+
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw) as Partial<SetupDraft>;
+
+    if (!parsed || typeof parsed !== 'object' || typeof parsed.answers !== 'object') {
+      return null;
+    }
+
+    return {
+      step: typeof parsed.step === 'number' ? Math.min(parsed.step, steps.length - 1) : 0,
+      answers: parsed.answers as Record<string, unknown>,
+    };
+  } catch {
+    return null;
+  }
+};
 
 /** `steps[index]` типизирован как возможно пустой, поэтому подстраховываемся. */
 const current = computed<WizardStep>(() => {
@@ -190,19 +218,58 @@ const sectionKey = computed(() =>
 /** Поля текущего шага: правило «шаг → поля» общее с карточкой и настройками. */
 const currentFields = computed<readonly HomeSetupField[]>(() => HOME_SETUP_STEP_FIELDS[index.value] ?? []);
 
-/** Основное поле шага: у шага 6 их три, и первым идёт «детская комната». */
+/** Основное поле шага: у шага «помещения» их три, и первым идёт «детская». */
 const currentField = computed<HomeSetupField>(() => currentFields.value[0] ?? 'housingType');
 
-/** Подписи подвопросов «да/нет»: ключи i18n к полям из общего util. */
-const EXTRA_LABEL_KEYS: Partial<Record<HomeSetupField, string>> = {
-  hasKidsRoom: 'extraKidsRoom',
-  worksFromHome: 'extraOffice',
+/**
+ * Помещения читаются и пишутся в три разных поля анкеты: детская и гараж — это
+ * boolean, балкон и двор — значение `outdoor`. На экране это один мультивыбор,
+ * поэтому сопоставление живёт здесь, а не в разметке.
+ */
+const SPACE_FIELDS = {
+  kidsRoom: 'hasKidsRoom',
+  balcony: 'outdoor',
+  yard: 'outdoor',
+  garage: 'hasGarage',
+} as const;
+
+type SpaceValue = keyof typeof SPACE_FIELDS;
+
+const isSpaceSelected = (space: SpaceValue): boolean => {
+  if (space === 'kidsRoom') return answers.hasKidsRoom === true;
+  if (space === 'garage') return answers.hasGarage === true;
+
+  return answers.outdoor === space;
 };
 
-const extraLabelKey = (field: HomeSetupField) => EXTRA_LABEL_KEYS[field] ?? String(field);
+const toggleSpace = (space: SpaceValue) => {
+  const selected = isSpaceSelected(space);
+
+  if (space === 'kidsRoom') {
+    answers.hasKidsRoom = !selected;
+    return;
+  }
+
+  if (space === 'garage') {
+    answers.hasGarage = !selected;
+    return;
+  }
+
+  // Балкон и двор взаимоисключающие: в анкете `outdoor` — одно значение.
+  answers.outdoor = selected ? 'none' : space;
+};
+
+/** Сколько помещений отмечено: по нему решается «Далее» или «Пропустить». */
+const selectedSpaces = computed(
+  () => (Object.keys(SPACE_FIELDS) as SpaceValue[]).filter(isSpaceSelected).length,
+);
 
 /** Ответ на текущем шаге: от него зависит, «Далее» или «Пропустить» на кнопке. */
 const answered = computed(() => {
+  if (current.value.kind === 'spaces') {
+    return selectedSpaces.value > 0;
+  }
+
   const value = answers[currentField.value];
 
   if (Array.isArray(value)) {
@@ -230,28 +297,23 @@ const toggleMulti = (field: string, value: string) => {
     : [...withoutNone, value];
 };
 
-const dayValues = computed(() => answers.cleaningDays as number[] ?? []);
-
-const toggleDay = (day: number) => {
-  const list = [...dayValues.value];
-  answers.cleaningDays = list.includes(day) ? list.filter((item) => item !== day) : [...list, day];
-};
-
 const pick = (field: string, value: string) => {
   answers[field] = value;
 };
 
-const setExtra = (field: string, value: boolean) => {
-  answers[field] = value;
-};
+/** В плане показываем только дни, куда реально попали задачи. */
+const planDays = computed(() => (plan.value?.days ?? []).filter((day) => day.tasks.length > 0));
 
 /** Ключ подписи дня: в i18n дни идут с понедельника, а в данных воскресенье — 0. */
 const dayLabelKey = (dayOfWeek: number) => `homeSetup.day${dayOfWeek === 0 ? 7 : dayOfWeek}`;
 
-/** В плане показываем только дни, куда реально попали задачи. */
-const planDays = computed(() => (plan.value?.days ?? []).filter((day) => day.tasks.length > 0));
-
-/** Копируем сохранённую анкету в локальное состояние при открытии. */
+/**
+ * Открытие мастера: берём черновик, если он есть, иначе — сохранённую анкету.
+ *
+ * Черновик приоритетнее: он новее и содержит то, что человек уже выбрал, но не
+ * успел сохранить. После успешной сборки плана черновик стирается, поэтому
+ * повторное открытие снова показывает сохранённую анкету.
+ */
 watch(
   () => props.open,
   (open) => {
@@ -259,54 +321,74 @@ watch(
       return;
     }
 
-    index.value = 0;
     plan.value = null;
     failure.value = false;
 
+    const draft = readDraft();
+
     for (const fields of HOME_SETUP_STEP_FIELDS) {
       for (const field of fields) {
-        const stored = profile.value?.[field];
+        const stored = draft ? draft.answers[field] : profile.value?.[field];
+
         answers[field] = Array.isArray(stored) ? [...stored] : (stored ?? null);
       }
     }
+
+    index.value = draft?.step ?? 0;
   },
   { immediate: true },
 );
 
+/**
+ * Финиш: один `PUT` со всеми ответами, потом сборка плана.
+ *
+ * До этого шага на сервере ничего не менялось — поэтому «закрыть без сохранения»
+ * работает буквально, а не «почти».
+ */
 const finish = async () => {
   planning.value = true;
   failure.value = false;
 
   try {
+    await save({ ...answers } as Partial<HomeProfile>, { complete: true });
     plan.value = await generatePlan();
+    clearDraft();
     emit('planReady');
     await refreshNuxtData(['today-plan', 'stats-week', 'stats-month', 'stats-all']);
   } catch {
+    // Черновик не стираем: ответы остаются и после неудачи.
     failure.value = true;
   } finally {
     planning.value = false;
   }
 };
 
+/** «Далее»: запоминает ответы локально и ведёт к следующему шагу. */
 const next = async () => {
-  // Патч собираем по всем полям шага: у шага 6 их три (три вопроса «да/нет»),
-  // у остальных одно. Неотвеченные поля уходят как null, а save() их не
-  // отправляет — тогда шаг и остаётся непройденным.
-  const patch = Object.fromEntries(
-    currentFields.value.map((field) => [field, answers[field]]),
-  ) as Partial<HomeProfile>;
+  saveDraft();
 
-  const isLast = index.value === total - 1;
-
-  // Пропущенные шаги не отправляем, а на последнем сообщаем, что анкету прошли
-  await save(patch as Partial<HomeProfile>, { complete: isLast });
-
-  if (!isLast) {
-    index.value += 1;
+  if (index.value === total - 1) {
+    await finish();
     return;
   }
 
-  await finish();
+  index.value += 1;
+};
+
+/** «Назад»: шаг влево без потери ответов; с первого шага уводит из мастера. */
+const back = () => {
+  if (index.value === 0) {
+    close();
+    return;
+  }
+
+  index.value -= 1;
+  saveDraft();
+};
+
+const skip = () => {
+  saveDraft();
+  void next();
 };
 
 const close = () => emit('close');
@@ -317,11 +399,22 @@ const close = () => emit('close');
     <div v-if="props.open" class="wizard" role="dialog" aria-modal="true">
       <div class="wizard__panel">
         <header class="wizard__head">
-          <button type="button" class="wizard__back" :aria-label="t('settings.back')" @click="close">
-            <i class="pi pi-chevron-left" aria-hidden="true" />
-          </button>
           <span class="wizard__section">{{ t(`homeSetup.${sectionKey}`) }}</span>
           <span class="wizard__count">{{ t('homeSetup.stepOf', { current: index + 1, total }) }}</span>
+
+          <!--
+            Крестик закрывает мастер **без сохранения**: ответы копятся локально
+            и уходят на сервер только в конце, поэтому закрыть — значит не
+            изменить ничего. Черновик остаётся, чтобы вернуться к тому же шагу.
+          -->
+          <button
+            type="button"
+            class="wizard__close"
+            :aria-label="t('homeSetup.close')"
+            @click="close"
+          >
+            <i class="pi pi-times" aria-hidden="true" />
+          </button>
         </header>
 
         <div class="progress" aria-hidden="true">
@@ -429,59 +522,59 @@ const close = () => emit('close');
             </button>
           </template>
 
-          <!-- Три подвопроса «да/нет» -->
-          <ul v-else-if="current.kind === 'extra'" class="extras">
-            <li v-for="field in currentFields" :key="field" class="extra">
-              <p class="extra__label">{{ t(`homeSetup.${extraLabelKey(field)}`) }}</p>
-              <div class="extra__switch">
+          <!-- Помещения: один мультивыбор вместо трёх шагов -->
+          <template v-else-if="current.kind === 'spaces'">
+            <ul class="grid">
+              <li v-for="option in current.options" :key="option.value">
                 <button
                   type="button"
-                  class="toggle"
-                  :class="{ 'toggle--on': answers[field] === true }"
-                  @click="setExtra(field, true)"
+                  class="option option--grid"
+                  :class="{ 'option--active': isSpaceSelected(option.value as SpaceValue) }"
+                  @click="toggleSpace(option.value as SpaceValue)"
                 >
-                  {{ t('homeSetup.yes') }}
+                  <span aria-hidden="true">{{ option.emoji }}</span>
+                  <span class="option__label">{{ t(`homeSetup.${option.labelKey}`) }}</span>
+                  <span class="badge" :class="{ 'badge--on': isSpaceSelected(option.value as SpaceValue) }">
+                    <i
+                      :class="['pi', isSpaceSelected(option.value as SpaceValue) ? 'pi-check' : 'pi-plus']"
+                      aria-hidden="true"
+                    />
+                  </span>
                 </button>
-                <button
-                  type="button"
-                  class="toggle"
-                  :class="{ 'toggle--on': answers[field] !== true }"
-                  @click="setExtra(field, false)"
-                >
-                  {{ t('homeSetup.no') }}
-                </button>
-              </div>
-            </li>
-          </ul>
+              </li>
+            </ul>
 
-          <!-- Дни недели -->
-          <ul v-else class="grid">
-            <li v-for="(key, dayIndex) in weekdayKeys" :key="key">
-              <button
-                type="button"
-                class="option option--grid"
-                :class="{ 'option--active': dayValues.includes(weekdayValues[dayIndex] ?? 1) }"
-                @click="toggleDay(weekdayValues[dayIndex] ?? 1)"
-              >
-                <span class="option__label">{{ t(`homeSetup.day${dayIndex + 1}`) }}</span>
-                <span class="badge" :class="{ 'badge--on': dayValues.includes(weekdayValues[dayIndex] ?? 1) }">
-                  <i class="pi pi-check" aria-hidden="true" />
-                </span>
-              </button>
-            </li>
-          </ul>
+            <p class="hint">{{ t('homeSetup.spacesHint') }}</p>
+          </template>
 
           <p v-if="failure" class="wizard__error">{{ t('state.error') }}</p>
         </section>
 
         <footer v-if="!plan" class="wizard__foot">
           <AppButton
+            v-if="index > 0"
+            variant="outline"
+            :disabled="planning"
+            @click="back"
+          >
+            {{ t('homeSetup.back') }}
+          </AppButton>
+
+          <AppButton
             :variant="answered ? 'filled' : 'outline'"
             block
             :disabled="planning"
-            @click="next"
+            @click="answered ? next() : skip()"
           >
-            {{ planning ? t('state.loading') : answered ? t('homeSetup.next') : t('homeSetup.skip') }}
+            {{
+              planning
+                ? t('state.loading')
+                : index === total - 1
+                  ? t('homeSetup.finish')
+                  : answered
+                    ? t('homeSetup.next')
+                    : t('homeSetup.skip')
+            }}
           </AppButton>
         </footer>
       </div>
@@ -522,7 +615,7 @@ const close = () => emit('close');
   padding: var(--space-3) var(--space-3) var(--space-2);
 }
 
-.wizard__back {
+.wizard__close {
   display: grid;
   place-items: center;
   width: var(--tap-min);
@@ -774,8 +867,20 @@ const close = () => emit('close');
  */
 .wizard__foot {
   flex: 0 0 auto;
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
   padding: var(--space-2) var(--space-3) calc(var(--space-3) + env(safe-area-inset-bottom));
   background: var(--c-bg);
+}
+
+/*
+ * «Назад» не растягивается: главная кнопка — «Далее», и она должна занимать
+ * всё оставшееся место. Своя ширина у «Назад» держит её короткой и на десктопе,
+ * где карточка шире телефона.
+ */
+.wizard__foot > .btn:first-child:not(:last-child) {
+  flex: 0 0 auto;
 }
 
 @media (min-width: 768px) {

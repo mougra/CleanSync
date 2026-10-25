@@ -100,7 +100,14 @@ export interface HomeAnswers {
 /** Ответы, которых может не быть: незаполненные шаги берут значения по умолчанию. */
 export type PartialHomeAnswers = Partial<HomeAnswers>;
 
-/** Значения по умолчанию: самый обычный дом, чтобы план собрался на любом шаге. */
+/**
+ * Значения по умолчанию: самый обычный дом, чтобы план собрался на любом шаге.
+ *
+ * `cleaningDays` — **все семь дней**. Вопрос «в какие дни убираетесь» из анкеты
+ * убран: заказчик попросил, чтобы дела стояли на каждый день, а не ждали трёх
+ * выбранных. Значение из сохранённой анкеты при этом игнорируется — см.
+ * `withDefaultAnswers`.
+ */
 export const DEFAULT_HOME_ANSWERS: HomeAnswers = {
   housingType: 'apartment',
   rooms: '3-4',
@@ -114,9 +121,12 @@ export const DEFAULT_HOME_ANSWERS: HomeAnswers = {
   cleaningLevel: 'normal',
   dailyMinutes: '30to60',
   cleaningStyle: 'varies',
-  cleaningDays: [1, 3, 6],
+  cleaningDays: [0, 1, 2, 3, 4, 5, 6],
   hardestZone: 'nothing',
 };
+
+/** Все дни недели: 0 — воскресенье. Уборка планируется на каждый день. */
+export const EVERY_DAY: readonly number[] = [0, 1, 2, 3, 4, 5, 6];
 
 /**
  * Дополняет частичные ответы значениями по умолчанию.
@@ -135,10 +145,16 @@ export const withDefaultAnswers = (input: PartialHomeAnswers): HomeAnswers => {
     ...DEFAULT_HOME_ANSWERS,
     ...provided,
     pets: input.pets && input.pets.length > 0 ? input.pets : DEFAULT_HOME_ANSWERS.pets,
-    cleaningDays:
-      input.cleaningDays && input.cleaningDays.length > 0
-        ? input.cleaningDays
-        : DEFAULT_HOME_ANSWERS.cleaningDays,
+    /**
+     * Дни уборки больше не спрашиваем: дела ставятся на каждый день.
+     *
+     * Значение из анкеты намеренно **игнорируется**, а не подставляется, если
+     * оно пустое. У людей, заполнивших анкету раньше, в базе лежат два-три
+     * выбранных дня; если читать их, у половины пользователей план остался бы
+     * прежним, а у новых был бы другой — два поведения вместо одного. Правило
+     * заказчика: «задачи составлялись на каждый день».
+     */
+    cleaningDays: [...EVERY_DAY],
   };
 };
 
