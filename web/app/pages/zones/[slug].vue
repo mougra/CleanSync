@@ -12,7 +12,7 @@
  */
 import type { ZonePage, ZonesResponse } from '~/types/catalog';
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const localePath = useLocalePath();
 const route = useRoute();
 const { request } = useApi();
@@ -47,7 +47,7 @@ const title = computed(() => t('zonesPage.zoneTitle', { zone: zoneName.value }))
 const description = computed(() =>
   t('zonesPage.zoneLead', {
     tasks: zone.value?.tasks ?? 0,
-    minutes: zone.value?.minutes ?? 0,
+    minutes: formatDuration(zone.value?.minutes ?? 0, locale.value),
     zone: zoneName.value,
   }),
 );
@@ -107,7 +107,7 @@ useStructuredData(() => ({
           '@type': 'ListItem',
           position: index + 1,
           name: task.title,
-          description: `${group.title} · ${task.minutes} ${t('zonesPage.minutes')}`,
+          description: `${group.title} · ${formatMinutes(task.minutes, locale.value)}`,
         })),
       ),
     },
@@ -130,7 +130,7 @@ useStructuredData(() => ({
         <h2 class="zone__group-title">{{ group.title }}</h2>
         <span class="zone__group-meta">
           {{ group.tasks.length }} {{ t('zonesPage.tasksCount') }} ·
-          {{ group.minutes }} {{ t('zonesPage.minutes') }}
+          {{ formatDuration(group.minutes, locale) }}
         </span>
       </header>
 
@@ -138,7 +138,7 @@ useStructuredData(() => ({
         <li v-for="task in group.tasks" :key="task.title" class="zone__task">
           <span class="zone__task-title">{{ task.title }}</span>
           <span class="zone__task-meta">
-            {{ task.minutes }} {{ t('zonesPage.minutes') }} ·
+            {{ formatMinutes(task.minutes, locale) }} ·
             {{ levelLabel(task.level) }}
           </span>
         </li>
@@ -148,7 +148,7 @@ useStructuredData(() => ({
     <p class="zone__total">
       <strong>{{ t('zonesPage.totalTitle') }}:</strong>
       {{ zone.tasks }} {{ t('zonesPage.tasksCount') }} ·
-      {{ zone.minutes }} {{ t('zonesPage.minutes') }}
+      {{ formatDuration(zone.minutes, locale) }}
     </p>
 
     <section class="zone__cta">

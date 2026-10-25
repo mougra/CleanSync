@@ -105,9 +105,9 @@
     "doneOne": "выполнена {count} задача",
     "doneFew": "выполнено {count} задачи",
     "doneMany": "выполнено {count} задач",
-    "planMinutes": "план {minutes} мин",
-    "factMinutes": "факт {minutes} мин",
-    "leftMinutes": "осталось {minutes} мин",
+    "planMinutes": "план {minutes}",
+    "factMinutes": "факт {minutes}",
+    "leftMinutes": "осталось {minutes}",
     "zonesTitle": "По зонам",
     "noRoom": "Без зоны"
   },

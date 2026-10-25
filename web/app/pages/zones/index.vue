@@ -12,7 +12,7 @@
  */
 import type { ZonesResponse } from '~/types/catalog';
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const localePath = useLocalePath();
 const { request } = useApi();
 
@@ -49,7 +49,7 @@ useSeoMeta({
           <span class="zone-card__name">{{ zoneName(zone.slug, zone.title) }}</span>
           <span class="zone-card__meta">
             {{ zone.tasks }} {{ t('zonesPage.tasksCount') }} ·
-            {{ zone.minutes }} {{ t('zonesPage.minutes') }}
+            {{ formatDuration(zone.minutes, locale) }}
           </span>
         </NuxtLink>
       </li>

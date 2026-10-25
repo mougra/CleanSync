@@ -16,7 +16,7 @@
 import type { GuestAnswers } from '~/composables/useGuestPlan';
 import { buildPlanCalendar, downloadCalendar } from '~/utils/planIcs';
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const localePath = useLocalePath();
 const auth = useAuthStore();
 const { plan, loading, failure, load, build, transferToAccount } = useGuestPlan();
@@ -261,13 +261,13 @@ useSeoMeta({
         </li>
         <li>
           <span>{{ t('planPage.resultMinutes') }}</span>
-          <strong>{{ plan.summary.totalMinutes }} {{ t('zonesPage.minutes') }}</strong>
+          <strong>{{ formatDuration(plan.summary.totalMinutes, locale) }}</strong>
         </li>
         <li>
           <span>{{ t('planPage.resultBusiest') }}</span>
           <strong>
-            {{ plan.summary.maxDailyMinutes }} / {{ plan.summary.dailyLimit }}
-            {{ t('zonesPage.minutes') }}
+            {{ formatMinutes(plan.summary.maxDailyMinutes, locale) }} /
+            {{ formatMinutes(plan.summary.dailyLimit, locale) }}
           </strong>
         </li>
         <li>

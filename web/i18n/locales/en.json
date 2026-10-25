@@ -105,9 +105,9 @@
     "doneOne": "{count} task done",
     "doneFew": "{count} tasks done",
     "doneMany": "{count} tasks done",
-    "planMinutes": "{minutes} min planned",
-    "factMinutes": "{minutes} min actual",
-    "leftMinutes": "{minutes} min left",
+    "planMinutes": "{minutes} planned",
+    "factMinutes": "{minutes} actual",
+    "leftMinutes": "{minutes} left",
     "zonesTitle": "By zone",
     "noRoom": "No zone"
   },

@@ -437,7 +437,7 @@ const close = () => emit('close');
 
           <ul class="summary">
             <li><span>{{ t('homeSetup.planTasks') }}</span><strong>{{ plan.summary.totalTasks }}</strong></li>
-            <li><span>{{ t('homeSetup.planMinutes') }}</span><strong>{{ formatMinutes(plan.summary.totalMinutes, locale) }}</strong></li>
+            <li><span>{{ t('homeSetup.planMinutes') }}</span><strong>{{ formatDuration(plan.summary.totalMinutes, locale) }}</strong></li>
             <li><span>{{ t('homeSetup.planPerDay') }}</span><strong>{{ formatMinutes(plan.summary.minutesPerDay, locale) }}</strong></li>
           </ul>
 

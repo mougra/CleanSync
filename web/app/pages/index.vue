@@ -346,14 +346,16 @@ const showFact = computed(() => selectedDate.value <= todayInAppZone());
 /** «план 45 мин · факт 30 мин»: остаток показываем, только когда он ненулевой. */
 const minutesLabel = computed(() => {
   const total = day.value?.total_minutes ?? 0;
-  const parts = [t('calendar.planMinutes', { minutes: total })];
+  // Длительность форматируем здесь, а не в строке словаря: «план 112 мин» человеку
+  // ничего не говорит, а «план 1 ч 52 мин» — говорит.
+  const parts = [t('calendar.planMinutes', { minutes: formatDuration(total, locale.value) })];
 
   if (showFact.value) {
     const done = day.value?.completed_minutes ?? 0;
     parts.push(
       done > 0
-        ? t('calendar.factMinutes', { minutes: done })
-        : t('calendar.leftMinutes', { minutes: total }),
+        ? t('calendar.factMinutes', { minutes: formatDuration(done, locale.value) })
+        : t('calendar.leftMinutes', { minutes: formatDuration(total, locale.value) }),
     );
   }
 
