@@ -368,18 +368,13 @@ watch(
         человек его не тронул: тогда `due_date` подставляет сервер, и у задачи с
         интервалом больше суток гарантированно есть опора цикла (правило 33).
       -->
-      <label class="card">
-        <span class="row">
-          <span class="row__icon" aria-hidden="true"><i class="pi pi-calendar" /></span>
-          <span class="row__label">{{ dueLabel }}</span>
-          <input
-            v-model="dueValue"
-            class="row__date"
-            type="date"
-            :aria-label="t('tasks.dueDate')"
-          >
-        </span>
-      </label>
+      <div class="card">
+        <AppDateField
+          v-model="dueValue"
+          :label="dueLabel"
+          :aria-label="t('tasks.dueDate')"
+        />
+      </div>
 
       <!--
         Напоминаний у своих задач в API нет: строка намеренно неактивна,

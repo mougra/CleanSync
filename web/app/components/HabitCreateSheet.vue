@@ -149,11 +149,9 @@ watch(
         </div>
       </section>
 
-      <label class="card row">
-        <span class="row__icon" aria-hidden="true"><i class="pi pi-calendar" /></span>
-        <span class="row__label">{{ dueLabel }}</span>
-        <input v-model="dueDate" class="row__date" type="date" >
-      </label>
+      <div class="card">
+        <AppDateField v-model="dueDate" :label="dueLabel" />
+      </div>
 
       <div class="card row">
         <span class="row__icon" aria-hidden="true"><i class="pi pi-bell" /></span>
