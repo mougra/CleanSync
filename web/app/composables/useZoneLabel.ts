@@ -26,6 +26,28 @@ const ZONE_CODES: Record<string, string> = {
   Окна: 'windows',
 };
 
+/**
+ * Иконка зоны — по тому же коду, что и подпись.
+ *
+ * В строке задачи зона больше не пишется словами: маленький квадрат с иконкой
+ * читается быстрее и не удлиняет подпись. Для неизвестной зоны (своя, вписанная
+ * руками) иконки нет — там остаётся текст, иначе зона потерялась бы совсем.
+ */
+const ZONE_ICONS: Record<string, string> = {
+  kitchen: 'pi-table',
+  bathroom: 'pi-cloud',
+  bedroom: 'pi-moon',
+  livingRoom: 'pi-home',
+  hallway: 'pi-key',
+  kidsRoom: 'pi-users',
+  office: 'pi-desktop',
+  balcony: 'pi-sun',
+  yard: 'pi-map',
+  garage: 'pi-car',
+  wholeHouse: 'pi-th-large',
+  windows: 'pi-window-maximize',
+};
+
 export const useZoneLabel = () => {
   const { t } = useI18n();
 
@@ -41,5 +63,18 @@ export const useZoneLabel = () => {
     return code ? t(`tasks.zone.${code}`) : zone;
   };
 
-  return { zoneLabel };
+  /** Иконка известной зоны; `null` — свободный текст, для него иконки нет. */
+  const zoneIcon = (value: string | null | undefined): string | null => {
+    const zone = value?.trim();
+
+    if (!zone) {
+      return null;
+    }
+
+    const code = ZONE_CODES[zone];
+
+    return code ? (ZONE_ICONS[code] ?? null) : null;
+  };
+
+  return { zoneLabel, zoneIcon };
 };

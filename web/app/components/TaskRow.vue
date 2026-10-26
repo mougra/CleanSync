@@ -1,12 +1,15 @@
 <script setup lang="ts">
 /**
- * Строка задачи из макетов: кружок-чекбокс, заголовок, необязательная подпись
- * и необязательная миниатюра справа. Без `interactive` — просто отображение.
+ * Строка задачи из макетов: кружок-чекбокс, необязательная иконка зоны,
+ * заголовок, необязательная подпись и необязательная миниатюра справа.
+ * Без `interactive` — просто отображение.
  */
 const props = withDefaults(
   defineProps<{
     title: string;
     hint?: string | null;
+    /** Иконка зоны в квадрате слева: так строки задач на главной читаются быстрее. */
+    icon?: string | null;
     imageUrl?: string | null;
     /** Метка справа от заголовка: например, «каждый день». */
     badge?: string | null;
@@ -26,6 +29,7 @@ const props = withDefaults(
     interactive: false,
     disabled: false,
     hint: null,
+    icon: null,
     imageUrl: null,
     badge: null,
     tone: 'task',
@@ -76,6 +80,9 @@ const rowClasses = computed(() => [
       <span class="task__check" aria-hidden="true">
         <i v-if="done" class="pi pi-check" />
       </span>
+      <span v-if="icon" class="task__icon" aria-hidden="true">
+        <i :class="['pi', icon]" />
+      </span>
       <span class="task__text">
         <span class="task__title">
           {{ title }}
@@ -100,6 +107,9 @@ const rowClasses = computed(() => [
   >
     <span class="task__check" aria-hidden="true">
       <i v-if="done" class="pi pi-check" />
+    </span>
+    <span v-if="icon" class="task__icon" aria-hidden="true">
+      <i :class="['pi', icon]" />
     </span>
     <span class="task__text">
       <span class="task__title">
@@ -185,6 +195,18 @@ const rowClasses = computed(() => [
   border-radius: var(--r-pill);
   color: var(--c-brand);
   font-size: 0.75rem;
+}
+
+/* Квадрат с иконкой зоны — тот же ритм, что у привычек */
+.task__icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border-radius: var(--r-chip);
+  background: var(--c-surface-mint);
+  color: var(--c-brand);
 }
 
 .task__text {

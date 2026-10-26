@@ -42,7 +42,7 @@ interface TemplatesResponse {
 }
 
 const { t, locale } = useI18n();
-const { zoneLabel } = useZoneLabel();
+const { zoneLabel, zoneIcon } = useZoneLabel();
 const localePath = useLocalePath();
 const auth = useAuthStore();
 const api = useApi();
@@ -451,11 +451,15 @@ const frequencyLabel = (task: {
   return t('plan.repeatN', { count, unit });
 };
 
-/** Подпись строки сегодняшнего дня: зона, источник (расписание), периодичность и время. */
+/** Подпись строки сегодняшнего дня: периодичность и время.
+ *
+ * Зону показывает иконка, а название расписания («Мои задачи», «План по дому»)
+ * в каждой строке только удлиняло подпись. Для свободной зоны, которой нет
+ * в словаре, иконки нет — тогда зона остаётся текстом, чтобы не потерялась.
+ */
 const taskHint = (task: TodayPlanTask): string =>
   [
-    zoneLabel(task.room),
-    task.schedule_title,
+    zoneIcon(task.room) ? null : zoneLabel(task.room),
     frequencyLabel(task),
     task.estimated_minutes ? t('plan.minutes', { minutes: task.estimated_minutes }) : null,
   ]
@@ -463,14 +467,14 @@ const taskHint = (task: TodayPlanTask): string =>
     .join(' · ');
 
 /**
- * Подпись строки другого дня: зона, периодичность и минуты.
+ * Подпись строки другого дня: периодичность и минуты.
  *
- * Без названия расписания и длинных подсказок: список дня должен помещаться
- * целиком, поэтому лишнее отброшено сознательно — как и было в шторке дня.
+ * Без зоны (её показывает иконка) и без названия расписания: список дня
+ * должен помещаться целиком.
  */
 const calendarTaskHint = (task: CalendarTask): string =>
   [
-    zoneLabel(task.room),
+    zoneIcon(task.room) ? null : zoneLabel(task.room),
     frequencyLabel(task),
     task.estimated_minutes ? t('plan.minutes', { minutes: task.estimated_minutes }) : null,
   ]
@@ -490,6 +494,8 @@ interface PlanDayRow {
   id: number;
   title: string;
   hint: string;
+  /** Иконка зоны; для свободной зоны — нейтральный список. */
+  icon: string;
   done: boolean;
   generated: boolean;
   scheduleId: number;
@@ -522,6 +528,7 @@ const planTasks = computed<PlanDayRow[]>(() =>
       id: task.id,
       title: task.title,
       hint: taskHint(task),
+      icon: zoneIcon(task.room) ?? 'pi-list',
       done: isMarked(task),
       generated: isGeneratedTask(task.source),
       scheduleId: task.schedule_id,
@@ -567,6 +574,7 @@ const calendarRows = computed<PlanDayRow[]>(() =>
     id: task.id,
     title: task.title,
     hint: calendarTaskHint(task),
+    icon: zoneIcon(task.room) ?? 'pi-list',
     // Накладка действует и здесь: отмечать можно любой открытый день, и строка
     // должна перечёркиваться сразу, не дожидаясь ответа сервера.
     done: isMarked(task),
@@ -1204,6 +1212,7 @@ useStructuredData(() => ({
               interactive
               :title="task.title"
               :hint="task.hint"
+              :icon="task.icon"
               :done="task.done"
               :disabled="planBusy.includes(task.id)"
               @toggle="togglePlanTask(task)"
