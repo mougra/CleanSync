@@ -42,9 +42,20 @@ onMounted(() => {
       :aria-label="t('home.ringLabel', { done, total })"
     >
       <defs>
+        <!--
+          Две шкалы: обычная (бледный старт → брендовый зелёный) и финальная
+          (зелёный → золото). Градиент задан в координатах viewBox, поэтому
+          маленькая дуга показывает только светлый старт, а большая — глубокий
+          зелёный; золото включается ровно на 100 %, когда план закрыт.
+        -->
         <linearGradient id="planRingGradient" x1="18" y1="12" x2="110" y2="116" gradientUnits="userSpaceOnUse">
-          <stop offset="0" stop-color="#3f8a73" />
-          <stop offset="1" stop-color="#2a584d" />
+          <stop class="ring__stop-start" offset="0" />
+          <stop class="ring__stop-end" offset="1" />
+        </linearGradient>
+        <linearGradient id="planRingGold" x1="18" y1="12" x2="110" y2="116" gradientUnits="userSpaceOnUse">
+          <stop class="ring__stop-brand" offset="0" />
+          <stop class="ring__stop-gold" offset="0.6" />
+          <stop class="ring__stop-gold-soft" offset="1" />
         </linearGradient>
       </defs>
 
@@ -54,6 +65,7 @@ onMounted(() => {
         cx="64"
         cy="64"
         :r="RADIUS"
+        :stroke="isComplete ? 'url(#planRingGold)' : 'url(#planRingGradient)'"
         :stroke-dasharray="CIRCUMFERENCE"
         :stroke-dashoffset="mounted ? offset : CIRCUMFERENCE"
       />
@@ -102,10 +114,31 @@ onMounted(() => {
 
 .ring__value {
   fill: none;
-  stroke: url(#planRingGradient);
+  /*
+   * Цвет задаёт атрибут `stroke` в разметке (обычная или золотая шкала):
+   * CSS-свойство перебило бы атрибут, поэтому здесь только толщина и анимация.
+   */
   stroke-width: 10;
   stroke-linecap: round;
   transition: stroke-dashoffset var(--dur-slow) var(--ease-out);
+}
+
+/* Цвета градиентов берём из токенов: hex в компоненте нарушал бы тему. */
+.ring__stop-start {
+  stop-color: var(--c-ring-start);
+}
+
+.ring__stop-end,
+.ring__stop-brand {
+  stop-color: var(--c-brand);
+}
+
+.ring__stop-gold {
+  stop-color: var(--c-gold);
+}
+
+.ring__stop-gold-soft {
+  stop-color: var(--c-gold-soft);
 }
 
 .ring__center {
@@ -127,9 +160,13 @@ onMounted(() => {
   color: var(--c-text-muted);
 }
 
-/* План выполнен: кольцо становится коралловым, как «готово» в макетах */
-.ring--done .ring__value {
-  stroke: var(--c-accent);
+/* План выполнен: кольцо уходит в зелёно-золотую шкалу, свечение — тёплое. */
+.ring--done .ring__glow {
+  background: radial-gradient(circle at 50% 40%, var(--c-gold-soft) 0%, transparent 70%);
+}
+
+.ring--done .ring__done {
+  color: var(--c-gold);
 }
 
 @media (prefers-reduced-motion: reduce) {

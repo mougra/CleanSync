@@ -20,16 +20,6 @@ export const HABIT_TEMPLATE_EN: Record<string, { title: string; description: str
     description:
       'Pair up everyday shoes, hang up outerwear and open up the walkway.',
   },
-  'evening-room-order': {
-    title: 'Evening tidy-up in the living room',
-    description:
-      'Put things back in their places and get one shared room ready for tomorrow.',
-  },
-  'wipe-kitchen-surfaces': {
-    title: 'Wipe the kitchen worktops',
-    description:
-      'Countertops, hob and cabinet fronts — a quick pass while you cook or right after dinner.',
-  },
   'sink-shine': {
     title: 'Rinse and dry the sink',
     description: 'Rinse it and wipe it dry: a dry sink looks clean all day.',
@@ -39,14 +29,6 @@ export const HABIT_TEMPLATE_EN: Record<string, { title: string; description: str
     description:
       'One room at a time: ten minutes with the vacuum and the floor looks cared for again.',
   },
-  'declutter-one-shelf': {
-    title: 'Declutter one shelf',
-    description: 'One shelf a day — that is how cupboards get sorted without a marathon.',
-  },
-  'mirror-wipe': {
-    title: 'Wipe the mirror and the tap',
-    description: 'Microfibre and water: a streak-free mirror and tap in two minutes.',
-  },
   'take-out-trash': {
     title: 'Take out the rubbish',
     description: 'Wipe the bin inside while you are at it — then no smell builds up.',
@@ -55,10 +37,6 @@ export const HABIT_TEMPLATE_EN: Record<string, { title: string; description: str
     title: 'Make the bed',
     description: 'One move in the morning and the room already looks put together.',
   },
-  'switches-handles': {
-    title: 'Wipe switches and handles',
-    description: 'The most touched spots in the house: a disinfecting wipe every couple of days.',
-  },
   'laundry-one-load': {
     title: 'One load of laundry',
     description:
@@ -66,11 +44,6 @@ export const HABIT_TEMPLATE_EN: Record<string, { title: string; description: str
   },
 
   // ── Семья ──────────────────────────────────────────────────────────────
-  'family-15-minutes': {
-    title: 'Fifteen minutes of cleaning together',
-    description:
-      'Set a timer for fifteen minutes and send everyone to their own zone — faster and more fun together.',
-  },
   'tidy-toys': {
     title: 'Put the toys back in place',
     description:
@@ -93,14 +66,6 @@ export const HABIT_TEMPLATE_EN: Record<string, { title: string; description: str
   'ten-minutes-quiet': {
     title: 'Ten minutes of quiet',
     description: 'No phone, no chores: tea, a window, breathing. That is part of order too.',
-  },
-  'air-bedroom': {
-    title: 'Air the bedroom',
-    description: 'Five minutes of fresh air before bed improves sleep.',
-  },
-  'reset-after-work': {
-    title: 'Unpack after work',
-    description: 'Five minutes for the bag, the coat and the shoes — and the evening is yours.',
   },
   'evening-shutdown': {
     title: 'Evening shutdown',
@@ -160,6 +125,72 @@ export const HABIT_TEMPLATE_EN: Record<string, { title: string; description: str
   'check-tomorrow': {
     title: 'Check tomorrow’s calendar',
     description: 'Two minutes in the evening and the morning starts without surprises.',
+  },
+
+  // ── Здоровье ───────────────────────────────────────────────────────────
+  'morning-workout': {
+    title: 'Ten-minute morning workout',
+    description: 'Simple moves with no equipment: wake up and switch the body on. Follow a video or go from memory.',
+  },
+  stretching: {
+    title: 'Five minutes of stretching',
+    description: 'Bends, shoulders, back — release the tension of a desk day.',
+  },
+  'walk-20': {
+    title: 'A twenty-minute walk',
+    description: 'Fresh air and steps without a goal: the head clears better than behind a screen.',
+  },
+  'steps-8000': {
+    title: '8,000 steps',
+    description: 'Not a workout but movement through the day: stairs, a shop, a walk.',
+  },
+  'water-6-8': {
+    title: '6–8 glasses of water',
+    description: 'A glass of water next to your desk — and the norm happens unnoticed.',
+  },
+  'sleep-before-23': {
+    title: 'Lights out before 11 pm',
+    description: 'Go to bed at the same time: mornings stop being a fight with the alarm.',
+  },
+  'healthy-breakfast': {
+    title: 'A healthy breakfast',
+    description: 'Do not skip the morning: eggs, porridge or cottage cheese instead of biscuits on the go.',
+  },
+  'hobby-15': {
+    title: '15 minutes for a hobby',
+    description: 'Drawing, music, models — time that belongs only to you.',
+  },
+
+  // ── Развитие ───────────────────────────────────────────────────────────
+  'read-10': {
+    title: 'Ten minutes of reading',
+    description: 'A page or two a day instead of the feed: the book that has been waiting.',
+  },
+  'language-10': {
+    title: 'Ten minutes of a foreign language',
+    description: 'One exercise in an app or ten new words — a small step every day.',
+  },
+  'learn-15': {
+    title: '15 minutes of learning',
+    description: 'A short course lesson or a professional article: no marathon, no burnout.',
+  },
+  'journal-gratitude': {
+    title: 'Journal and gratitude',
+    description: 'Three lines about what went well: a simple way to notice the day.',
+  },
+
+  // ── Забота о себе ──────────────────────────────────────────────────────
+  'breathe-5': {
+    title: 'Five minutes of breathing or meditation',
+    description: 'A slow breath in and out without the phone: a pause that makes thinking easier.',
+  },
+  'no-phone-before-sleep': {
+    title: 'An hour without the phone before bed',
+    description: 'Screen on the charger, a book or a shower: sleep comes faster.',
+  },
+  skincare: {
+    title: 'Skincare',
+    description: 'Wash and moisturise — two minutes that bring back the feeling of being okay.',
   },
 };
 

@@ -15,30 +15,56 @@ const emit = defineEmits<{ toggle: [] }>();
 </script>
 
 <template>
-  <button
-    type="button"
-    class="habit"
-    :class="{ 'habit--done': done }"
-    :aria-pressed="done"
-    :disabled="disabled"
-    @click="emit('toggle')"
-  >
-    <span class="habit__check" aria-hidden="true">
-      <i v-if="done" class="pi pi-check" />
-    </span>
+  <!--
+    Обёртка нужна ради слота действия: у привычки рядом с отметкой живёт «⋯»
+    с правкой и удалением. Слот необязательный — без него разметка прежняя.
+  -->
+  <div class="habit-row">
+    <button
+      type="button"
+      class="habit"
+      :class="{ 'habit--done': done }"
+      :aria-pressed="done"
+      :disabled="disabled"
+      @click="emit('toggle')"
+    >
+      <span class="habit__check" aria-hidden="true">
+        <i v-if="done" class="pi pi-check" />
+      </span>
 
-    <span class="habit__icon" aria-hidden="true">
-      <i :class="['pi', icon]" />
-    </span>
+      <span class="habit__icon" aria-hidden="true">
+        <i :class="['pi', icon]" />
+      </span>
 
-    <span class="habit__body">
-      <span class="habit__title">{{ title }}</span>
-      <small v-if="meta" class="habit__meta">{{ meta }}</small>
-    </span>
-  </button>
+      <span class="habit__body">
+        <span class="habit__title">{{ title }}</span>
+        <small v-if="meta" class="habit__meta">{{ meta }}</small>
+      </span>
+    </button>
+
+    <div v-if="$slots.actions" class="habit-row__actions">
+      <slot name="actions" />
+    </div>
+  </div>
 </template>
 
 <style scoped>
+.habit-row {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-2);
+}
+
+.habit-row > .habit {
+  flex: 1;
+  min-width: 0;
+}
+
+.habit-row__actions {
+  display: flex;
+  align-items: center;
+}
+
 .habit {
   display: flex;
   align-items: center;

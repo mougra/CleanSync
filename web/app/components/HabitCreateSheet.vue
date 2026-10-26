@@ -3,10 +3,10 @@
  * Лист «Создать привычку» из макетов: название, зона, период с шагом,
  * срок выполнения и переключатель напоминания.
  */
-import type { HabitIntervalUnit } from '~/types/habit';
+import type { Habit, HabitIntervalUnit } from '~/types/habit';
 
-const props = defineProps<{ open: boolean }>();
-const emit = defineEmits<{ close: []; created: [] }>();
+const props = defineProps<{ open: boolean; habit?: Habit | null }>();
+const emit = defineEmits<{ close: []; saved: [] }>();
 
 const { t, locale } = useI18n();
 const api = useApi();
@@ -23,6 +23,9 @@ const pending = ref(false);
 const frequencyOpen = ref(false);
 
 const units: HabitIntervalUnit[] = ['once', 'month', 'week', 'day'];
+
+/** Режим правки: лист открыт для существующей привычки. */
+const isEdit = computed(() => Boolean(props.habit));
 
 const dueLabel = computed(() => {
   const formatted = dueDate.value
@@ -56,39 +59,61 @@ const submit = async () => {
 
   pending.value = true;
   try {
-    await api.request('/api/habits', {
-      method: 'POST',
-      body: {
-        title: title.value.trim(),
-        zone: zone.value.trim() || null,
-        intervalCount: intervalCount.value,
-        intervalUnit: intervalUnit.value,
-        dueDate: dueDate.value || null,
-        reminderEnabled: reminderEnabled.value,
-        reminderTime: reminderEnabled.value ? reminderTime.value : null,
-      },
-    });
+    const body = {
+      title: title.value.trim(),
+      zone: zone.value.trim() || null,
+      intervalCount: intervalCount.value,
+      intervalUnit: intervalUnit.value,
+      dueDate: dueDate.value || null,
+      reminderEnabled: reminderEnabled.value,
+      reminderTime: reminderEnabled.value ? reminderTime.value : null,
+    };
+
+    if (props.habit) {
+      await api.request(`/api/habits/${props.habit.id}`, { method: 'PATCH', body });
+    } else {
+      await api.request('/api/habits', { method: 'POST', body });
+    }
+
     reset();
-    emit('created');
+    emit('saved');
   } finally {
     pending.value = false;
   }
 };
 
 watch(
-  () => props.open,
-  (open) => {
+  [() => props.open, () => props.habit],
+  ([open]) => {
     if (!open) {
       reset();
+      return;
     }
+
+    // Правка: заполняем лист текущими значениями привычки. Периодичность
+    // раскрыта сразу — иначе «Каждый день» выглядел единственным вариантом.
+    const habit = props.habit;
+
+    if (habit) {
+      title.value = habit.title;
+      zone.value = habit.zone ?? '';
+      intervalCount.value = habit.intervalCount;
+      intervalUnit.value = habit.intervalUnit;
+      dueDate.value = habit.dueDate ?? '';
+      reminderEnabled.value = habit.reminderEnabled;
+      reminderTime.value = habit.reminderTime ?? '19:00';
+    }
+
+    frequencyOpen.value = true;
   },
+  { immediate: true },
 );
 </script>
 
 <template>
   <AppSheet :open="open" @close="emit('close')">
     <template #header>
-      <h2 class="title">{{ t('habits.createTitle') }}</h2>
+      <h2 class="title">{{ isEdit ? t('habits.editTitle') : t('habits.createTitle') }}</h2>
     </template>
 
     <form class="form" @submit.prevent="submit">
@@ -181,7 +206,7 @@ watch(
 
     <template #footer>
       <AppButton variant="filled" block type="submit" :disabled="!title.trim() || pending" @click="submit">
-        {{ t('habits.save') }}
+        {{ isEdit ? t('habits.saveChanges') : t('habits.save') }}
         <i class="pi pi-arrow-right" aria-hidden="true" />
       </AppButton>
     </template>

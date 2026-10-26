@@ -29,8 +29,14 @@ const props = withDefaults(
     expandable?: boolean;
     /** Текст-действие справа: явная кнопка вместо угадывания «строка кликабельна». */
     action?: string;
+    /**
+     * Стековая раскладка: статус — под названием слева, действие — отдельной
+     * кнопкой внизу. Нужна строкам, где длинный статус и действие не помещаются
+     * в одну строку на телефоне (например, «Настройка по дому»).
+     */
+    stacked?: boolean;
   }>(),
-  { subtitle: '', value: '', to: '', tone: 'default', expandable: false, action: '' },
+  { subtitle: '', value: '', to: '', tone: 'default', expandable: false, action: '', stacked: false },
 );
 
 const emit = defineEmits<{ action: [] }>();
@@ -86,13 +92,21 @@ const onRowClick = () => {
   <div
     v-else
     class="row"
-    :class="[`row--${tone}`, { 'row--button': isToggle || hasAction }]"
+    :class="[
+      `row--${tone}`,
+      { 'row--button': isToggle || hasAction, 'row--stacked': stacked },
+    ]"
     @click="onRowClick"
   >
     <span class="row__icon" aria-hidden="true"><i :class="['pi', icon]" /></span>
 
     <span class="row__text">
       <span class="row__title">{{ title }}</span>
+      <!--
+        В стековой раскладке статус живёт под названием, а не справа: на телефоне
+        длинный статус и действие в одной строке растягивали блок по вертикали.
+      -->
+      <span v-if="stacked && value" class="row__status">{{ value }}</span>
       <span v-if="subtitle" class="row__subtitle">{{ subtitle }}</span>
     </span>
 
@@ -100,7 +114,7 @@ const onRowClick = () => {
       <slot name="control" />
     </span>
 
-    <template v-else>
+    <template v-else-if="!stacked">
       <span v-if="value" class="row__value">{{ value }}</span>
 
       <!-- Явное действие: видно, что строка что-то делает, и понятно что именно -->
@@ -109,6 +123,17 @@ const onRowClick = () => {
         <i class="pi pi-chevron-right" aria-hidden="true" />
       </button>
     </template>
+
+    <!-- В стековом режиме действие — отдельная кнопка внизу на всю ширину -->
+    <button
+      v-if="stacked && action"
+      type="button"
+      class="row__action row__action--stacked"
+      @click.stop="emit('action')"
+    >
+      {{ action }}
+      <i class="pi pi-chevron-right" aria-hidden="true" />
+    </button>
 
     <i
       v-if="isToggle"
@@ -210,6 +235,35 @@ const onRowClick = () => {
 
 .row__action:hover {
   text-decoration: underline;
+}
+
+/*
+ * Стековая строка: «Настройка по дому» с длинным статусом и действием.
+ *
+ * Иконка и текст остаются в первой строке, действие переносится на свою —
+ * это дешевле, чем прятать пояснение, и одинаково работает на телефоне и
+ * на десктопе (заказчик просил именно «действие вниз»).
+ */
+.row--stacked {
+  flex-wrap: wrap;
+  align-items: flex-start;
+  padding-block: var(--space-3);
+}
+
+.row__status {
+  color: var(--c-text);
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+}
+
+.row__action--stacked {
+  flex: 0 0 100%;
+  justify-content: flex-start;
+  min-height: var(--tap-min);
+  padding-top: var(--space-2);
+  text-align: left;
+  white-space: normal;
 }
 
 .row__control {

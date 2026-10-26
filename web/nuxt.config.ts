@@ -221,15 +221,19 @@ export default defineNuxtConfig({
   //
   // storage: 'cookie' — не косметика, а условие совпадения разметки сервера и
   // клиента. По умолчанию модуль пишет выбор в localStorage: на сервере его нет,
-  // и SSR рисовал `preference: 'system'` («Как в системе»), а клиент после
-  // чтения хранилища — сохранённую тему. Vue ругался на hydration mismatch
+  // и SSR рисовал `preference: 'dark'` (дефолт), а клиент после чтения
+  // хранилища — сохранённую тему. Vue ругался на hydration mismatch
   // иконки, подписи и title у переключателя темы. С cookie серверный плагин
   // модуля (dist/runtime/plugin.server) читает тот же выбор из cookie, что и
   // инлайновый скрипт в браузере, поэтому первый рендер совпадает.
+  //
+  // Намеренно только две темы: выбор «как в системе» убран (заказчик), новый
+  // посетитель без cookie получает тёмную. Старое значение `system` в cookie
+  // нормализуется в app.vue при монтировании.
   colorMode: {
     classSuffix: '',
-    preference: 'system',
-    fallback: 'light',
+    preference: 'dark',
+    fallback: 'dark',
     storage: 'cookie',
     storageKey: 'tidyplan-color-mode',
   },

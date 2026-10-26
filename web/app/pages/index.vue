@@ -78,10 +78,15 @@ const endVacationNow = async () => {
 };
 
 // Привычки: тот же composable, что и на вкладке «Привычки», ключи общие —
-// отметка на главной сразу видна и там.
-const { habits, dueToday, doneToday, refreshMine: refreshHabits } = await useHabits();
+// отметка на главной сразу видна и там. Каталог нужен для листа идей, который
+// теперь открывается прямо из карточки плана.
+const { habits, dueToday, doneToday, catalog: habitCatalog, categories: habitCategories, refreshMine: refreshHabits } =
+  await useHabits();
 const { intervalLabel, categoryLabel } = useHabitLabels();
 const habitBusy = ref<number | null>(null);
+/** Листы привычек на главной: идеи и своя привычка. */
+const habitPickerOpen = ref(false);
+const habitCreateOpen = ref(false);
 
 const { data: templates, error: templatesError } = await useAsyncData(
   'templates',
@@ -1041,6 +1046,17 @@ const toggleHabit = async (habit: { id: number }) => {
   }
 };
 
+/**
+ * Привычку добавили из листа идей или создали свою: закрываем оба листа и
+ * перечитываем общий ключ, чтобы список тут же появился под задачами.
+ */
+const afterHabitChange = async () => {
+  habitPickerOpen.value = false;
+  habitCreateOpen.value = false;
+  await refreshHabits();
+  await refreshNuxtData('achievements-progress');
+};
+
 /** Совет дня: в английской локали берём английскую статью, иначе — русскую. */
 const { data: tip } = await useAsyncData(
   () => `tip-of-the-day-${locale.value}`,
@@ -1300,6 +1316,78 @@ useStructuredData(() => ({
             {{ moveBusy ? t('state.loading') : t('plan.moveConfirm') }}
           </AppButton>
         </AppSheet>
+
+        <!--
+          Привычки — ниже задач, в той же карточке дня: это второй слой
+          «порядка», а не отдельный экран. Показываем только для сегодняшнего
+          дня — у прошлого и будущего привычек не бывает.
+        -->
+        <section v-if="isToday" class="plan__habits">
+          <header class="plan__habits-head">
+            <div class="plan__habits-title">
+              <h2 class="plan__habits-name">{{ t('home.habitsToday') }}</h2>
+              <p class="plan__habits-meta">
+                {{ t('home.habitsForSelf') }} · {{ doneToday.length }}/{{ habits.length }}
+              </p>
+            </div>
+
+            <NuxtLink :to="localePath('/habits')" class="chip-link">
+              {{ t('home.allHabits') }}
+              <i class="pi pi-chevron-right" aria-hidden="true" />
+            </NuxtLink>
+          </header>
+
+          <p v-if="habits.length === 0" class="plan__habits-empty">
+            {{ t('home.noHabits') }}
+          </p>
+
+          <p v-else-if="dueToday.length === 0 && doneToday.length === 0" class="plan__habits-empty">
+            {{ t('home.habitsNoneToday') }}
+          </p>
+
+          <ul v-else class="plan__habits-list">
+            <li v-for="habit in [...dueToday, ...doneToday].slice(0, 4)" :key="habit.id">
+              <HabitRow
+                :title="habit.title"
+                :icon="habit.icon"
+                :done="habit.doneToday"
+                :meta="habitMeta(habit)"
+                :disabled="habitBusy !== null"
+                @toggle="toggleHabit(habit)"
+              />
+            </li>
+          </ul>
+
+          <button type="button" class="plan__add-row" @click="habitPickerOpen = true">
+            <i class="pi pi-plus" aria-hidden="true" />
+            {{ t('plan.addHabit') }}
+          </button>
+
+          <button
+            v-if="habits.length === 0"
+            type="button"
+            class="plan__habit-create"
+            @click="habitCreateOpen = true"
+          >
+            {{ t('habits.createOwn') }}
+            <i class="pi pi-chevron-right" aria-hidden="true" />
+          </button>
+        </section>
+
+        <!-- Листы привычек: идеи из каталога и своя привычка -->
+        <HabitPickerSheet
+          :open="habitPickerOpen"
+          :templates="habitCatalog"
+          :categories="habitCategories"
+          @close="habitPickerOpen = false"
+          @added="afterHabitChange"
+        />
+
+        <HabitCreateSheet
+          :open="habitCreateOpen"
+          @close="habitCreateOpen = false"
+          @saved="afterHabitChange"
+        />
       </template>
 
       <!--
@@ -1367,46 +1455,11 @@ useStructuredData(() => ({
     </section>
 
     <!--
-      Привычки и достижения стоят рядом: на десктопе это две колонки, на телефоне
-      привычный столбик. Гостю привычек не показываем, и тогда достижения
-      занимают всю ширину (см. `.home__pair:has(> :only-child)`).
+      Достижения остались одни в паре: привычки переехали в карточку плана под
+      задачи. Обёртка сохранена — на десктопе она задаёт сетку, а правило
+      `.home__pair:has(> :only-child)` растягивает единственного ребёнка.
     -->
     <div class="home__pair">
-
-    <!-- Привычки на сегодня: отметить можно не уходя с главной -->
-    <section v-if="auth.isAuthenticated" class="card card--mint habits">
-      <header class="habits__head">
-        <span class="icon-box" aria-hidden="true"><i class="pi pi-refresh" /></span>
-        <div class="habits__summary">
-          <h2 class="card__title">{{ t('home.habitsToday') }}</h2>
-          <p class="card__meta">{{ doneToday.length }}/{{ habits.length }}</p>
-        </div>
-        <NuxtLink :to="localePath('/habits')" class="chip-link">
-          {{ t('home.allHabits') }}
-          <i class="pi pi-chevron-right" aria-hidden="true" />
-        </NuxtLink>
-      </header>
-
-      <p v-if="habits.length === 0" class="habits__empty">
-        <NuxtLink :to="localePath('/habits')" class="habits__link">
-          {{ t('home.noHabits') }}
-          <i class="pi pi-chevron-right" aria-hidden="true" />
-        </NuxtLink>
-      </p>
-
-      <ul v-else class="habits__list">
-        <li v-for="habit in [...dueToday, ...doneToday].slice(0, 4)" :key="habit.id">
-          <HabitRow
-            :title="habit.title"
-            :icon="habit.icon"
-            :done="habit.doneToday"
-            :meta="habitMeta(habit)"
-            :disabled="habitBusy !== null"
-            @toggle="toggleHabit(habit)"
-          />
-        </li>
-      </ul>
-    </section>
 
     <!-- Достижения -->
     <section class="card card--mint achievements">
@@ -1784,6 +1837,69 @@ useStructuredData(() => ({
   color: var(--c-brand);
 }
 
+/* ── Привычки внутри карточки плана ─────────────────────────────────────
+ * Отделены линией, а не второй карточкой: это второй слой того же дня.
+ */
+.plan__habits {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--c-border);
+}
+
+.plan__habits-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.plan__habits-name {
+  margin: 0;
+  font-size: var(--fs-title);
+}
+
+.plan__habits-meta {
+  margin: 2px 0 0;
+  color: var(--c-text-muted);
+  font-size: var(--fs-caption);
+}
+
+.plan__habits-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plan__habits-empty {
+  margin: 0;
+  color: var(--c-text-muted);
+  font-size: var(--fs-caption);
+}
+
+/* Своя привычка — тихая ссылка под листом идей, не вторая кнопка. */
+.plan__habit-create {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  align-self: center;
+  min-height: var(--tap-min);
+  padding: 0 var(--space-3);
+  border: none;
+  background: transparent;
+  color: var(--c-brand);
+  font: inherit;
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  cursor: pointer;
+}
+
 /* Заголовок и содержимое листа переноса задачи */
 .plan__sheet-title {
   margin: 0;
@@ -2073,46 +2189,6 @@ useStructuredData(() => ({
   color: var(--c-brand);
 }
 
-/* ── Привычки ───────────────────────────────────────────────────────── */
-.habits {
-  gap: var(--space-4);
-}
-
-.habits__head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-.habits__summary {
-  flex: 1;
-  min-width: 0;
-}
-
-.habits__list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.habits__empty {
-  margin: 0;
-}
-
-.habits__link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: var(--tap-min);
-  color: var(--c-brand);
-  font-size: var(--fs-caption);
-  font-weight: 600;
-  text-decoration: none;
-}
-
 /* ── Достижения ─────────────────────────────────────────────────────── */
 .achievements {
   gap: var(--space-4);
@@ -2239,21 +2315,8 @@ useStructuredData(() => ({
   }
 }
 
-/* ── Привычки и достижения рядом ────────────────────────────────────────
- * Две карточки одинаковой природы: короткие списки с прогрессом. В две колонки
- * они читаются лучше и не заставляют листать главную.
+/*
+ * Достижения стоят отдельной карточкой во всю ширину: привычки переехали в
+ * карточку плана, и второй колонки у пары больше нет.
  */
-@media (min-width: 1024px) {
-  .home__pair {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--space-5);
-    align-items: start;
-  }
-
-  /* Гость: привычек нет, значит достижения занимают всю ширину */
-  .home__pair:has(> :only-child) {
-    grid-template-columns: 1fr;
-  }
-}
 </style>

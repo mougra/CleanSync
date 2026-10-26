@@ -214,6 +214,20 @@ const selectDay = (iso: string) => {
 
 <template>
   <header class="week-strip">
+    <!--
+      Золотой градиент финального дня — один на компонент: `<defs>` внутри
+      каждой ячейки дал бы дубли id в документе, и браузер взял бы первый.
+    -->
+    <svg class="week-strip__defs" aria-hidden="true" focusable="false">
+      <defs>
+        <linearGradient id="weekRingGold" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
+          <stop class="week-strip__stop-brand" offset="0" />
+          <stop class="week-strip__stop-gold" offset="0.6" />
+          <stop class="week-strip__stop-gold-soft" offset="1" />
+        </linearGradient>
+      </defs>
+    </svg>
+
     <div class="week-strip__row">
       <button
         type="button"
@@ -412,6 +426,29 @@ const selectDay = (iso: string) => {
   pointer-events: none;
 }
 
+/*
+ * Скрытый `<svg>` с одним градиентом на компонент: у него нет размеров и
+ * отрисовки, он существует только ради `<defs>`.
+ */
+.week-strip__defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+.week-strip__stop-brand {
+  stop-color: var(--c-brand);
+}
+
+.week-strip__stop-gold {
+  stop-color: var(--c-gold);
+}
+
+.week-strip__stop-gold-soft {
+  stop-color: var(--c-gold-soft);
+}
+
 .week-strip__ring-track,
 .week-strip__ring-fill {
   fill: none;
@@ -434,15 +471,16 @@ const selectDay = (iso: string) => {
 }
 
 .week-strip__ring--low .week-strip__ring-fill {
-  stroke: var(--c-text-muted);
+  stroke: var(--c-ring-start);
 }
 
 .week-strip__ring--mid .week-strip__ring-fill {
   stroke: var(--c-brand);
 }
 
+/* План дня закрыт: дуга уходит в зелёно-золотую шкалу. */
 .week-strip__ring--full .week-strip__ring-fill {
-  stroke: var(--c-accent);
+  stroke: url(#weekRingGold);
 }
 
 .week-strip__day--weekend .week-strip__number {
@@ -455,9 +493,15 @@ const selectDay = (iso: string) => {
   color: var(--c-onbrand);
 }
 
-/* Выбранный день: обводка той же формы, что и кружок. */
+/*
+ * Выбранный день: обводка той же формы, что и кружок.
+ *
+ * Это inset-тень, а не border: border уменьшал padding box числа, вокруг
+ * которого позиционируется абсолютное кольцо прогресса, и на активном дне
+ * кольцо сдвигалось и «дёргалось». Тень рисуется внутри и размеров не меняет.
+ */
 .week-strip__day--selected .week-strip__number {
-  border: 1.5px solid var(--c-accent);
+  box-shadow: inset 0 0 0 1.5px var(--c-accent);
   background: var(--c-surface);
 }
 

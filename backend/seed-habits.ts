@@ -10,7 +10,12 @@ import { upsertTranslation } from './services/translations';
  * («привычки 2»), остальное — общепринятые практики домашних дел: короткие
  * ежедневные действия, которые поддерживают порядок без генеральной уборки.
  *
- * Категории: home, family, selfcare, pets, plants, planning.
+ * Категории: home, family, selfcare, health, growth, pets, plants, planning.
+ *
+ * `health` и `growth` добавлены вместе с привычками «для себя»: зарядка, язык,
+ * чтение. Часть узких уборочных шаблонов при этом убрана — их место занимают
+ * действия, которые поддерживают человека, а не только дом.
+ *
  * Единицы повторения: once | day | week | month.
  */
 
@@ -18,7 +23,15 @@ export interface HabitTemplateSeed {
   slug: string;
   title: string;
   description: string;
-  category: 'home' | 'family' | 'selfcare' | 'pets' | 'plants' | 'planning';
+  category:
+    | 'home'
+    | 'family'
+    | 'selfcare'
+    | 'health'
+    | 'growth'
+    | 'pets'
+    | 'plants'
+    | 'planning';
   icon: string;
   intervalCount: number;
   intervalUnit: 'once' | 'day' | 'week' | 'month';
@@ -48,26 +61,6 @@ export const HABIT_TEMPLATES: HabitTemplateSeed[] = [
     zone: 'Прихожая',
   },
   {
-    slug: 'evening-room-order',
-    title: 'Вечерний порядок в комнате',
-    description: 'Разложите вещи по местам и приведите одну общую комнату в порядок к завтрашнему дню.',
-    category: 'home',
-    icon: 'pi-home',
-    intervalCount: 1,
-    intervalUnit: 'day',
-    zone: 'Гостиная',
-  },
-  {
-    slug: 'wipe-kitchen-surfaces',
-    title: 'Протереть рабочие поверхности',
-    description: 'Столешницы, плита и фасады — быстрым движением, пока готовите или после ужина.',
-    category: 'home',
-    icon: 'pi-th-large',
-    intervalCount: 1,
-    intervalUnit: 'day',
-    zone: 'Кухня',
-  },
-  {
     slug: 'sink-shine',
     title: 'Вымыть раковину',
     description: 'Ополоснуть и протереть насухо — сухая раковина выглядит чистой весь день.',
@@ -86,26 +79,6 @@ export const HABIT_TEMPLATES: HabitTemplateSeed[] = [
     intervalCount: 3,
     intervalUnit: 'day',
     zone: 'По всему дому',
-  },
-  {
-    slug: 'declutter-one-shelf',
-    title: 'Разобрать одну полку',
-    description: 'Одна полка в день — так шкафы разбираются без многочасового марафона.',
-    category: 'home',
-    icon: 'pi-box',
-    intervalCount: 1,
-    intervalUnit: 'day',
-    zone: 'По всему дому',
-  },
-  {
-    slug: 'mirror-wipe',
-    title: 'Протереть зеркало и смеситель',
-    description: 'Микрофибра и вода: зеркало и кран без разводов за две минуты.',
-    category: 'home',
-    icon: 'pi-eye',
-    intervalCount: 3,
-    intervalUnit: 'day',
-    zone: 'Ванная',
   },
   {
     slug: 'take-out-trash',
@@ -128,16 +101,6 @@ export const HABIT_TEMPLATES: HabitTemplateSeed[] = [
     zone: 'Спальня',
   },
   {
-    slug: 'switches-handles',
-    title: 'Протереть выключатели и ручки',
-    description: 'Самые частые точки контакта: салфетка с дезинфекцией раз в пару дней.',
-    category: 'home',
-    icon: 'pi-bolt',
-    intervalCount: 2,
-    intervalUnit: 'day',
-    zone: 'По всему дому',
-  },
-  {
     slug: 'laundry-one-load',
     title: 'Одна загрузка стирки',
     description: 'Стирайте небольшими партиями: так вещи не копятся и не мнутся в корзине.',
@@ -149,16 +112,6 @@ export const HABIT_TEMPLATES: HabitTemplateSeed[] = [
   },
 
   // ── Семья ───────────────────────────────────────────────────────────
-  {
-    slug: 'family-15-minutes',
-    title: 'Пятнадцать минут общей уборки',
-    description: 'Таймер на пятнадцать минут и вся семья по своим зонам — вместе быстрее и веселее.',
-    category: 'family',
-    icon: 'pi-users',
-    intervalCount: 1,
-    intervalUnit: 'day',
-    zone: 'По всему дому',
-  },
   {
     slug: 'tidy-toys',
     title: 'Собрать игрушки по местам',
@@ -209,26 +162,6 @@ export const HABIT_TEMPLATES: HabitTemplateSeed[] = [
     icon: 'pi-heart',
     intervalCount: 1,
     intervalUnit: 'day',
-  },
-  {
-    slug: 'air-bedroom',
-    title: 'Проветрить спальню',
-    description: 'Пять минут свежего воздуха перед сном улучшают сон.',
-    category: 'selfcare',
-    icon: 'pi-cloud',
-    intervalCount: 1,
-    intervalUnit: 'day',
-    zone: 'Спальня',
-  },
-  {
-    slug: 'reset-after-work',
-    title: 'Разложить вещи после работы',
-    description: 'Пять минут на сумку, верхнюю одежду и обувь — вечер свободен.',
-    category: 'selfcare',
-    icon: 'pi-briefcase',
-    intervalCount: 1,
-    intervalUnit: 'day',
-    zone: 'Прихожая',
   },
   {
     slug: 'evening-shutdown',
@@ -361,6 +294,147 @@ export const HABIT_TEMPLATES: HabitTemplateSeed[] = [
     intervalCount: 1,
     intervalUnit: 'day',
   },
+
+  // ── Здоровье ────────────────────────────────────────────────────────
+  {
+    slug: 'morning-workout',
+    title: 'Утренняя зарядка 10 минут',
+    description: 'Простые движения без инвентаря: проснуться и включить тело. Можно под видео или по памяти.',
+    category: 'health',
+    icon: 'pi-bolt',
+    intervalCount: 1,
+    intervalUnit: 'day',
+  },
+  {
+    slug: 'stretching',
+    title: 'Растяжка 5 минут',
+    description: 'Наклоны, плечи, спина — снять напряжение после сидячего дня.',
+    category: 'health',
+    icon: 'pi-heart',
+    intervalCount: 1,
+    intervalUnit: 'day',
+  },
+  {
+    slug: 'walk-20',
+    title: 'Прогулка 20 минут',
+    description: 'Свежий воздух и шаги без цели: голова проветривается лучше, чем за экраном.',
+    category: 'health',
+    icon: 'pi-signpost',
+    intervalCount: 1,
+    intervalUnit: 'day',
+  },
+  {
+    slug: 'steps-8000',
+    title: '8 000 шагов',
+    description: 'Не спорт, а движение в течение дня: лестница, магазин, прогулка.',
+    category: 'health',
+    icon: 'pi-star',
+    intervalCount: 1,
+    intervalUnit: 'day',
+  },
+  {
+    slug: 'water-6-8',
+    title: '6–8 стаканов воды',
+    description: 'Стакан воды рядом с рабочим местом — и норма выполняется незаметно.',
+    category: 'health',
+    icon: 'pi-cloud',
+    intervalCount: 1,
+    intervalUnit: 'day',
+  },
+  {
+    slug: 'sleep-before-23',
+    title: 'Сон до 23:00',
+    description: 'Ложиться в одно время: утро перестаёт начинаться с борьбы с будильником.',
+    category: 'health',
+    icon: 'pi-moon',
+    intervalCount: 1,
+    intervalUnit: 'day',
+  },
+  {
+    slug: 'healthy-breakfast',
+    title: 'Полезный завтрак',
+    description: 'Не пропускать утро: яйца, каша или творог вместо печенья на бегу.',
+    category: 'health',
+    icon: 'pi-sun',
+    intervalCount: 1,
+    intervalUnit: 'day',
+  },
+  {
+    slug: 'hobby-15',
+    title: '15 минут на хобби',
+    description: 'Рисование, музыка, модели — время, которое принадлежит только вам.',
+    category: 'health',
+    icon: 'pi-star',
+    intervalCount: 1,
+    intervalUnit: 'day',
+  },
+
+  // ── Развитие ────────────────────────────────────────────────────────
+  {
+    slug: 'read-10',
+    title: '10 минут чтения',
+    description: 'Страница-две в день вместо ленты: книга, которая давно ждёт.',
+    category: 'growth',
+    icon: 'pi-book',
+    intervalCount: 1,
+    intervalUnit: 'day',
+  },
+  {
+    slug: 'language-10',
+    title: 'Иностранный язык 10 минут',
+    description: 'Одно упражнение в приложении или десять новых слов — маленький шаг каждый день.',
+    category: 'growth',
+    icon: 'pi-globe',
+    intervalCount: 1,
+    intervalUnit: 'day',
+  },
+  {
+    slug: 'learn-15',
+    title: '15 минут обучения',
+    description: 'Короткий урок курса или статья по профессии: без марафона и выгорания.',
+    category: 'growth',
+    icon: 'pi-pencil',
+    intervalCount: 1,
+    intervalUnit: 'day',
+  },
+  {
+    slug: 'journal-gratitude',
+    title: 'Дневник и благодарность',
+    description: 'Три строки о том, что прошло хорошо: простой способ заметить день.',
+    category: 'growth',
+    icon: 'pi-pencil',
+    intervalCount: 1,
+    intervalUnit: 'day',
+  },
+
+  // ── Забота о себе ───────────────────────────────────────────────────
+  {
+    slug: 'breathe-5',
+    title: 'Дыхание или медитация 5 минут',
+    description: 'Медленный вдох и выдох без телефона: пауза, после которой легче думать.',
+    category: 'selfcare',
+    icon: 'pi-heart',
+    intervalCount: 1,
+    intervalUnit: 'day',
+  },
+  {
+    slug: 'no-phone-before-sleep',
+    title: 'Час без телефона перед сном',
+    description: 'Экран на зарядку, книга или душ: сон приходит быстрее.',
+    category: 'selfcare',
+    icon: 'pi-moon',
+    intervalCount: 1,
+    intervalUnit: 'day',
+  },
+  {
+    slug: 'skincare',
+    title: 'Уход за кожей',
+    description: 'Умыться и нанести крем — две минуты, которые возвращают ощущение «я в порядке».',
+    category: 'selfcare',
+    icon: 'pi-sparkles',
+    intervalCount: 1,
+    intervalUnit: 'day',
+  },
 ];
 
 /**
@@ -425,6 +499,19 @@ export const seedHabitTemplates = async (
       });
     }
   }
+
+  /**
+   * Публикация шаблонов синхронизируется с кодом.
+   *
+   * Раньше убранный из массива шаблон оставался в базе опубликованным и висел
+   * в листе идей. Здесь он скрывается (`is_published = FALSE`), а не удаляется:
+   * записи пользователей и история отметок ссылаются на строку и остаются
+   * целыми. Вернули шаблон в список — он снова опубликуется при следующем сиде.
+   */
+  await client.query(
+    'UPDATE habit_templates SET is_published = (slug = ANY($1::text[]))',
+    [HABIT_TEMPLATES.map((template) => template.slug)]
+  );
 
   return { created, skipped };
 };

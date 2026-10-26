@@ -1,13 +1,13 @@
 <script setup lang="ts">
 /**
- * Переключатель темы. Класс на <html> ставит @nuxtjs/color-mode
- * (classSuffix: '' => ровно `dark`).
+ * Переключатель темы: только светлая и тёмная, без «как в системе».
+ * Класс на <html> ставит @nuxtjs/color-mode (classSuffix: '' => ровно `dark`).
  *
  * Иконка, подпись и title зависят от `preference`, поэтому он обязан совпадать
  * на сервере и в браузере. Это обеспечено настройкой модуля
  * (`storage: 'cookie'` в nuxt.config): серверный плагин модуля читает тот же
  * cookie, что и инлайновый скрипт, и SSR рисует уже выбранную тему, а не
- * дефолтную `system`. Делать разметку клиентской (<ClientOnly>) не нужно —
+ * дефолтную тёмную. Делать разметку клиентской (<ClientOnly>) не нужно —
  * переключатель остаётся в серверном HTML.
  *
  * Важно: объект из useColorMode() нельзя деструктурировать — preference
@@ -16,24 +16,22 @@
 const { t } = useI18n();
 const colorMode = useColorMode();
 
-const order = ['light', 'dark', 'system'] as const;
+const order = ['light', 'dark'] as const;
 type Mode = (typeof order)[number];
 
 const icons: Record<Mode, string> = {
   light: 'pi-sun',
   dark: 'pi-moon',
-  system: 'pi-desktop',
 };
 
 const labelKeys: Record<Mode, string> = {
   light: 'settings.themeLight',
   dark: 'settings.themeDark',
-  system: 'settings.themeSystem',
 };
 
 const current = computed<Mode>(() => {
   const value = colorMode.preference as Mode;
-  return order.includes(value) ? value : 'system';
+  return order.includes(value) ? value : 'dark';
 });
 
 const nextMode = computed<Mode>(() => order[(order.indexOf(current.value) + 1) % order.length]!);

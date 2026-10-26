@@ -40,6 +40,22 @@ export const useHabits = async () => {
   const week = computed<HabitWeekDay[]>(() => mineState.data.value?.week ?? []);
   const today = computed(() => mineState.data.value?.today ?? '');
 
+  /**
+   * Правка привычки: название, зона, периодичность, срок и напоминание.
+   * Ответ сервера не разбираем — после PATCH перечитываем общий ключ
+   * `habits-mine`, чтобы главная и вкладка привычек обновились одинаково.
+   */
+  const updateHabit = async (id: number, body: Record<string, unknown>) => {
+    await api.request(`/api/habits/${id}`, { method: 'PATCH', body });
+    await mineState.refresh();
+  };
+
+  /** Убрать привычку из списка: архив на сервере, история отметок остаётся. */
+  const archiveHabit = async (id: number) => {
+    await api.request(`/api/habits/${id}`, { method: 'DELETE' });
+    await mineState.refresh();
+  };
+
   return {
     habits,
     dueToday,
@@ -49,5 +65,7 @@ export const useHabits = async () => {
     catalog: catalogState.data,
     categories: categoriesState.data,
     refreshMine: mineState.refresh,
+    updateHabit,
+    archiveHabit,
   };
 };

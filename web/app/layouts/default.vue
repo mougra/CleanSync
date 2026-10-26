@@ -11,7 +11,6 @@
 import { appPath } from '~/composables/useAppNav';
 
 const route = useRoute();
-const localePath = useLocalePath();
 
 /**
  * Календарь показываем только на «Сегодня». Английская версия живёт под `/en`,
@@ -26,18 +25,12 @@ const showCalendar = computed(() => appPath(route.path) === '/');
     <AppSidebar />
 
     <div class="shell__main">
-      <div class="shell__topbar">
-        <NuxtLink :to="localePath('/')" class="shell__brand">
-          <span class="shell__mark">
-            <img class="shell__logo" src="/logo.svg" alt="" width="32" height="32" >
-          </span>
-          <span>TidyPlan</span>
-        </NuxtLink>
-        <div class="shell__controls">
-          <ThemeToggle />
-          <LocaleSwitch />
-        </div>
-      </div>
+      <!--
+        Верхняя панель с брендом и переключателями на мобильном убрана:
+        тема и язык переехали в настройки, а логотип показывается только
+        в заставке при запуске (AppBootSplash). На десктопе бренд живёт
+        в сайдбаре, поэтому отдельная панель не нужна нигде.
+      -->
 
       <!--
         Календарь недели: числа выбирают день, а карточка плана на главной
@@ -65,6 +58,12 @@ const showCalendar = computed(() => appPath(route.path) === '/');
 
       <!-- Информирование об использовании cookie: у нас только технически необходимые -->
       <CookieBanner />
+
+      <!--
+        Логотип только при запуске приложения: на мобильном это единственное
+        место, где он виден, дальше экран отдан контенту.
+      -->
+      <AppBootSplash />
     </div>
   </div>
 </template>
@@ -95,46 +94,8 @@ const showCalendar = computed(() => appPath(route.path) === '/');
   min-width: 0;
   display: flex;
   flex-direction: column;
-  padding: var(--space-3) var(--space-4) calc(88px + env(safe-area-inset-bottom));
+  padding: var(--space-4) var(--space-4) calc(88px + env(safe-area-inset-bottom));
   width: 100%;
-}
-
-.shell__topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-3) 0 var(--space-2);
-}
-
-.shell__brand {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--c-text);
-  font-weight: 700;
-  text-decoration: none;
-}
-
-.shell__mark {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: var(--r-pill);
-  background: var(--c-surface-mint);
-  color: var(--c-brand);
-}
-
-.shell__logo {
-  width: 26px;
-  height: 26px;
-}
-
-.shell__controls {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
 }
 
 .shell__content {
@@ -173,11 +134,6 @@ const showCalendar = computed(() => appPath(route.path) === '/');
   /* Десктоп: больше воздуха по краям, ширину задают сами блоки */
   .shell__main {
     padding: var(--space-6) var(--space-7) var(--space-8);
-  }
-
-  /* На десктопе бренд и переключатели живут в боковом меню. */
-  .shell__topbar {
-    display: none;
   }
 
   .shell__content {

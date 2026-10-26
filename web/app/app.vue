@@ -5,6 +5,22 @@ const auth = useAuthStore();
 await useAsyncData('auth-session', () => auth.fetchSession());
 
 /**
+ * Тема: только светлая и тёмная, по умолчанию тёмная.
+ *
+ * В старых cookie может лежать `system` (выбор «как в системе»): модуль тогда
+ * честно следует теме ОС, и переключатель показывал бы третье состояние,
+ * которого в интерфейсе больше нет. Один раз на монтировании переводим такое
+ * значение в `dark`; сохранённые `light`/`dark` не трогаем.
+ */
+const colorMode = useColorMode();
+
+onMounted(() => {
+  if (colorMode.preference === 'system') {
+    colorMode.preference = 'dark';
+  }
+});
+
+/**
  * Сессия: серверный рендер мог отрисовать гостя, хотя refresh-cookie жива.
  *
  * Причин две. Access-cookie живёт 15 минут, и сервер восстанавливает сессию сам

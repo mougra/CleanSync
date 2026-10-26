@@ -140,11 +140,10 @@ const SUPPORT_EMAIL = 'tidyflowup@gmail.com';
 const themeOptions = [
   { value: 'light', icon: 'pi-sun', label: 'settings.themeLight' },
   { value: 'dark', icon: 'pi-moon', label: 'settings.themeDark' },
-  { value: 'system', icon: 'pi-desktop', label: 'settings.themeSystem' },
 ] as const;
 
 const currentThemeLabel = computed(
-  () => t(themeOptions.find((option) => option.value === colorMode.preference)?.label ?? 'settings.themeSystem'),
+  () => t(themeOptions.find((option) => option.value === colorMode.preference)?.label ?? 'settings.themeDark'),
 );
 
 const displayName = computed(() => {
@@ -456,9 +455,11 @@ useSeoMeta({ title: () => t('nav.settings') });
       <SettingsRow icon="pi-home" :title="t('settings.household')" :to="localePath('/household')" />
 
       <!--
-        Повторное прохождение — явное действие: справа видно «Пройти заново»,
-        статус рядом говорит, что уже есть. Клик открывает мастер с текущими
-        ответами (см. HomeSetupWizard: он копирует сохранённый профиль).
+        Повторное прохождение — явное действие: статус слева под названием
+        («Пройдена» / «N из 11»), кнопка «Пройти заново» — внизу блока. Так
+        длинная подсказка и действие не спорят за одну строку на телефоне.
+        Клик открывает мастер с текущими ответами (см. HomeSetupWizard: он
+        копирует сохранённый профиль).
 
         Гостю строка не предлагает действие, а отправляет войти — как строка
         «Дома и участники» выше: собирать план некуда, пока нет аккаунта, и
@@ -471,6 +472,7 @@ useSeoMeta({ title: () => t('nav.settings') });
         :subtitle="t('settings.homeSetupHint')"
         :value="homeProfileValue"
         :action="t('homeSetup.restart')"
+        stacked
         @action="openWizard"
       />
 
@@ -968,7 +970,7 @@ useSeoMeta({ title: () => t('nav.settings') });
 
 .segmented {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: var(--space-1);
 }
 

@@ -14,12 +14,20 @@ const { intervalLabel, categoryLabel } = useHabitLabels();
 const { zoneLabel } = useZoneLabel();
 const { show: showAchievements } = useAchievementToast();
 
-const { habits, dueToday, doneToday, week, today, catalog, categories, refreshMine } =
+const { habits, dueToday, doneToday, week, today, catalog, categories, refreshMine, archiveHabit } =
   await useHabits();
 
 const pickerOpen = ref(false);
-const createOpen = ref(false);
 const busy = ref<number | null>(null);
+
+/** Лист привычки: `true` — создание, `habit` — правка существующей. */
+const formOpen = ref(false);
+const editingHabit = ref<Habit | null>(null);
+
+/** Лист действий у строки: открыт для этой привычки. */
+const actionsHabit = ref<Habit | null>(null);
+const actionBusy = ref(false);
+const actionError = ref('');
 
 const countLabel = computed(() => {
   const count = habits.value.length;
@@ -52,9 +60,66 @@ const toggle = async (habit: Habit) => {
   }
 };
 
+/** Открыть лист создания своей привычки. */
+const openCreate = () => {
+  editingHabit.value = null;
+  formOpen.value = true;
+};
+
+/** Открыть правку из листа действий. */
+const openEditFromActions = () => {
+  const habit = actionsHabit.value;
+
+  if (!habit) {
+    return;
+  }
+
+  actionError.value = '';
+  actionsHabit.value = null;
+  editingHabit.value = habit;
+  formOpen.value = true;
+};
+
+const closeForm = () => {
+  formOpen.value = false;
+  editingHabit.value = null;
+};
+
+const openActions = (habit: Habit) => {
+  actionError.value = '';
+  actionsHabit.value = habit;
+};
+
+const closeActions = () => {
+  actionsHabit.value = null;
+  actionError.value = '';
+};
+
+/** Удаление (архив) с подтверждением в листе действий. */
+const confirmDelete = async () => {
+  const habit = actionsHabit.value;
+
+  if (!habit || actionBusy.value) {
+    return;
+  }
+
+  actionBusy.value = true;
+  actionError.value = '';
+
+  try {
+    await archiveHabit(habit.id);
+    closeActions();
+    await refreshNuxtData('achievements-progress');
+  } catch {
+    actionError.value = t('habits.deleteFailed');
+  } finally {
+    actionBusy.value = false;
+  }
+};
+
 const afterChange = async () => {
   pickerOpen.value = false;
-  createOpen.value = false;
+  closeForm();
   clearNuxtData('habits-mine');
   await refreshMine();
   await refreshNuxtData('achievements-progress');
@@ -70,10 +135,35 @@ const rowMeta = (habit: Habit) =>
     .filter(Boolean)
     .join(' · ');
 
+/**
+ * Статьи о привычках: блок «Советы» внизу страницы.
+ *
+ * Берём статьи текущей локали (для английской — коллекцию `tipsEn`), чтобы
+ * названия не пришлось дублировать в i18n: источник правды — Markdown.
+ */
+const { data: habitTips } = await useAsyncData(
+  () => `habit-tips-${locale.value}`,
+  async () => {
+    const collection = locale.value === 'en' ? 'tipsEn' : 'tips';
+
+    return await queryCollection(collection)
+      .where('category', '=', 'habits')
+      .order('order', 'DESC')
+      .limit(4)
+      .all();
+  },
+  { watch: [locale] },
+);
+
 useSeoMeta({
   title: () => t('habits.title'),
   description: () => t('habits.metaDescription'),
 });
+
+/** Ключевые слова страницы: отдельным meta, потому что в useSeoMeta их нет. */
+useHead(() => ({
+  meta: [{ name: 'keywords', content: t('habits.metaKeywords') }],
+}));
 </script>
 
 <template>
@@ -103,7 +193,7 @@ useSeoMeta({
           {{ t('habits.pick') }}
         </AppButton>
 
-        <button type="button" class="link" @click="createOpen = true">
+        <button type="button" class="link" @click="openCreate">
           <i class="pi pi-pencil" aria-hidden="true" />
           {{ t('habits.createOwn') }}
         </button>
@@ -137,7 +227,18 @@ useSeoMeta({
               :meta="rowMeta(habit)"
               :disabled="busy !== null"
               @toggle="toggle(habit)"
-            />
+            >
+              <template #actions>
+                <button
+                  type="button"
+                  class="habit-more"
+                  :aria-label="t('habits.actions')"
+                  @click="openActions(habit)"
+                >
+                  <i class="pi pi-ellipsis-v" aria-hidden="true" />
+                </button>
+              </template>
+            </HabitRow>
           </li>
         </ul>
 
@@ -147,7 +248,7 @@ useSeoMeta({
           <i class="pi pi-chevron-right" aria-hidden="true" />
         </button>
 
-        <button type="button" class="link" @click="createOpen = true">
+        <button type="button" class="link" @click="openCreate">
           <i class="pi pi-pencil" aria-hidden="true" />
           {{ t('habits.createOwn') }}
         </button>
@@ -155,6 +256,20 @@ useSeoMeta({
 
       <HabitWeek :days="week" :today="today" />
     </template>
+
+    <!-- Советы по привычкам: перелинковка с SEO-кластером статей -->
+    <section v-if="habitTips?.length" class="tips">
+      <h2 class="tips__title">{{ t('habits.tipsTitle') }}</h2>
+
+      <ul class="tips__list">
+        <li v-for="tip in habitTips" :key="tip.path">
+          <NuxtLink :to="localePath(tip.path)" class="tips__link">
+            <span class="tips__name">{{ tip.title }}</span>
+            <span class="tips__meta">{{ tip.minutes }} {{ t('tipsPage.minutes') }}</span>
+          </NuxtLink>
+        </li>
+      </ul>
+    </section>
 
     <HabitPickerSheet
       :open="pickerOpen"
@@ -164,7 +279,22 @@ useSeoMeta({
       @added="afterChange"
     />
 
-    <HabitCreateSheet :open="createOpen" @close="createOpen = false" @created="afterChange" />
+    <HabitCreateSheet
+      :open="formOpen"
+      :habit="editingHabit"
+      @close="closeForm"
+      @saved="afterChange"
+    />
+
+    <HabitActionsSheet
+      :open="actionsHabit !== null"
+      :title="actionsHabit?.title ?? ''"
+      :pending="actionBusy"
+      :error="actionError"
+      @close="closeActions"
+      @edit="openEditFromActions"
+      @delete="confirmDelete"
+    />
   </div>
 </template>
 
@@ -240,6 +370,74 @@ useSeoMeta({
   display: grid;
   grid-template-columns: 1fr;
   gap: var(--space-3);
+}
+
+/*
+ * «⋯» у строки привычки: та же высота, что у строки, и такой же радиус —
+ * рядом со строкой он читается как её часть, а не как отдельная кнопка.
+ */
+.habit-more {
+  display: grid;
+  place-items: center;
+  width: var(--tap-min);
+  min-height: 72px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-card);
+  background: var(--c-surface);
+  color: var(--c-text-muted);
+  cursor: pointer;
+}
+
+.habit-more:hover {
+  background: var(--c-surface-sunken);
+  color: var(--c-text);
+}
+
+/* ── Советы по привычкам ───────────────────────────────────────────────── */
+.tips {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.tips__title {
+  font-size: var(--fs-title);
+}
+
+.tips__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tips__link {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--r-row);
+  background: var(--c-surface-mint);
+  color: var(--c-text);
+  text-decoration: none;
+}
+
+.tips__link:hover .tips__name {
+  color: var(--c-brand);
+}
+
+.tips__name {
+  font-weight: 600;
+}
+
+.tips__meta {
+  flex: none;
+  color: var(--c-text-muted);
+  font-size: var(--fs-caption);
 }
 
 @media (min-width: 768px) {
