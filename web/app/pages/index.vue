@@ -275,16 +275,6 @@ const challengeCards = computed<HomeChallengeCard[]>(() => {
 });
 
 /**
- * «План на сегодня» — только свои задачи и план по дому.
- *
- * Задачи челленджа сюда не подмешиваются: челлендж — отдельная сущность, и
- * живёт он в своей карточке. Раньше задачи дня челленджа попадали в чипы плана,
- * из-за чего один и тот же пункт виделся в двух местах.
- */
-const planTotal = computed(() => today.value?.summary.total_tasks ?? 0);
-const planDone = computed(() => today.value?.summary.completed_tasks ?? 0);
-
-/**
  * Сводка выбранного дня — те же числа, что показывала шторка дня: сколько задач
  * запланировано и закрыто, минуты по плану и по факту. Считает их сервер
  * (`GET /api/tasks/calendar`), поэтому они совпадают с «Планом на сегодня».
@@ -401,8 +391,13 @@ const zones = computed(() => {
  * `GET /api/tasks/today`, поэтому отметка не зависит от того, обновился ли уже
  * кэш `useAsyncData`; после успешного обновления накладка снимается, и на экране
  * остаётся состояние сервера.
+ *
+ * Состояние живёт в общем composable, а не в `ref` страницы: по той же отметке
+ * кольцо дня в календарной полосе (`WeekStrip`) пересчитывает прогресс — полоса
+ * живёт в раскладке и о странице ничего не знает. Иначе кольцо вокруг числа
+ * менялось только после перезагрузки страницы.
  */
-const planMarks = ref<Record<number, boolean>>({});
+const { mark: markTask, unmark: clearPlanMark, isMarked } = useTaskMarks();
 
 /** Задачи, по которым прямо сейчас идёт запрос: повторный тап по ним не проходит. */
 const planBusy = ref<number[]>([]);
@@ -522,7 +517,7 @@ const planTasks = computed<PlanDayRow[]>(() =>
       id: task.id,
       title: task.title,
       hint: taskHint(task),
-      done: planMarks.value[task.id] ?? task.is_completed,
+      done: isMarked(task),
       generated: isGeneratedTask(task.source),
       scheduleId: task.schedule_id,
       frequency: task.frequency,
@@ -550,13 +545,26 @@ const visiblePlanTasks = computed(() =>
   planTasks.value.filter((task) => !planRemoved.value.includes(task.id)),
 );
 
+/**
+ * Прогресс кольца «План на сегодня».
+ *
+ * Считаем по строкам, а не по `summary` сервера: строки уже учитывают локальную
+ * отметку (`useTaskMarks`), поэтому кольцо прибавляется в тот же кадр, что и
+ * галочка в списке, а не после повторного запроса. Сводка сервера остаётся для
+ * подписей ниже — там числа должны приходить с сервера.
+ */
+const planDone = computed(() => visiblePlanTasks.value.filter((task) => task.done).length);
+const planTotal = computed(() => visiblePlanTasks.value.length);
+
 /** Задачи другого дня: только название, зона и минуты — отметки в них нет. */
 const calendarRows = computed<PlanDayRow[]>(() =>
   (day.value?.tasks ?? []).map((task) => ({
     id: task.id,
     title: task.title,
     hint: calendarTaskHint(task),
-    done: task.is_completed,
+    // Накладка действует и здесь: отмечать можно любой открытый день, и строка
+    // должна перечёркиваться сразу, не дожидаясь ответа сервера.
+    done: isMarked(task),
     generated: false,
     // Чужой день только просматривается: правки там нет, поэтому поля,
     // нужные форме редактирования, остаются пустыми.
@@ -921,34 +929,20 @@ watch(pendingUndo, (value, previous) => {
   }
 });
 
-/** Снять локальную накладку: дальше показываем состояние сервера. */
-const clearPlanMark = (id: number) => {
-  const rest: Record<number, boolean> = {};
-
-  for (const [key, value] of Object.entries(planMarks.value)) {
-    const taskId = Number(key);
-
-    if (taskId !== id) {
-      rest[taskId] = value;
-    }
-  }
-
-  planMarks.value = rest;
-};
-
 /** Ответил ли сервер тем же состоянием отметки, что мы отправили. */
 const serverHasMark = (id: number, value: boolean): boolean =>
-  Object.values(today.value?.tasks ?? {})
-    .flat()
-    .some((task) => task.id === id && task.is_completed === value);
+  [...Object.values(today.value?.tasks ?? {}).flat(), ...(day.value?.tasks ?? [])].some(
+    (task) => task.id === id && task.is_completed === value,
+  );
 
 /**
  * Отметка задачи в один тап — для любого открытого дня.
  *
  * Оптимистично: строка перечёркивается сразу, затем уходит `PUT /api/tasks/:id`
- * (он же считает серию и достижения). Кольцо, счётчики и минуты обновляем
- * отдельным запросом — они считаются на сервере. Если запрос не прошёл,
- * отметку откатываем и говорим об этом строкой, а не молчанием.
+ * (он же считает серию и достижения). Кольцо дня в календаре и кольцо плана
+ * обновляются в тот же кадр (накладка `useTaskMarks`), а числа
+ * сводки — после ответа сервера. Если запрос не прошёл, отметку откатываем и
+ * говорим об этом строкой, а не молчанием.
  *
  * Можно отмечать и прошлые, и будущие дни: человек возвращается к вчерашней
  * уборке или закрывает дело заранее. День едет в теле запроса (`completed_on`),
@@ -963,7 +957,9 @@ const togglePlanTask = async (task: { id: number; done: boolean }) => {
   // День, открытый в календаре: отметка относится к нему, а не к «сегодня».
   const completedOn = selectedDate.value;
 
-  planMarks.value = { ...planMarks.value, [task.id]: next };
+  // Отметку видно сразу в трёх местах: строка списка, кольцо плана и кольцо дня
+  // в календаре — все читают одну и ту же накладку.
+  markTask(task.id, next);
   planBusy.value = [...planBusy.value, task.id];
   planError.value = '';
 
@@ -984,17 +980,20 @@ const togglePlanTask = async (task: { id: number; done: boolean }) => {
     planBusy.value = planBusy.value.filter((id) => id !== task.id);
   }
 
+  let refreshed = true;
+
   try {
     // Отметка сохранена: подтягиваем план, день карточки, серию и достижения,
     // чтобы числа на экране совпали с сервером.
     await refreshNuxtData(['today-plan', 'calendar-day', 'calendar-week', 'streak', 'achievements-progress']);
   } catch {
     // Обновление не прошло — отметку ниже оставим: она уже верна.
+    refreshed = false;
   }
 
-  // Накладку снимаем, только если сервер вернул тот же ответ: иначе на экране
-  // осталось бы старое состояние, хотя запись уже прошла.
-  if (serverHasMark(task.id, next)) {
+  // Накладку снимаем, только если данные перечитались и сервер вернул тот же
+  // ответ: иначе на экране осталось бы старое состояние, хотя запись прошла.
+  if (refreshed && serverHasMark(task.id, next)) {
     clearPlanMark(task.id);
   }
 

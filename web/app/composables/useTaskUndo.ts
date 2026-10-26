@@ -27,9 +27,10 @@ export interface PendingUndo {
  * Ключи данных, которые обновляются после удаления и после возврата.
  *
  * Тот же список, что при отметке задачи: удалённая строка меняет и план дня, и
- * открытый день календаря, и серию, и прогресс достижений.
+ * открытый день календаря, и кольца прогресса в полосе недели (`calendar-week`),
+ * и серию, и прогресс достижений.
  */
-const AFFECTED_KEYS = ['today-plan', 'calendar-day', 'streak', 'achievements-progress'];
+const AFFECTED_KEYS = ['today-plan', 'calendar-day', 'calendar-week', 'streak', 'achievements-progress'];
 
 export const useTaskUndo = () => {
   const api = useApi();

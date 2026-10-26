@@ -68,13 +68,28 @@ const todayISO = computed(() => deviceToday());
  *
  * Данные берём у сервера (`GET /api/tasks/calendar`) на весь видимый диапазон
  * одним запросом: он же отдаёт итоги дня для карточки плана, поэтому второго
- * источника правды не появляется. Ключ включает начало полосы — при листании
- * недель данные перезапрашиваются.
+ * источника правды не появляется.
+ *
+ * Ключ постоянный, без даты начала полосы: отметка задачи обновляет день через
+ * `refreshNuxtData(['…', 'calendar-week'])`, и ключ с датой (`calendar-week-2026-10-12`)
+ * под это обновление не подходил — кольцо менялось только после перезагрузки
+ * страницы. Перечитывание при листании недель даёт `watch` на начало полосы.
  *
  * У гостя плана нет, поэтому запрос не уходит вовсе.
  */
 const auth = useAuthStore();
 const api = useApi();
+
+/**
+ * Локальные отметки задач: ими кольцо дня реагирует на нажатие в списке сразу.
+ *
+ * Полоса недели живёт в раскладке и получает только итоги с сервера — без этой
+ * накладки кольцо вокруг числа перерисовывалось лишь после повторного запроса
+ * (а из-за ключа с датой — только после перезагрузки страницы). Задачи дня
+ * приходят в том же ответе календаря, поэтому «закрыто» пересчитывается по ним
+ * с учётом отметки, а «всего» остаётся серверным.
+ */
+const { isMarked } = useTaskMarks();
 
 const range = computed(() => ({
   from: days.value[0]?.iso ?? weekStart.value,
@@ -82,7 +97,7 @@ const range = computed(() => ({
 }));
 
 const { data: weekData } = await useAsyncData(
-  () => `calendar-week-${range.value.from}`,
+  'calendar-week',
   () =>
     auth.isAuthenticated
       ? api.request<CalendarResponse>(
@@ -92,15 +107,35 @@ const { data: weekData } = await useAsyncData(
   { watch: [() => range.value.from] },
 );
 
-/** Доля закрытых дел дня: `null` — дел нет, кольцо не рисуем. */
-const dayPercent = (iso: string): number | null => {
-  const day = weekData.value?.days.find((entry) => entry.date === iso);
+/**
+ * День полосы для кольца.
+ *
+ * Локальная накладка (`useTaskMarks`) важнее ответа сервера: отметка на странице
+ * видна в календаре в тот же кадр, не дожидаясь повторного запроса.
+ */
+const dayOf = (iso: string) => weekData.value?.days.find((entry) => entry.date === iso) ?? null;
 
-  if (!day || day.total_tasks === 0) {
+/** Сколько дел дня закрыто: серверные отметки плюс локальные. */
+const dayDone = (iso: string): number | null => {
+  const day = dayOf(iso);
+
+  if (!day) {
     return null;
   }
 
-  return Math.round((day.completed_tasks / day.total_tasks) * 100);
+  return day.tasks.filter((task) => isMarked(task)).length;
+};
+
+/** Доля закрытых дел дня: `null` — дел нет, кольцо не рисуем. */
+const dayPercent = (iso: string): number | null => {
+  const day = dayOf(iso);
+  const done = dayDone(iso);
+
+  if (!day || day.total_tasks === 0 || done === null) {
+    return null;
+  }
+
+  return Math.round((done / day.total_tasks) * 100);
 };
 
 /** Длина окружности кольца: радиус 16 в системе координат 36×36. */
@@ -328,8 +363,12 @@ const selectDay = (iso: string) => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  /* Отступ между подписью дня недели и числом: без него они слипались в строку */
-  gap: 3px;
+  /*
+   * Отступ между подписью дня недели и числом — с поправкой на кольцо: оно
+   * выходит за кружок числа примерно на 6 px сверху, и при меньшем зазоре
+   * «пн»/«вт» почти касались дуги. 9 px = 6 px кольца + 3 px воздуха.
+   */
+  gap: 9px;
   /* Кружок не должен упираться в края ячейки на узком экране */
   padding: 2px var(--space-1);
   border: 1.5px solid transparent;
@@ -360,14 +399,14 @@ const selectDay = (iso: string) => {
 
 /*
  * Кольцо прогресса: чуть больше числа и повёрнуто на -90°, чтобы заполнение
- * начиналось сверху. Линия тонкая (2 px): на 28-пиксельном кружке толще —
- * значит спорить с цифрой.
+ * начиналось сверху. Обводка 3 px вместо прежних 2: тонкая линия на 28-пиксельном
+ * кружке терялась, а после отметки задачи её прирост было почти не видно.
  */
 .week-strip__ring {
   position: absolute;
-  inset: -4px;
-  width: 36px;
-  height: 36px;
+  inset: -6px;
+  width: 40px;
+  height: 40px;
   transform: rotate(-90deg);
   overflow: visible;
   pointer-events: none;
@@ -376,16 +415,22 @@ const selectDay = (iso: string) => {
 .week-strip__ring-track,
 .week-strip__ring-fill {
   fill: none;
-  stroke-width: 2;
+  stroke-width: 3;
 }
 
 .week-strip__ring-track {
-  stroke: var(--c-border);
+  stroke: var(--c-track);
 }
 
+/*
+ * Дуга «доезжает» до нового значения: сервер отвечает позже нажатия, поэтому
+ * переход — единственное, что показывает, что отметка уже сработала.
+ */
 .week-strip__ring-fill {
   stroke-linecap: round;
-  transition: stroke-dasharray var(--dur-base) var(--ease-out);
+  transition:
+    stroke-dasharray var(--dur-base) var(--ease-out),
+    stroke var(--dur-base) var(--ease-out);
 }
 
 .week-strip__ring--low .week-strip__ring-fill {
@@ -428,7 +473,8 @@ const selectDay = (iso: string) => {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .week-strip__arrow {
+  .week-strip__arrow,
+  .week-strip__ring-fill {
     transition: none;
   }
 }

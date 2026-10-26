@@ -4,9 +4,19 @@ import type { NextFunction, Request, Response } from 'express';
 /**
  * Авторизация на httpOnly-cookie.
  *
- * Схема: access-токен в httpOnly-cookie (15 минут, весь сайт), refresh-токен
- * в httpOnly-cookie (7 дней, только /api/auth), плюс CSRF-токен в обычной cookie
- * (double-submit: значение cookie должно совпасть с заголовком X-CSRF-Token).
+ * Схема: access-токен в httpOnly-cookie (15 минут), refresh-токен в httpOnly-cookie
+ * (30 дней), плюс CSRF-токен в обычной cookie (double-submit: значение cookie
+ * должно совпасть с заголовком X-CSRF-Token). Обе сессионные cookie живут на всём
+ * сайте (`path=/`).
+ *
+ * Почему refresh не спрятан под `/api/auth`, как было раньше: серверному рендеру
+ * (Nuxt) нужно видеть refresh-токен, чтобы восстановить сессию, когда access уже
+ * истёк. Браузер отдаёт cookie только тем путям, на которые она выдана, и на
+ * запрос страницы `/` cookie с путём `/api/auth` не приходит — плагин
+ * `restore-session` не видел её вовсе и страница всегда рисовалась гостем после
+ * 15 минут. HttpOnly и SameSite=Lax остаются, а прочитать токен из JS по-прежнему
+ * нельзя; ограничение по пути защитой от XSS не является (скрипт того же origin
+ * и так не читает httpOnly-cookie).
  *
  * Для этого приложение и API должны быть на одном origin — иначе браузер
  * не отправит cookie.
@@ -18,6 +28,16 @@ export const ACCESS_COOKIE = 'cp_access';
 export const REFRESH_COOKIE = 'cp_refresh';
 export const CSRF_COOKIE = 'cp_csrf';
 export const CSRF_HEADER = 'x-csrf-token';
+
+/**
+ * Путь, на котором жила refresh-cookie до перехода на `path=/`.
+ *
+ * Cookie с другим путём — отдельная cookie с тем же именем. Её нужно явно
+ * удалять, иначе после обновления у человека в браузере останутся две живые
+ * cookie: старая (путь `/api/auth`) и новая (`/`), и сервер будет читать ту,
+ * которую браузер прислал последней.
+ */
+const LEGACY_REFRESH_PATH = '/api/auth';
 
 const FIFTEEN_MINUTES = 15 * 60 * 1000;
 /**
@@ -43,17 +63,19 @@ export const setAuthCookies = (
     path: '/',
     maxAge: FIFTEEN_MINUTES,
   });
-  // refresh-токен доступен только маршрутам авторизации — меньше поверхность атаки.
   res.cookie(REFRESH_COOKIE, tokens.refreshToken, {
     ...httpOnlyBase,
-    path: '/api/auth',
+    path: '/',
     maxAge: THIRTY_DAYS,
   });
+  // Убираем cookie, выданную прежней версией (путь `/api/auth`).
+  res.clearCookie(REFRESH_COOKIE, { ...httpOnlyBase, path: LEGACY_REFRESH_PATH });
 };
 
 export const clearAuthCookies = (res: Response): void => {
   res.clearCookie(ACCESS_COOKIE, { ...httpOnlyBase, path: '/' });
-  res.clearCookie(REFRESH_COOKIE, { ...httpOnlyBase, path: '/api/auth' });
+  res.clearCookie(REFRESH_COOKIE, { ...httpOnlyBase, path: '/' });
+  res.clearCookie(REFRESH_COOKIE, { ...httpOnlyBase, path: LEGACY_REFRESH_PATH });
 };
 
 /** CSRF-токен намеренно НЕ httpOnly: клиент читает его и повторяет в заголовке. */

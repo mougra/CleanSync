@@ -92,6 +92,30 @@ const isUnauthorized = (error: unknown): boolean => {
 };
 
 /**
+ * Маршруты, к которым обновление сессии не применяется.
+ *
+ * Им оно не помогает: у входа, регистрации, восстановления пароля и самого
+ * `/refresh` своя логика ответа на 401, а повтор запроса замкнул бы цикл.
+ * Остальные маршруты `/api/auth/*` (профиль, язык, `me`) повторяем как обычные:
+ * иначе после истечения access-cookie профиль отвечал 401, и приложение
+ * показывало гостя, хотя refresh-cookie была жива.
+ */
+const NO_REFRESH_RETRY = [
+  '/api/auth/login',
+  '/api/auth/register',
+  '/api/auth/refresh',
+  '/api/auth/logout',
+  '/api/auth/csrf',
+  '/api/auth/forgot-password',
+  '/api/auth/reset-password',
+  '/api/auth/confirm-email',
+  '/api/auth/resend-confirmation',
+];
+
+const canRetryAfterRefresh = (path: string): boolean =>
+  !NO_REFRESH_RETRY.some((prefix) => path.startsWith(prefix));
+
+/**
  * Общий на всё приложение запрос обновления сессии.
  *
  * Почему общий: за один тик могут упасть параллельно пять запросов (план дня,
@@ -100,6 +124,30 @@ const isUnauthorized = (error: unknown): boolean => {
  * пришёл бы с уже недействительным токеном и «разлогинил» бы человека.
  */
 let refreshing: Promise<boolean> | null = null;
+
+/**
+ * Имя блокировки обновления сессии.
+ *
+ * Промис выше выравнивает запросы только внутри вкладки. Две вкладки (или
+ * приложение и вкладка) обновляют токен каждая сама: первая меняет строку в
+ * `refresh_tokens` и ставит новую cookie, вторая успевает уйти со старой и
+ * получает отказ — сессия «слетает» без причины. Web Locks сериализует
+ * обновление между вкладками: вторая заходит в блокировку, когда cookie уже
+ * свежая, и обновление проходит.
+ */
+const REFRESH_LOCK = 'tidyplan-auth-refresh';
+
+const withRefreshLock = async <T>(task: () => Promise<T>): Promise<T> => {
+  const locks = import.meta.client
+    ? (navigator as Navigator & { locks?: LockManager }).locks
+    : undefined;
+
+  if (!locks?.request) {
+    return await task();
+  }
+
+  return await locks.request(REFRESH_LOCK, task);
+};
 
 /**
  * Обёртка над $fetch для обращений к нашему API.
@@ -149,16 +197,17 @@ export const useApi = () => {
    */
   const refreshSession = async (csrf: string): Promise<boolean> => {
     if (!refreshing) {
-      refreshing = $fetch(`${base}/api/auth/refresh`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'X-CSRF-Token': csrf, 'Accept-Language': apiLocale(requestPath) },
-      })
-        .then(() => true)
-        .catch(() => false)
-        .finally(() => {
-          refreshing = null;
-        });
+      refreshing = withRefreshLock(() =>
+        $fetch(`${base}/api/auth/refresh`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'X-CSRF-Token': csrf, 'Accept-Language': apiLocale(requestPath) },
+        })
+          .then(() => true)
+          .catch(() => false),
+      ).finally(() => {
+        refreshing = null;
+      });
     }
 
     return await refreshing;
@@ -209,11 +258,13 @@ export const useApi = () => {
        * получал 401, а стор выставлял `user = null` — человек «вылетал» из
        * аккаунта, хотя refresh-cookie жива.
        *
-       * Здесь обновляем сессию и повторяем запрос ровно один раз. Маршруты
-       * `/api/auth/*` исключены: у них своя логика ответа на 401, и повторять
-       * туда запрос нельзя — цикл.
+       * Здесь обновляем сессию и повторяем запрос ровно один раз. Маршруты из
+       * `NO_REFRESH_RETRY` исключены: у них своя логика ответа на 401, и повторять
+       * туда запрос нельзя — цикл. Профиль (`/api/auth/me`) и правки профиля,
+       * наоборот, повторяем: иначе сессия восстанавливалась бы только с
+       * перезагрузкой страницы.
        */
-      if (isServer || path.startsWith('/api/auth/') || !isUnauthorized(error)) {
+      if (isServer || !canRetryAfterRefresh(path) || !isUnauthorized(error)) {
         throw error;
       }
 
