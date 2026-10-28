@@ -1,7 +1,7 @@
 ---
 title: "Метод трёх коробок: как разобрать любую полку за полчаса"
 description: Оставить, отдать, выбросить — три ёмкости и таймер превращают разбор хлама в простое решение.
-cover: /photos/autumn-home.jpg
+cover: /photos/tips/three-boxes-method.jpg
 category: planning
 icon: pi-box
 minutes: 35

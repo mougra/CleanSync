@@ -1,7 +1,7 @@
 ---
 title: "The three-box method: how to sort any shelf in half an hour"
 description: Keep, give away, bin — three containers and a timer turn sorting clutter into a simple decision.
-cover: /photos/autumn-home.jpg
+cover: /photos/tips/three-boxes-method.jpg
 category: planning
 icon: pi-box
 minutes: 35

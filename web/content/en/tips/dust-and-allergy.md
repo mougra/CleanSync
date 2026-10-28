@@ -1,7 +1,7 @@
 ---
 title: "Dust and allergies: what actually helps"
 description: You do not remove dust with one expensive cloth — you move it around. We look at which actions reduce dust in the air and which only lift it up.
-cover: /photos/spring-cleaning.jpg
+cover: /photos/tips/dust-and-allergy.jpg
 category: home
 icon: pi-filter
 minutes: 35

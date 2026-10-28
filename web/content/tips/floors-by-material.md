@@ -1,7 +1,7 @@
 ---
 title: "Полы: ламинат, плитка, паркет — чем и как мыть, чтобы не испортить"
 description: "Ламинат боится воды, паркет — щёлочи, плитка — грязной воды: чем мыть каждый пол, чтобы не испортить покрытие и не потерять блеск."
-cover: /photos/kitchen-white.jpg
+cover: /photos/tips/floors-by-material.jpg
 category: home
 icon: pi-th-large
 minutes: 30

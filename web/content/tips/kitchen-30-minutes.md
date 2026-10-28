@@ -1,7 +1,7 @@
 ---
 title: "Кухня за 30 минут: маршрут по часовой стрелке"
 description: Один круг по кухне без метаний — и рабочие поверхности свободны. Порядок движений важнее силы трения.
-cover: /photos/kitchen-white.jpg
+cover: /photos/tips/kitchen-30-minutes.jpg
 category: kitchen
 icon: pi-compass
 minutes: 30

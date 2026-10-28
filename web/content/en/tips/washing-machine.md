@@ -1,7 +1,7 @@
 ---
 title: How to clean a washing machine
 description: Run an empty cycle at 60 °C with citric acid once a month and wipe the seal — the machine will stop smelling.
-cover: /photos/laundry.jpg
+cover: /photos/tips/washing-machine.jpg
 category: home
 icon: pi-refresh
 minutes: 25

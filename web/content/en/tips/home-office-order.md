@@ -1,7 +1,7 @@
 ---
 title: "The home office: desk, cables, equipment"
 description: "Crumbs in the keyboard, dust on the screen and a tangle of cables under the desk: how to put your workspace in order in 20 minutes without damaging the equipment."
-cover: /photos/kitchen-white.jpg
+cover: /photos/tips/home-office-order.jpg
 category: home
 icon: pi-desktop
 minutes: 30

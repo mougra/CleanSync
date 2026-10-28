@@ -1,7 +1,7 @@
 ---
 title: "Собака в квартире: лапы, шерсть, запах"
 description: "Мытьё лап после прогулки, подстилка, игрушки и запах в квартире: что убирать каждый день, а что раз в неделю, и чем вычёсывать."
-cover: /photos/autumn-home.jpg
+cover: /photos/tips/dog-in-a-flat.jpg
 category: pets
 icon: pi-heart
 minutes: 30

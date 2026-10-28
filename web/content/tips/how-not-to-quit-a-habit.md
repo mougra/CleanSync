@@ -1,7 +1,7 @@
 ---
 title: "Как не бросить привычку: триггер, минимальный шаг и срывы"
 description: "Почему привычки держатся не на силе воли, а на схеме: привязка к действию, смешной минимальный шаг и план возвращения после пропуска."
-cover: /photos/spring-cleaning.jpg
+cover: /photos/tips/how-not-to-quit-a-habit.jpg
 category: habits
 icon: pi-refresh
 minutes: 6

@@ -1,7 +1,7 @@
 ---
 title: "Уборка с детьми: как подключить семью без скандала"
 description: Дети убирают, если задача маленькая, видимая и с таймером. Разбираем, как распределить зоны и не превратить уборку в наказание.
-cover: /photos/spring-cleaning.jpg
+cover: /photos/tips/cleaning-with-kids.jpg
 category: family
 icon: pi-users
 minutes: 20

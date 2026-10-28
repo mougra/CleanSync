@@ -1,7 +1,7 @@
 ---
 title: "A child's room in 15 minutes: how to tidy up together with your child"
 description: "Toys in baskets, a play area and safe products: how to bring order to a child's room together with your child, rather than instead of them."
-cover: /photos/laundry.jpg
+cover: /photos/tips/kids-room-15-minutes.jpg
 category: family
 icon: pi-users
 minutes: 15

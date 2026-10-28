@@ -1,7 +1,7 @@
 ---
 title: "Прихожая, которая не превращается в свалку"
 description: Прихожая принимает весь поток вещей из внешнего мира. Пять решений, которые не дают ей зарасти.
-cover: /photos/autumn-home.jpg
+cover: /photos/tips/hallway-order.jpg
 category: home
 icon: pi-signpost
 minutes: 30

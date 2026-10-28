@@ -1,7 +1,7 @@
 ---
 title: "Streak-free windows: the order that makes the difference"
 description: Clean windows on a cloudy day, work from the top down and dry them off — then there will be no streaks.
-cover: /photos/kitchen-white.jpg
+cover: /photos/tips/windows-without-streaks.jpg
 category: home
 icon: pi-sparkles
 minutes: 40

@@ -1,7 +1,7 @@
 ---
 title: "Mattress, pillows, bedding: how to clean what cannot go in the washing machine"
 description: "Bicarbonate of soda, a vacuum cleaner and fresh air against dust mites: how to clean a mattress, pillows and a duvet that will not fit in the washing machine."
-cover: /photos/laundry.jpg
+cover: /photos/tips/mattress-and-bedding.jpg
 category: home
 icon: pi-moon
 minutes: 35

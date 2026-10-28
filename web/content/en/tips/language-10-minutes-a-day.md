@@ -1,7 +1,7 @@
 ---
 title: "A foreign language in 10 minutes a day: how to keep going"
 description: "Microlearning for languages: why ten minutes beat a two-hour marathon, how to pick a format and keep progress for months."
-cover: /photos/kitchen-white.jpg
+cover: /photos/tips/language-10-minutes-a-day.jpg
 category: habits
 icon: pi-globe
 minutes: 6

@@ -1,7 +1,7 @@
 ---
 title: "Домашний офис: стол, провода, техника"
 description: "Крошки в клавиатуре, пыль на экране и клубок проводов под столом: как за 20 минут вернуть рабочее место в порядок и не испортить технику."
-cover: /photos/kitchen-white.jpg
+cover: /photos/tips/home-office-order.jpg
 category: home
 icon: pi-desktop
 minutes: 30

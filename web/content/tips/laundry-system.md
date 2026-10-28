@@ -1,7 +1,7 @@
 ---
 title: "Система стирки: сортировка, температура, сушка"
 description: Три корзины вместо одной, температура по типу ткани и сушка с воздухом — так вещи живут дольше и меньше мнутся.
-cover: /photos/laundry.jpg
+cover: /photos/tips/laundry-system.jpg
 category: home
 icon: pi-refresh
 minutes: 25

@@ -1,7 +1,7 @@
 ---
 title: "Cleaning with children: how to involve the family without a row"
 description: Children tidy up if the task is small, visible and timed. We look at how to share out the zones and not turn cleaning into a punishment.
-cover: /photos/spring-cleaning.jpg
+cover: /photos/tips/cleaning-with-kids.jpg
 category: family
 icon: pi-users
 minutes: 20

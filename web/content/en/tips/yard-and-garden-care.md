@@ -1,7 +1,7 @@
 ---
 title: "Yard and garden: what to do every week and what once a season"
 description: "A weekly and seasonal list of jobs in the yard and garden: paths, leaves, drains, tools — in order and without rushing, for the whole year."
-cover: /photos/autumn-home.jpg
+cover: /photos/tips/yard-and-garden-care.jpg
 category: home
 icon: pi-map
 minutes: 40

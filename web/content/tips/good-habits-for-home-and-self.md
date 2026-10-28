@@ -1,7 +1,7 @@
 ---
 title: "Полезные привычки для порядка и заботы о себе"
 description: "Как связаны порядок в доме и хорошее самочувствие: три опоры — движение, обучение и тишина, и с чего начать уже сегодня."
-cover: /photos/spring-cleaning.jpg
+cover: /photos/tips/good-habits-for-home-and-self.jpg
 category: habits
 icon: pi-heart
 minutes: 7

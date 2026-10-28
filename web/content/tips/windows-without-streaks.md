@@ -1,7 +1,7 @@
 ---
 title: "Окна без разводов: порядок, который решает"
 description: Мойте окна в пасмурный день, работайте сверху вниз и вытирайте насухо — тогда разводов не будет.
-cover: /photos/kitchen-white.jpg
+cover: /photos/tips/windows-without-streaks.jpg
 category: home
 icon: pi-sparkles
 minutes: 40

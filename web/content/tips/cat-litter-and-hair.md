@@ -1,7 +1,7 @@
 ---
 title: "Шерсть и лоток: уборка в доме с кошкой"
 description: "Кошачья шерсть на мебели, лоток, когтеточка и лежанка: что убирать каждый день, а что раз в неделю, чтобы в доме не пахло."
-cover: /photos/spring-cleaning.jpg
+cover: /photos/tips/cat-litter-and-hair.jpg
 category: pets
 icon: pi-heart
 minutes: 25

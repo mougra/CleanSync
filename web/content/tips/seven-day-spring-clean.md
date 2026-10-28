@@ -1,7 +1,7 @@
 ---
 title: "Весенняя уборка за семь дней: как не выгореть на второй день"
 description: По одной зоне в день, короткие регулярные дела и обязательный день отдыха — план, который доводят до конца.
-cover: /photos/spring-cleaning.jpg
+cover: /photos/tips/seven-day-spring-clean.jpg
 category: planning
 icon: pi-calendar
 minutes: 15

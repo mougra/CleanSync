@@ -1,7 +1,7 @@
 ---
 title: "A 10-minute home workout: where to start"
 description: "A short bodyweight routine you can actually repeat every morning, plus how to keep it going after the first week."
-cover: /photos/autumn-home.jpg
+cover: /photos/tips/home-workout-10-minutes.jpg
 category: habits
 icon: pi-bolt
 minutes: 8

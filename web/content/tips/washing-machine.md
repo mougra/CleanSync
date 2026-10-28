@@ -1,7 +1,7 @@
 ---
 title: Как почистить стиральную машину
 description: Раз в месяц запускайте пустой цикл при 60 °C с лимонной кислотой и протирайте уплотнитель — машина не будет пахнуть.
-cover: /photos/laundry.jpg
+cover: /photos/tips/washing-machine.jpg
 category: home
 icon: pi-refresh
 minutes: 25

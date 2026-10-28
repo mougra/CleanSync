@@ -1,7 +1,7 @@
 ---
 title: "A fridge without stocktakes: a system that works"
 description: "Clear containers, an \"eat first\" zone and one shelf for leftovers — that is how food stops going to waste."
-cover: /photos/kitchen-white.jpg
+cover: /photos/tips/fridge-order.jpg
 category: kitchen
 icon: pi-box
 minutes: 30

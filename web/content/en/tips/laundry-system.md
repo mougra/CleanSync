@@ -1,7 +1,7 @@
 ---
 title: "A laundry system: sorting, temperature, drying"
 description: Three baskets instead of one, temperature by fabric type and drying with air — that way clothes last longer and crease less.
-cover: /photos/laundry.jpg
+cover: /photos/tips/laundry-system.jpg
 category: home
 icon: pi-refresh
 minutes: 25

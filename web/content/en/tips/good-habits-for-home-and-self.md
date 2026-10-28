@@ -1,7 +1,7 @@
 ---
 title: "Useful habits for your home and yourself"
 description: "How order at home and feeling well are connected: three pillars — movement, learning and quiet — and where to start today."
-cover: /photos/spring-cleaning.jpg
+cover: /photos/tips/good-habits-for-home-and-self.jpg
 category: habits
 icon: pi-heart
 minutes: 7

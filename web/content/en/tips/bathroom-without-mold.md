@@ -1,7 +1,7 @@
 ---
 title: "A bathroom without mould: three habits instead of harsh chemicals"
 description: Mould appears wherever water is left standing. Removing the damp after a shower is easier than scrubbing the grout every month.
-cover: /photos/laundry.jpg
+cover: /photos/tips/bathroom-without-mold.jpg
 category: bathroom
 icon: pi-cloud
 minutes: 20

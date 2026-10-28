@@ -1,7 +1,7 @@
 ---
 title: Fifteen minutes in the evening instead of cleaning at the weekend
 description: A short evening ritual zone by zone frees up your weekend and lowers the threshold for starting to clean.
-cover: /photos/spring-cleaning.jpg
+cover: /photos/tips/fifteen-minutes-evening.jpg
 category: habits
 icon: pi-clock
 minutes: 15

@@ -1,7 +1,7 @@
 ---
 title: "Ванная без плесени: три привычки вместо жёсткой химии"
 description: Плесень появляется там, где остаётся вода. Убрать влагу после душа проще, чем отмывать швы каждый месяц.
-cover: /photos/laundry.jpg
+cover: /photos/tips/bathroom-without-mold.jpg
 category: bathroom
 icon: pi-cloud
 minutes: 20

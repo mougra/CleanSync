@@ -1,7 +1,7 @@
 ---
 title: "How not to quit a habit: a trigger, a tiny step and setbacks"
 description: "Why habits rest on a system rather than willpower: anchor the action, make the first step ridiculous and plan your return after a miss."
-cover: /photos/spring-cleaning.jpg
+cover: /photos/tips/how-not-to-quit-a-habit.jpg
 category: habits
 icon: pi-refresh
 minutes: 6

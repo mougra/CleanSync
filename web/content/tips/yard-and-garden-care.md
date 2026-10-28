@@ -1,7 +1,7 @@
 ---
 title: "Двор и сад: что делать раз в неделю, а что раз в сезон"
 description: "Недельный и сезонный список работ во дворе и саду: дорожки, листва, водостоки, инструмент — по порядку и без спешки на весь год."
-cover: /photos/autumn-home.jpg
+cover: /photos/tips/yard-and-garden-care.jpg
 category: home
 icon: pi-map
 minutes: 40

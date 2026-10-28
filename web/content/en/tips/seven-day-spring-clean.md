@@ -1,7 +1,7 @@
 ---
 title: "Spring cleaning in seven days: how not to burn out on day two"
 description: One zone a day, short regular tasks and a compulsory rest day — a plan people actually finish.
-cover: /photos/spring-cleaning.jpg
+cover: /photos/tips/seven-day-spring-clean.jpg
 category: planning
 icon: pi-calendar
 minutes: 15

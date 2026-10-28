@@ -1,7 +1,7 @@
 ---
 title: "Зарядка дома за 10 минут: с чего начать"
 description: "Короткая тренировка без инвентаря: простой комплекс, который реально повторить каждое утро, и как не бросить после первой недели."
-cover: /photos/autumn-home.jpg
+cover: /photos/tips/home-workout-10-minutes.jpg
 category: habits
 icon: pi-bolt
 minutes: 8

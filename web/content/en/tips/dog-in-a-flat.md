@@ -1,7 +1,7 @@
 ---
 title: "A dog in a flat: paws, hair, smell"
 description: "Washing paws after a walk, the bed, toys and smells in the flat: what to clean every day and what once a week, and what to groom with."
-cover: /photos/autumn-home.jpg
+cover: /photos/tips/dog-in-a-flat.jpg
 category: pets
 icon: pi-heart
 minutes: 30

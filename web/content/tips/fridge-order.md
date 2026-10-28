@@ -1,7 +1,7 @@
 ---
 title: "Холодильник без ревизий: система, которая работает"
 description: Прозрачные контейнеры, зона «съесть первым» и одна полка для остатков — так продукты перестают пропадать.
-cover: /photos/kitchen-white.jpg
+cover: /photos/tips/fridge-order.jpg
 category: kitchen
 icon: pi-box
 minutes: 30

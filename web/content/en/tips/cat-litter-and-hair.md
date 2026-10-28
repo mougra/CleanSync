@@ -1,7 +1,7 @@
 ---
 title: "Hair and litter tray: cleaning a home with a cat"
 description: "Cat hair on the furniture, the litter tray, the scratching post and the cat bed: what to clean every day and what once a week, so that the home does not smell."
-cover: /photos/spring-cleaning.jpg
+cover: /photos/tips/cat-litter-and-hair.jpg
 category: pets
 icon: pi-heart
 minutes: 25

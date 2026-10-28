@@ -1,7 +1,7 @@
 ---
 title: "Kitchen in 30 minutes: a clockwise route"
 description: One lap of the kitchen with no dashing about — and the worktops are clear. The order of your movements matters more than how hard you scrub.
-cover: /photos/kitchen-white.jpg
+cover: /photos/tips/kitchen-30-minutes.jpg
 category: kitchen
 icon: pi-compass
 minutes: 30

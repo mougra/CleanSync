@@ -10,7 +10,8 @@
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "typecheck": "nuxt typecheck",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "covers:tips": "node scripts/generate-tip-covers.mjs"
   },
   "dependencies": {
     "@nuxt/content": "^3.16.1",

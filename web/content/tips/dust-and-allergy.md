@@ -1,7 +1,7 @@
 ---
 title: "Пыль и аллергия: что действительно помогает"
 description: Пыль не убирают одной дорогой тряпкой — её переносят. Разбираем, какие действия снижают пыль в воздухе, а какие только поднимают.
-cover: /photos/spring-cleaning.jpg
+cover: /photos/tips/dust-and-allergy.jpg
 category: home
 icon: pi-filter
 minutes: 35

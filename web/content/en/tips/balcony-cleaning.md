@@ -1,7 +1,7 @@
 ---
 title: "Balcony and terrace: dust, frames, storage"
 description: "Washing the glazing, frames and floor on a balcony, clearing out clutter and storing things by season — step by step, in one weekend, without streaks on the glass."
-cover: /photos/spring-cleaning.jpg
+cover: /photos/tips/balcony-cleaning.jpg
 category: home
 icon: pi-sun
 minutes: 45

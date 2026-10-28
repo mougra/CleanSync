@@ -1,7 +1,7 @@
 ---
 title: "Иностранный язык по 10 минут в день: как не бросить"
 description: "Микрообучение языку: почему десять минут работают лучше двухчасового марафона, как выбрать формат и сохранить прогресс на месяцы."
-cover: /photos/kitchen-white.jpg
+cover: /photos/tips/language-10-minutes-a-day.jpg
 category: habits
 icon: pi-globe
 minutes: 6

@@ -1,7 +1,7 @@
 ---
 title: "Матрас, подушки, постель: как чистить то, что нельзя стирать в машинке"
 description: "Сода, пылесос и проветривание против пылевого клеща: как чистить матрас, подушки и одеяло, которые не влезают в стиральную машинку."
-cover: /photos/laundry.jpg
+cover: /photos/tips/mattress-and-bedding.jpg
 category: home
 icon: pi-moon
 minutes: 35

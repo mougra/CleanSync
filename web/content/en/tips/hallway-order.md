@@ -1,7 +1,7 @@
 ---
 title: "A hallway that does not turn into a dumping ground"
 description: The hallway takes the whole flow of things coming in from the outside world. Five solutions that stop it silting up.
-cover: /photos/autumn-home.jpg
+cover: /photos/tips/hallway-order.jpg
 category: home
 icon: pi-signpost
 minutes: 30

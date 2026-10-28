@@ -1,7 +1,7 @@
 ---
 title: "Детская за 15 минут: как убирать вместе с ребёнком"
 description: "Игрушки по корзинам, игровая зона и безопасные средства: как навести порядок в детской вместе с ребёнком, а не вместо него."
-cover: /photos/laundry.jpg
+cover: /photos/tips/kids-room-15-minutes.jpg
 category: family
 icon: pi-users
 minutes: 15

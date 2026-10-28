@@ -1,7 +1,7 @@
 ---
 title: Пятнадцать минут вечером вместо уборки в выходные
 description: Короткий вечерний ритуал по зонам освобождает выходные и снижает порог «начать уборку».
-cover: /photos/spring-cleaning.jpg
+cover: /photos/tips/fifteen-minutes-evening.jpg
 category: habits
 icon: pi-clock
 minutes: 15

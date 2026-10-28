@@ -1,7 +1,7 @@
 ---
 title: "Балкон и терраса: пыль, рамы, хранение"
 description: "Мытьё остекления, рам и пола на балконе, разбор хлама и хранение по сезону — по шагам, за один выходной, без разводов на стекле."
-cover: /photos/spring-cleaning.jpg
+cover: /photos/tips/balcony-cleaning.jpg
 category: home
 icon: pi-sun
 minutes: 45
