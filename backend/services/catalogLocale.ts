@@ -1,4 +1,5 @@
-import { CATALOG_TITLE_EN, TASK_CADENCE_LABELS_EN } from '../content/en/taskCatalog';
+import { TASK_CADENCE_LABELS_EN } from '../content/en/taskCatalog';
+import { taskTitleEn } from '../content/en/taskSets';
 import { zoneEn } from '../content/en/zones';
 import { TASK_CADENCE_LABELS, type TaskCadence } from './taskCatalog';
 import type { ContentLocale } from './contentLocale';
@@ -16,11 +17,16 @@ import type { ContentLocale } from './contentLocale';
  * и то же дело одинаково, иначе гость увидит в плане не то, что прочитал на
  * странице.
  *
+ * Название ищем в двух словарях: библиотеки каталога и курируемых наборов
+ * (`content/en/taskSets.ts`). Курируемый набор — не подмножество библиотеки:
+ * часть названий склеена из нескольких каталожных строк, и своего перевода в
+ * библиотеке у них нет.
+ *
  * Неизвестное название возвращаем как есть: непереведённая строка лучше пустой
  * (тот же принцип, что `COALESCE(перевод, оригинал)` в SQL).
  */
 export const catalogTitle = (title: string, locale: ContentLocale): string =>
-  locale === 'en' ? (CATALOG_TITLE_EN[title] ?? title) : title;
+  locale === 'en' ? (taskTitleEn(title) ?? title) : title;
 
 export const catalogZone = (zone: string, locale: ContentLocale): string =>
   locale === 'en' ? (zoneEn(zone) ?? zone) : zone;

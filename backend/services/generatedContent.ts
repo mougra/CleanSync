@@ -1,5 +1,5 @@
 import pool from '../db';
-import { CATALOG_TITLE_EN } from '../content/en/taskCatalog';
+import { taskTitleEn } from '../content/en/taskSets';
 import { DEFAULT_TASK_SOURCE, DEFAULT_TASKS_SCHEDULE_TITLE } from './defaultTasks';
 import { HOME_PLAN_SOURCE } from './homePlan';
 import { HOME_PLAN_SCHEDULE_TITLE } from './mergePlanIntoTasks';
@@ -60,7 +60,7 @@ export const relocalizeGeneratedContent = async (
       const translated: number[] = [];
 
       for (const task of tasks.rows) {
-        const titleEn = CATALOG_TITLE_EN[task.title];
+        const titleEn = taskTitleEn(task.title);
 
         if (!titleEn) {
           continue;

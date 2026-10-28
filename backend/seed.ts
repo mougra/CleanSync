@@ -6,12 +6,14 @@ import { ACHIEVEMENT_EN, validateAchievementTranslations } from './content/en/ac
 import { validateHabitTranslations } from './content/en/habits';
 import { TEMPLATE_EN, validateTemplateTranslations } from './content/en/templates';
 import { validateCatalogTranslations } from './content/en/taskCatalog';
+import { validateTaskSetTranslations } from './content/en/taskSets';
 import {
   getTaskCatalog,
   taskCatalogSize,
   taskCountByLevel,
   validateTaskCatalog,
 } from './services/taskCatalog';
+import { getBaseTasks, getExtraTasks, setStats, validateTaskSets } from './services/taskSets';
 import { upsertTranslation } from './services/translations';
 
 dotenv.config();
@@ -183,6 +185,34 @@ const seed = async (): Promise<void> => {
       `Переводы каталога задач некорректны:\n  - ${catalogTranslationProblems.join('\n  - ')}`,
     );
   }
+
+  /**
+   * Курируемые наборы (база для всех + расширения по анкете) проверяются здесь
+   * же: в план идут именно они, а библиотека каталога остаётся источником
+   * страниц зон. Дубль названия ломает идемпотентность набора (ключ — название),
+   * минуты сверх потолка — дневной бюджет, неизвестный контекст — тихо
+   * выключенное расширение.
+   */
+  const setProblems = validateTaskSets();
+
+  if (setProblems.length > 0) {
+    throw new Error(`Наборы задач некорректны:\n  - ${setProblems.join('\n  - ')}`);
+  }
+
+  const setTitles = [...getBaseTasks(), ...getExtraTasks()].map((task) => task.task);
+  const setTranslationProblems = validateTaskSetTranslations(setTitles);
+
+  if (setTranslationProblems.length > 0) {
+    throw new Error(
+      `Переводы задач наборов некорректны:\n  - ${setTranslationProblems.join('\n  - ')}`,
+    );
+  }
+
+  const baseStats = setStats(getBaseTasks());
+  console.log(
+    `Базовый набор: ${baseStats.totalTasks} задач, ${baseStats.totalMinutes} мин, ` +
+      `средняя ${baseStats.averagePerDay} мин/день; расширений ${getExtraTasks().length}`,
+  );
 
   /**
    * Сезонные челленджи проверяем до записи: главная выбирает челлендж по сезону,
