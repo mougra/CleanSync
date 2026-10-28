@@ -1,332 +1,55 @@
 import { describe, expect, it } from 'vitest';
-import {
-  buildDefaultTasks,
-  defaultTaskCandidateCount,
-  MAX_ZONE_TASKS_PER_DAY,
-  type DefaultTaskSet,
-} from '../services/defaultTasks';
-import { dayBudget } from '../services/dailyBudget';
-import { getTaskCatalog } from '../services/taskCatalog';
-import { orderWeekDays, type PartialHomeAnswers } from '../services/homePlan';
+import { buildDefaultTasks, defaultTaskCandidateCount } from '../services/defaultTasks';
+import type { PartialHomeAnswers } from '../services/homePlan';
+import { getBaseTasks } from '../services/taskSets';
 
 /**
- * Дни плана: ротация по всем дням недели вместо ежедневного минимума.
+ * Дни набора «Мои задачи».
  *
- * История правки. Сначала заказчик пожаловался, что «на другие дни почти тот же
- * список, и кухни всегда 3», и ежедневный минимум разложили по дням уборки.
- * Потом выяснилось, что сам ежедневный минимум был лишним: в каталоге он состоял
- * из бытовой рутины — убрать посуду, протереть обеденный стол после еды,
- * заправить кровать, проветрить. Человек делает это и без плана, а в расписании
- * оно выглядело заданием и выпадало на каждый день.
- *
- * Потом убрали и вопрос «в какие дни убираетесь»: дела ставятся на каждый день
- * (backend/services/homePlan.ts, `withDefaultAnswers`), а поле `cleaningDays`
- * из анкеты генератор **игнорирует** — иначе у половины пользователей с
- * сохранённым ответом план остался бы прежним.
- *
- * Отсюда нынешние правила:
- *  - задачи есть во все семь дней, и наборы разных дней различаются;
- *  - одна зона не занимает день целиком (не больше MAX_ZONE_TASKS_PER_DAY);
- *  - дневной бюджет по ответу анкеты не пробит.
- *
- * Проверки не требуют базы: генератор — чистый модуль.
+ * Старый тест проверял ротацию ежедневного минимума и раскладку каталога — обе
+ * механики сняты переделкой (docs/PLAN-tasks-rework.md). Осталось то, что важно
+ * для человека: в каждом дне недели есть дела, дни не повторяют друг друга, а
+ * база не теряется при добавлении расширений.
  */
+const TODAY = new Date('2026-01-05T00:00:00Z');
+const set = buildDefaultTasks({}, TODAY);
 
-/** Профиль с устаревшим ответом «пн, ср, сб»: генератор его больше не читает. */
-const THREE_DAYS: PartialHomeAnswers = {
-  housingType: 'apartment',
-  rooms: '3-4',
-  composition: 'partner',
-  pets: ['none'],
-  outdoor: 'none',
-  hasKidsRoom: false,
-  hasGarage: false,
-  worksFromHome: false,
-  drying: 'air',
-  cleaningLevel: 'normal',
-  dailyMinutes: 'under30',
-  cleaningStyle: 'varies',
-  cleaningDays: [1, 3, 6],
-  hardestZone: 'kitchen',
-};
-
-/** Тот же дом, но уборка каждый день: ротация должна работать и на семи днях. */
-const EVERY_DAY: PartialHomeAnswers = {
-  ...THREE_DAYS,
-  dailyMinutes: '1to2h',
-  cleaningLevel: 'deep',
-  rooms: '8+',
-  composition: 'family_kids',
-  pets: ['cats', 'dogs'],
-  outdoor: 'yard',
-  hasKidsRoom: true,
-  hasGarage: true,
-  worksFromHome: true,
-  drying: 'dryer',
-  cleaningStyle: 'all_at_once',
-  cleaningDays: [0, 1, 2, 3, 4, 5, 6],
-  hardestZone: 'bathroom',
-};
-
-const titlesOf = (set: DefaultTaskSet, dayOfWeek: number): Set<string> =>
-  new Set(set.summary.days.find((day) => day.dayOfWeek === dayOfWeek)?.tasks.map((task) => task.title));
-
-const differs = (left: Set<string>, right: Set<string>): boolean =>
-  left.size !== right.size || [...left].some((title) => !right.has(title));
-
-describe('дни плана: ротация вместо ежедневного минимума', () => {
-  it('в каталоге не осталось ежедневных дел', () => {
-    const daily = getTaskCatalog().filter((task) => task.cadence === 'daily');
-
-    expect(daily.map((task) => task.task)).toEqual([]);
-  });
-
-  it('в каталоге нет бытовой рутины, которую человек делает и без плана', () => {
-    const titles = getTaskCatalog().map((task) => task.task);
-    const routine = /убрать посуду|обеденный стол после еды|заправить кровать|проветрить|вечерний проход по ванной|плиту после готовки|разложить вещи по местам/i;
-
-    expect(titles.filter((title) => routine.test(title))).toEqual([]);
-  });
-
-  it('набор не содержит задач с ежедневной периодичностью', () => {
-    for (const answers of [THREE_DAYS, EVERY_DAY]) {
-      const set = buildDefaultTasks(answers);
-
-      expect(set.tasks.filter((task) => task.frequency === 'daily')).toEqual([]);
-      expect(set.summary.dailyTasks).toBe(0);
-    }
-  });
-
-  it('каждый день недели не пустой — уборка стоит на каждый день', () => {
-    const set = buildDefaultTasks(THREE_DAYS);
-
-    for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek += 1) {
-      const day = set.summary.days.find((entry) => entry.dayOfWeek === dayOfWeek);
-
-      expect(day?.tasks.length ?? 0, `день ${dayOfWeek}`).toBeGreaterThan(0);
-    }
-  });
-
-  it('дни из анкеты игнорируются: старое поле больше не сужает план', () => {
-    /**
-     * Заказчик убрал вопрос «в какие дни убираетесь» и попросил ставить дела на
-     * каждый день. У людей, заполнивших анкету раньше, в базе остались два-три
-     * выбранных дня, и генератор обязан их **не читать** — иначе половина
-     * пользователей жила бы по старому правилу.
-     */
-    const threeDays = buildDefaultTasks(THREE_DAYS);
-    const sameButEveryDay = buildDefaultTasks({ ...THREE_DAYS, cleaningDays: [0, 1, 2, 3, 4, 5, 6] });
-
-    const daysOf = (set: DefaultTaskSet) =>
-      set.summary.days.map((day) => `${day.dayOfWeek}:${day.tasks.length}`).join(',');
-
-    expect(daysOf(threeDays)).toBe(daysOf(sameButEveryDay));
-  });
-
-  it('наборы разных дней различаются, а не повторяют один список', () => {
-    const set = buildDefaultTasks(THREE_DAYS);
-    const monday = titlesOf(set, 1);
-    const wednesday = titlesOf(set, 3);
-    const saturday = titlesOf(set, 6);
-
-    expect(monday.size).toBeGreaterThan(0);
-    expect(differs(monday, wednesday), 'Пн и Ср совпали').toBe(true);
-    expect(differs(monday, saturday), 'Пн и Сб совпали').toBe(true);
-    expect(differs(wednesday, saturday), 'Ср и Сб совпали').toBe(true);
-  });
-
-  it('в дне не больше двух задач одной зоны', () => {
-    for (const answers of [THREE_DAYS, EVERY_DAY]) {
-      const set = buildDefaultTasks(answers);
-
-      for (const day of set.summary.days) {
-        const byRoom = new Map<string, number>();
-
-        for (const task of day.tasks) {
-          byRoom.set(task.room, (byRoom.get(task.room) ?? 0) + 1);
-        }
-
-        for (const [room, count] of byRoom) {
-          expect(count, `${day.label}, зона «${room}»`).toBeLessThanOrEqual(MAX_ZONE_TASKS_PER_DAY);
-        }
-      }
-    }
-  });
-
-  it('бюджет дня не пробит и порядок дней уборки соблюдён', () => {
-    const set = buildDefaultTasks(THREE_DAYS);
-    const budget = dayBudget(THREE_DAYS);
-
-    expect(set.summary.maxDailyMinutes).toBeLessThanOrEqual(budget);
-    expect(set.summary.dailyLimit).toBe(budget);
+describe('дни набора «Мои задачи»', () => {
+  it('в каждом дне недели есть дела', () => {
+    expect(set.summary.days).toHaveLength(7);
 
     for (const day of set.summary.days) {
-      expect(day.minutes, day.label).toBeLessThanOrEqual(budget);
-    }
-
-    // Дни уборки идут в порядке макета: понедельник, среда, суббота.
-    expect(orderWeekDays(THREE_DAYS.cleaningDays ?? [])).toEqual([1, 3, 6]);
-  });
-
-  it('на семи днях уборки задачи есть в большинстве дней, а не в одном', () => {
-    const set = buildDefaultTasks(EVERY_DAY);
-    const withTasks = set.summary.days.filter((day) => day.tasks.length > 0);
-
-    expect(withTasks.length).toBeGreaterThanOrEqual(4);
-  });
-});
-
-/**
- * Полнота набора и частоты, которые заказчик назвал прямо.
- *
- * Смысл правки: квоты («полов не больше трёх, пыли не больше двух») убраны, а
- * бюджет удлиняет цикл вместо того, чтобы выбрасывать дело. Поэтому здесь
- * проверяется, что набор **не теряет** подходящие дела каталога (кроме
- * объяснённого минимума на предельных профилях) и что названные частоты стоят
- * там, где их просили.
- */
-describe('полнота набора и названные частоты', () => {
-  const PROFILES: Array<[string, PartialHomeAnswers]> = [
-    ['студия, минимум, 3 дня', THREE_DAYS],
-    ['квартира, 30-60 мин, 2 дня', { ...THREE_DAYS, dailyMinutes: '30to60', cleaningDays: [2, 4] }],
-    ['дом, всё сразу, 5 дней', { ...EVERY_DAY, cleaningDays: [1, 3, 5, 6, 0] }],
-    ['квартира, зависит, 5 дней', { ...THREE_DAYS, dailyMinutes: 'depends', cleaningDays: [1, 2, 3, 4, 5] }],
-  ];
-
-  it('каталог не теряет подходящие дела: в наборе ровно то, что подходит минус объяснённые потери', () => {
-    for (const [label, answers] of PROFILES) {
-      const set = buildDefaultTasks(answers);
-
-      expect(set.summary.candidateTasks, label).toBe(defaultTaskCandidateCount(answers));
-      expect(set.summary.totalTasks, label).toBe(
-        set.summary.candidateTasks - set.summary.droppedTasks
-      );
-      expect(set.summary.includedTasks, label).toBe(set.summary.totalTasks);
+      expect(day.tasks.length).toBeGreaterThan(0);
     }
   });
 
-  it('в наборе нет дублей названий: название — ключ расписания', () => {
-    for (const [label, answers] of PROFILES) {
-      const set = buildDefaultTasks(answers);
-      const titles = set.tasks.map((task) => task.title);
-
-      expect(new Set(titles).size, label).toBe(titles.length);
-    }
-  });
-
-  it('постельное бельё меняется раз в неделю', () => {
-    for (const [label, answers] of PROFILES) {
-      const task = buildDefaultTasks(answers).tasks.find(
-        (entry) => entry.title === 'Сменить постельное бельё'
-      );
-
-      expect(task, label).toBeDefined();
-      expect(task?.cadence, label).toBe('weekly');
-      expect(task?.frequency, label).toBe('weekly');
-      // Интервал периодичности — в днях: неделя это 7 дней.
-      expect(task?.intervalCount, label).toBe(7);
-      expect(task?.dayOfWeek, label).not.toBeNull();
-    }
-  });
-
-  it('зеркало в ванной — раз в месяц, зеркало в прихожей — раз в 3 недели', () => {
-    /**
-     * Частоты из пункта 6 правки заказчика: зеркало в ванной — раз в месяц,
-     * зеркало в прихожей — раз в 3 месяца. Каталог держит первую ступень, а
-     * генератор может её удлинить, если бюджет не пускает: это разрешено, но
-     * названная частота должна быть первой ступенью, а не «когда-нибудь».
-     */
-    const catalog = getTaskCatalog();
-    const bathroomCatalog = catalog.find(
-      (task) => task.task === 'Помыть зеркало в ванной без разводов'
+  it('дни различаются: это не один и тот же список', () => {
+    const signatures = set.summary.days.map((day) =>
+      day.tasks.map((task) => task.title).join('|'),
     );
-    const hallwayCatalog = catalog.find((task) => task.task === 'Протереть зеркало в прихожей');
 
-    expect(bathroomCatalog?.cadence).toBe('monthly');
-    expect(hallwayCatalog?.cadence).toBe('threeWeeks');
-
-    for (const [label, answers] of PROFILES) {
-      const tasks = buildDefaultTasks(answers).tasks;
-      const bathroom = tasks.find((entry) => entry.title === 'Помыть зеркало в ванной без разводов');
-      const hallway = tasks.find((entry) => entry.title === 'Протереть зеркало в прихожей');
-
-      // Названная частота не может стать **чаще**, чем просили: генератор только
-      // удлиняет цикл. Для «раз в месяц» это интервал не меньше месяца — то есть
-      // не меньше 30 дней (интервал периодичности выражается в днях).
-      expect(bathroom, label).toBeDefined();
-      expect(bathroom?.frequency, label).toBe('monthly');
-      expect(bathroom?.intervalCount, label).toBeGreaterThanOrEqual(30);
-      expect(bathroom?.dayOfMonth, label).toBeGreaterThanOrEqual(1);
-      expect(bathroom?.dayOfMonth, label).toBeLessThanOrEqual(28);
-
-      expect(hallway, label).toBeDefined();
-      expect(hallway?.frequency, label).toBe('weekly');
-      expect(hallway?.intervalCount, label).toBeGreaterThanOrEqual(21);
-      expect(hallway?.dayOfWeek, label).not.toBeNull();
-    }
+    expect(new Set(signatures).size).toBe(signatures.length);
   });
 
-  it('полы жилых комнат — одной задачей на квартиру, гаражные дела в наборе не участвуют', () => {
-    const titles = getTaskCatalog().map((task) => task.task);
-    // В каталоге остаются только гаражные полы: гараж исключён из генерации
-    // целиком (заказчик убрал вопрос про гараж), а каталог его сохраняет.
-    const perRoom = titles.filter((title) => /^(вымыть|помыть|подмести) пол в /i.test(title));
-
-    expect(perRoom.sort()).toEqual(['Подмести пол в гараже', 'Помыть пол в гараже'].sort());
-
-    const wholeFlat = getTaskCatalog().filter((task) => task.tags.includes('floors'));
-    const wipe = wholeFlat.filter((task) => task.task.includes('во всей квартире'));
-
-    expect(wipe.some((task) => task.task === 'Вымыть полы во всей квартире')).toBe(true);
-    expect(wipe.some((task) => task.task === 'Пропылесосить полы во всей квартире')).toBe(true);
-
-    // В самом наборе гаражных дел нет ни у одного профиля.
-    for (const [label, answers] of PROFILES) {
-      const set = buildDefaultTasks(answers);
-
-      expect(
-        set.tasks.filter((task) => task.room === 'Гараж' || task.tags.includes('garage')),
-        label
-      ).toEqual([]);
-    }
+  it('без ответов анкеты кандидатов ровно столько, сколько в базе', () => {
+    expect(defaultTaskCandidateCount({})).toBe(getBaseTasks().length);
   });
 
-  it('робот-пылесос — отдельные дела про технику, а не ежедневная рутина', () => {
-    const robot = getTaskCatalog().filter((task) => /робот-пылесос/i.test(task.task));
+  it('анкета добавляет дела, но базовые не теряются', () => {
+    const answers: PartialHomeAnswers = {
+      pets: ['cats'],
+      outdoor: 'yard',
+      hasKidsRoom: true,
+      worksFromHome: true,
+    };
 
-    expect(robot.length).toBeGreaterThanOrEqual(2);
+    const full = buildDefaultTasks(answers, TODAY);
+    const titles = new Set(full.tasks.map((task) => task.title));
 
-    for (const task of robot) {
-      expect(task.cadence).not.toBe('daily');
-      expect(task.minutes).toBeLessThanOrEqual(25);
-    }
-  });
+    expect(full.summary.totalTasks).toBeGreaterThan(set.summary.totalTasks);
 
-  it('недельные периодичности попадают в набор и считаются выборкой', () => {
-    const set = buildDefaultTasks(THREE_DAYS);
-    const weekly = set.tasks.filter((task) => task.frequency === 'weekly');
-
-    // Недельные интервалы — ступени лестницы в днях: неделя, 2, 3 и 6 недель.
-    // «Раз в 3 недели» и «раз в 6 недель» — полноценные ступени (21 и 42 дня).
-    for (const task of weekly) {
-      expect([7, 14, 21, 42], task.title).toContain(task.intervalCount);
-    }
-
-    expect(set.summary.cadences.weekly + set.summary.cadences.biweekly).toBeGreaterThan(0);
-  });
-
-  it('периодичность сгенерированного набора живёт в коридоре 7…180 дней', () => {
-    /**
-     * Решение заказчика: дефолтные дела — не чаще раза в неделю и не реже раза в
-     * полгода. Годовые дела каталога становятся «раз в 180 дней», а всё, чему не
-     * хватило места на этой ступени, уходит в `droppedTasks`, а не превращается в
-     * сгенерированное «раз в 3 года».
-     */
-    for (const answers of [THREE_DAYS, EVERY_DAY]) {
-      for (const task of buildDefaultTasks(answers).tasks) {
-        expect(task.intervalCount, `${task.title} (${task.frequency})`).toBeGreaterThanOrEqual(7);
-        expect(task.intervalCount, `${task.title} (${task.frequency})`).toBeLessThanOrEqual(180);
-      }
+    for (const base of getBaseTasks()) {
+      expect(titles.has(base.task)).toBe(true);
     }
   });
 });
