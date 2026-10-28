@@ -84,6 +84,10 @@ export type TaskTag =
  * `threeWeeks` и `sixWeeks`: они выражаются той же парой (frequency: 'weekly',
  * interval_count: 21|42 дня), которую уже понимает таблица tasks и выборка
  * «Сегодня».
+ *
+ * `sixWeeks` показывается как «раз в полтора месяца»: 42 дня — это и есть шесть
+ * недель, но в курируемом наборе заказчик называет эту группу полутора месяцами,
+ * и подпись обязана совпадать с тем, что он видит в списке.
  */
 export type TaskCadence =
   | 'daily'
@@ -144,7 +148,7 @@ export const TASK_CADENCE_LABELS: Record<TaskCadence, string> = {
   weekly: 'Раз в неделю',
   biweekly: 'Раз в 2 недели',
   threeWeeks: 'Раз в 3 недели',
-  sixWeeks: 'Раз в 6 недель',
+  sixWeeks: 'Раз в полтора месяца',
   monthly: 'Раз в месяц',
   twoMonths: 'Раз в 2 месяца',
   quarterly: 'Раз в 3 месяца',

@@ -375,7 +375,7 @@ export const TASK_CADENCE_LABELS_EN: Record<string, string> = {
   weekly: 'Once a week',
   biweekly: 'Every 2 weeks',
   threeWeeks: 'Every 3 weeks',
-  sixWeeks: 'Every 6 weeks',
+  sixWeeks: 'Every 1.5 months',
   monthly: 'Once a month',
   twoMonths: 'Every 2 months',
   quarterly: 'Every 3 months',

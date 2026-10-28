@@ -24,6 +24,7 @@ import type {
   TodayPlanTask,
 } from '~/types/task';
 import { isGeneratedTask } from '~/types/task';
+import { repeatLabel } from '~/utils/repeatLabel';
 
 interface SeasonalTemplate {
   title: string;
@@ -410,45 +411,45 @@ const planBusy = ref<number[]>([]);
 /** Понятная строка ошибки вместо молчаливого отката. */
 const planError = ref('');
 
-/** Периодичность из пары «частота + интервал»: «раз в неделю», «раз в 3 месяца». */
+/**
+ * Периодичность из пары «частота + интервал»: «раз в неделю», «раз в 3 месяца».
+ *
+ * Перевод дней в единицы шкалы живёт в `utils/repeatLabel.ts`: интервал хранится
+ * в днях, а подпись должна читаться как «раз в 3 месяца», а не «раз в 90 месяцев».
+ * Фразы вроде «раз в полтора месяца» и «раз в год» приходят оттуда же готовыми.
+ */
 const frequencyLabel = (task: {
   frequency: TaskFrequency | null;
   interval_count: number | null;
 }): string | null => {
-  const frequency = task.frequency;
+  const parts = repeatLabel(task.frequency, task.interval_count);
 
-  if (!frequency) {
+  if (parts.kind === 'none') {
     return null;
   }
 
-  if (frequency === 'once') {
+  if (parts.kind === 'once') {
     return t('plan.repeatOnce');
   }
 
-  const count = task.interval_count ?? 1;
-
-  if (count <= 1) {
-    return frequency === 'daily'
-      ? t('plan.repeatDay')
-      : frequency === 'weekly'
-        ? t('plan.repeatWeek')
-        : t('plan.repeatMonth');
+  if (parts.kind === 'phrase') {
+    return t(`plan.${parts.key}`);
   }
 
   const forms =
-    frequency === 'daily'
+    parts.unit === 'day'
       ? [t('plan.unitDayOne'), t('plan.unitDayFew'), t('plan.unitDayMany')]
-      : frequency === 'weekly'
+      : parts.unit === 'week'
         ? [t('plan.unitWeekOne'), t('plan.unitWeekFew'), t('plan.unitWeekMany')]
         : [t('plan.unitMonthOne'), t('plan.unitMonthFew'), t('plan.unitMonthMany')];
 
   // Склонения — как везде в проекте: русские формы через `pluralRu`, английские через `pluralEn`.
   const unit =
     locale.value === 'ru'
-      ? pluralRu(count, forms[0]!, forms[1]!, forms[2]!)
-      : pluralEn(count, forms[0]!, forms[2]!);
+      ? pluralRu(parts.count, forms[0]!, forms[1]!, forms[2]!)
+      : pluralEn(parts.count, forms[0]!, forms[2]!);
 
-  return t('plan.repeatN', { count, unit });
+  return t('plan.repeatN', { count: parts.count, unit });
 };
 
 /** Подпись строки сегодняшнего дня: периодичность и время.
