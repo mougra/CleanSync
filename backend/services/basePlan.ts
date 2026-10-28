@@ -327,10 +327,8 @@ export const buildBasePlan = (
   };
 
   /** Кандидаты на место: дни недели для недельных, числа месяца для редких. */
-  const candidatesFor = (task: PlannedTask, offset: number): PlannedTask[] => {
+  const candidatesFor = (task: PlannedTask, phase: number): PlannedTask[] => {
     if (task.frequency === 'weekly') {
-      const phase = task.intervalCount / DAYS_IN_WEEK > 1 ? offset % (task.intervalCount / DAYS_IN_WEEK) : 0;
-
       return [...weekLoad.keys()]
         .sort(
           (left, right) =>
@@ -351,8 +349,6 @@ export const buildBasePlan = (
     }
 
     if (task.frequency === 'monthly') {
-      const phase = task.intervalCount > DAYS_IN_MONTH ? offset % (task.intervalCount / DAYS_IN_MONTH) : 0;
-
       return [...monthLoad.keys()]
         .sort(
           (left, right) =>
@@ -373,21 +369,51 @@ export const buildBasePlan = (
   };
 
   /**
+   * Сколько фаз у цикла: «раз в 2 недели» бывает в чётные и нечётные недели,
+   * «раз в 3 месяца» — в одной из трёх групп месяцев.
+   *
+   * Фаза сдвигает вхождения на один шаг цикла и не меняет частоту. Перебор фаз
+   * важен именно для потолка: два дела «раз в 2 недели» на одном дне недели с
+   * разными фазами никогда не совпадают, а с одинаковыми — совпадают всегда, и
+   * день получает двойную нагрузку.
+   */
+  const phasesOf = (task: PlannedTask): number => {
+    if (task.frequency === 'weekly') {
+      return Math.max(1, Math.round(task.intervalCount / DAYS_IN_WEEK));
+    }
+
+    if (task.frequency === 'monthly') {
+      return Math.max(1, Math.round(task.intervalCount / DAYS_IN_MONTH));
+    }
+
+    return 1;
+  };
+
+  /**
    * Ищет место задаче.
    *
    * `strict` — вернуть null, если ни один вариант не держит потолок: так ставятся
    * расширения (лучше удлинить цикл, чем выйти за 40 минут). Без `strict` берём
    * вариант с наименьшей худшей нагрузкой: базовую задачу терять нельзя, и даже
    * если идеального места нет, она встаёт на самое свободное.
+   *
+   * Перебираются и дни, и фазы цикла. Порядок фаз начинается с той, что задана
+   * порядком разбора: раскладка остаётся детерминированной, а остальные фазы —
+   * способ развести совпадения, не трогая частоту.
    */
-  const place = (task: PlannedTask, offset: number, strict: boolean): Placement | null => {
+  const place = (task: PlannedTask, seed: number, strict: boolean): Placement | null => {
+    const phases = phasesOf(task);
     let best: Placement | null = null;
 
-    for (const candidate of candidatesFor(task, offset)) {
-      const placement = evaluate(candidate);
+    for (let step = 0; step < phases; step += 1) {
+      const phase = (seed + step) % phases;
 
-      if (placement.worst <= CAP) return placement;
-      if (!best || placement.worst < best.worst) best = placement;
+      for (const candidate of candidatesFor(task, phase)) {
+        const placement = evaluate(candidate);
+
+        if (placement.worst <= CAP) return placement;
+        if (!best || placement.worst < best.worst) best = placement;
+      }
     }
 
     return strict ? null : best;
