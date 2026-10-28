@@ -648,7 +648,6 @@ const defaultRows = computed<PlanDayRow[]>(() =>
  */
 const showDefaultPlan = computed(() => {
   if (!auth.isAuthenticated) return true;
-  if (!homeProfileDone.value) return true;
 
   return isToday.value && personalRows.value.length === 0;
 });
@@ -1200,6 +1199,16 @@ useStructuredData(() => ({
       {{ t('state.error') }}<br >
       <small>{{ t('state.errorHint') }}</small>
     </p>
+
+    <!--
+      Приглашение пройти анкету о доме: только вошедшему и только пока анкета не
+      пройдена. Базовый набор в плане уже есть, поэтому это не заглушка вместо
+      дел, а следующий шаг: персонализировать план под свой дом.
+    -->
+    <HomeSetupCard
+      v-if="auth.isAuthenticated && !homeProfileDone"
+      :to="localePath('/settings?setup=1')"
+    />
 
     <!--
       Режим отпуска: вместо плана — состояние отпуска и выход из него.

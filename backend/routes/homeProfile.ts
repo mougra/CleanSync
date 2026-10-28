@@ -613,7 +613,7 @@ const toPlanResponse = async (options: {
  *    устаревшие задачи, которые создал этот же набор (`source`), и только
  *    незакрытые: выполненная история и задачи, созданные руками, остаются.
  */
-const syncDefaultTasks = async (
+export const syncDefaultTasks = async (
   userId: string,
   set: DefaultTaskSet,
   options: { removeStale: boolean }

@@ -4,12 +4,36 @@ import { appDay, appToday, parseAppDay, requestClock } from '../services/appTime
 import { authMiddleware } from '../auth';
 import { checkAndAwardAchievements } from '../services/achievementManager';
 import { canAccessSchedule } from '../services/household';
-import { DEFAULT_TASK_SOURCE, normalizeTaskTitle } from '../services/defaultTasks';
+import { DEFAULT_TASK_SOURCE, buildDefaultTasks, normalizeTaskTitle } from '../services/defaultTasks';
 import { HOME_PLAN_SOURCE } from '../services/homePlan';
+import { syncDefaultTasks } from './homeProfile';
 import { canonicalZone } from '../services/zones';
 import { resolveContentLocale, type ContentLocale } from '../services/contentLocale';
 
 const router = express.Router();
+
+/**
+ * Первый заход в новый аккаунт: базовый набор создаётся сам.
+ *
+ * Решение заказчика — дефолтные дела должны быть видны и отмечаемы сразу, без
+ * анкеты: человек регистрируется, попадает на главную и закрывает первое дело.
+ * Набор идемпотентен (advisory-lock и ключ по названию внутри «Мои задачи»),
+ * поэтому повторные заходы и гонка двух первых запросов безопасны.
+ *
+ * Условие — «нет ни одного расписания». Если человек уже что-то завёл (или
+ * удалил всё сам), мы не вмешиваемся: пересборка — только по явному действию.
+ */
+const ensureDefaultSet = async (userId: string): Promise<void> => {
+  const existing = await pool.query('SELECT 1 FROM schedules WHERE user_id = $1 LIMIT 1', [
+    userId,
+  ]);
+
+  if (existing.rows.length > 0) {
+    return;
+  }
+
+  await syncDefaultTasks(userId, buildDefaultTasks({}), { removeStale: false });
+};
 
 /**
  * Пометки источников, которые считаются сгенерированными сервером.
@@ -176,6 +200,9 @@ const tasksDueOn = async (userId: string, date: Date, locale: ContentLocale) => 
 router.get('/today', authMiddleware, async (req: Request, res: Response) => {
 
   try {
+    // Новый аккаунт: сначала заводим базовый набор, иначе первый экран пуст.
+    await ensureDefaultSet(String(req.userId));
+
     /**
      * «Сегодня» берём из устройства (`X-Client-Date` / `X-Client-Offset`), а не из
      * пояса приложения: календарь в интерфейсе рисует дату браузера, и после
@@ -458,6 +485,9 @@ router.get('/calendar', authMiddleware, async (req: Request, res: Response) => {
  */
 router.get('/mine', authMiddleware, async (req: Request, res: Response) => {
   try {
+    // Тот же первый заход: «Мои задачи» не должны быть пустыми у нового аккаунта.
+    await ensureDefaultSet(String(req.userId));
+
     const locale = resolveContentLocale(req);
 
     const result = await pool.query(

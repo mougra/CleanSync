@@ -253,11 +253,29 @@ router.post('/register', async (req: Request, res: Response) => {
     const result = await pool.query(
       `INSERT INTO users (email, password, username, avatar_url, email_confirm_token, terms_accepted_at)
        VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
-       RETURNING id, email`,
+       RETURNING id, email, username, avatar_url, is_email_confirmed`,
       [email, hashedPassword, username, avatarUrl, emailConfirmToken],
     );
 
     const user = result.rows[0];
+
+    /**
+     * Регистрация сразу входит: человек не должен вводить пароль второй раз.
+     *
+     * Токены кладём теми же httpOnly-cookie, что и `POST /login`, поэтому клиент
+     * после ответа уже авторизован и уходит на главную. Тело ответа повторяет
+     * форму логина (профиль + токены) — прежние API-клиенты читают токены
+     * оттуда, приложение их не хранит.
+     */
+    const { accessToken, refreshToken } = generateTokens(user.id);
+
+    await pool.query('INSERT INTO refresh_tokens (user_id, token) VALUES ($1, $2)', [
+      user.id,
+      refreshToken,
+    ]);
+
+    setAuthCookies(res, { accessToken, refreshToken });
+    ensureCsrfToken(req, res);
 
     // Письмо подтверждения при регистрации не отправляем: человек сначала
     // пользуется сервисом, а подтверждение почты — его отдельное действие в
@@ -266,7 +284,16 @@ router.post('/register', async (req: Request, res: Response) => {
     // посмотреть, и не просим шаг, который ничего не открывает: вход, план и
     // восстановление пароля доступны сразу.
     res.status(201).json({
-      message: 'Регистрация успешна. Можно входить.',
+      message: 'Регистрация успешна. Вы вошли.',
+      user: {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        avatar_url: user.avatar_url,
+        is_email_confirmed: user.is_email_confirmed,
+      },
+      accessToken,
+      refreshToken,
     });
   } catch (err) {
     console.error(err);

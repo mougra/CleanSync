@@ -71,18 +71,30 @@ export const useAuthStore = defineStore('auth', () => {
    * Регистрация. Согласие на обработку персональных данных передаём
    * обязательным полем: сервер без него отвечает 400 и не создаёт аккаунт,
    * а при согласии сохраняет дату (152-ФЗ).
+   *
+   * Сервер с 27 октября сразу выдаёт cookie-сессию, поэтому регистрация — это
+   * вход: профиль кладём в стор, и человек уходит на главную уже авторизованным.
    */
   const register = async (
     email: string,
     password: string,
     acceptTerms: boolean,
-  ): Promise<string> => {
+  ): Promise<AuthUser | null> => {
     await ensureCsrf();
-    const response = await useApi().request<{ message?: string }>('/api/auth/register', {
-      method: 'POST',
-      body: { email, password, acceptTerms },
-    });
-    return response.message ?? '';
+    const response = await useApi().request<{ user?: AuthUser; message?: string }>(
+      '/api/auth/register',
+      {
+        method: 'POST',
+        body: { email, password, acceptTerms },
+      },
+    );
+
+    if (response.user) {
+      user.value = response.user;
+      ready.value = true;
+    }
+
+    return response.user ?? null;
   };
 
   const logout = async (): Promise<void> => {

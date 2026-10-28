@@ -12,7 +12,6 @@ const passwordRepeat = ref('');
 const acceptedTerms = ref(false);
 const pending = ref(false);
 const error = ref(false);
-const successMessage = ref('');
 
 /**
  * Поля считаем «тронутыми» после первого ввода: иначе ошибки горели бы красным
@@ -62,11 +61,18 @@ const submit = async () => {
   pending.value = true;
   error.value = false;
   try {
-    // Регистрация не логинит: бэкенд создаёт аккаунт и возвращает сообщение,
-    // письмо подтверждения при этом не отправляется — подтвердить почту можно
-    // потом в настройках. Согласие на обработку данных обязательно: сервер
-    // отклонит запрос без него и запишет дату согласия.
-    successMessage.value = await auth.register(email.value.trim(), password.value, acceptedTerms.value);
+    // Регистрация — это и вход: сервер сразу кладёт сессию в httpOnly-cookie и
+    // возвращает профиль, поэтому человек уходит на главную уже авторизованным,
+    // без второго ввода пароля. Согласие на обработку данных обязательно: без
+    // него сервер отвечает 400 и аккаунт не создаёт.
+    const registered = await auth.register(email.value.trim(), password.value, acceptedTerms.value);
+
+    if (!registered) {
+      error.value = true;
+      return;
+    }
+
+    await navigateTo(localePath('/'));
   } catch {
     error.value = true;
   } finally {
@@ -81,9 +87,7 @@ useSeoMeta({ title: () => t('auth.registerTitle') });
   <div class="auth">
     <h1 class="auth__title">{{ t('auth.registerTitle') }}</h1>
 
-    <p v-if="successMessage" class="auth__success">{{ successMessage }}</p>
-
-    <form v-else class="auth__form" @submit.prevent="submit">
+    <form class="auth__form" @submit.prevent="submit">
       <label class="field">
         <span class="field__label">{{ t('auth.email') }}</span>
         <input
