@@ -138,8 +138,8 @@ const tasksDueOn = async (userId: string, date: Date, locale: ContentLocale) => 
          (t.frequency = 'weekly' AND t.day_of_week = $2 AND t.due_date IS NOT NULL
            AND MOD(t.interval_count, 7) = 0
            AND MOD(FLOOR(($4::date - t.due_date)::numeric / 7)::int, t.interval_count / 7) = 0) OR
-         (t.frequency = 'monthly' AND t.day_of_month = $3 AND t.interval_count = 30) OR
-         (t.frequency = 'monthly' AND t.day_of_month = $3 AND t.due_date IS NOT NULL
+         (t.frequency = 'monthly' AND (t.day_of_month + COALESCE(t.month_shifts[EXTRACT(MONTH FROM $4::date)::int], 0)) = $3 AND t.interval_count = 30) OR
+         (t.frequency = 'monthly' AND (t.day_of_month + COALESCE(t.month_shifts[EXTRACT(MONTH FROM $4::date)::int], 0)) = $3 AND t.due_date IS NOT NULL
            AND MOD(
                  MOD(
                    (EXTRACT(YEAR FROM $4::date) * 12 + EXTRACT(MONTH FROM $4::date))
@@ -623,6 +623,13 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
         room = COALESCE($8, room),
         -- Интервал периодичности: принимаем только целое в пределах 1…3650
         interval_count = COALESCE($12::int, interval_count),
+        -- Сдвиги числа месяца ставит планировщик. Если человек сам поменял
+        -- частоту или число, прежние сдвиги к новой сетке уже не подходят —
+        -- сбрасываем; при отметке и правке названия оставляем как есть.
+        month_shifts = CASE
+          WHEN $2 IS NULL AND $4 IS NULL THEN month_shifts
+          ELSE NULL
+        END,
         is_completed = COALESCE($9, is_completed),
         completed_at = CASE
           WHEN COALESCE($9, is_completed) = TRUE THEN CURRENT_TIMESTAMP
@@ -757,7 +764,7 @@ router.post('/:id/move', authMiddleware, async (req: Request, res: Response) => 
  */
 const TASK_PAYLOAD_COLUMNS = `id, schedule_id, title, room, frequency, interval_count,
   day_of_week, day_of_month, due_date, time, estimated_minutes, source, is_completed,
-  completed_at`;
+  completed_at, month_shifts`;
 
 /** Строка задачи в объёме полей возврата: `time` уходит строкой `HH:MM:SS`. */
 interface TaskPayloadRow {
@@ -775,6 +782,7 @@ interface TaskPayloadRow {
   source: string | null;
   is_completed: boolean;
   completed_at: string | null;
+  month_shifts: number[] | null;
 }
 
 /**
@@ -870,6 +878,7 @@ router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
       source: task.source,
       is_completed: task.is_completed,
       completed_at: task.completed_at,
+      month_shifts: task.month_shifts,
     };
 
     res.json({ deleted: true, id: Number(id), dismissed, task: payload });
@@ -897,6 +906,7 @@ interface RestoreBody {
   source?: unknown;
   is_completed?: unknown;
   completed_at?: unknown;
+  month_shifts?: unknown;
 }
 
 /** Целое из тела запроса или null: `0` (воскресенье, нулевой день месяца) — значение. */
@@ -980,8 +990,9 @@ router.post('/restore', authMiddleware, async (req: Request, res: Response) => {
     const inserted = await client.query<TaskPayloadRow>(
       `INSERT INTO tasks
          (schedule_id, title, room, frequency, interval_count, day_of_week, day_of_month,
-          due_date, time, estimated_minutes, source, is_completed, completed_at, completed_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+          due_date, time, estimated_minutes, source, is_completed, completed_at, completed_by,
+          month_shifts)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
        RETURNING ${TASK_PAYLOAD_COLUMNS}`,
       [
         scheduleId,
@@ -1000,6 +1011,9 @@ router.post('/restore', authMiddleware, async (req: Request, res: Response) => {
         // Приведение к int обязательно: из JWT идентификатор приходит строкой
         // (правило 25), и в CASE ... THEN $n вывод ушёл бы в text.
         isCompleted ? req.userId : null,
+        // Сдвиги возвращаются вместе с задачей: без них дело после «Вернуть»
+        // снова вставало бы в занятый день.
+        Array.isArray(body.month_shifts) ? body.month_shifts : null,
       ]
     );
 

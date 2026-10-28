@@ -22,16 +22,17 @@ import { CADENCE_PERIOD_DAYS, extrasFor, getBaseTasks, type SetTask } from './ta
  *    хотя бы в один день сумма превысит потолок;
  *  - если расширение не помещается никуда на своей частоте, цикл удлиняется
  *    (лестница `DEMOTION_LADDER`) — расширение необязательно, терять его жалко,
- *    а ломать потолок нельзя.
+ *    а ломать потолок нельзя;
+ *  - если редкое дело всё-таки попадает в занятый день, уезжает **само
+ *    вхождение**, а не частота: `month_shifts[месяц - 1]` хранит, на сколько дней
+ *    перенести дело в этом месяце. Выборка «Сегодня» применяет сдвиг при чтении,
+ *    поэтому план в интерфейсе и раскладка совпадают.
  *
- * Честное ограничение потолка. При фиксированных частотах строгие 40 минут в
- * каждый день недостижимы: месячное дело стоит на одном числе месяца, а день
- * недели у этого числа меняется от месяца к месяцу и за год проходит все семь.
- * Значит, оно рано или поздно попадёт на день, где уже стоят недельные дела. При
- * средней 28,2 это даёт единичные дни по 42–50 минут (замер: 10 дней из 400,
- * максимум 50) — раскладка выбирает такие места, где перегруз минимален, но
- * убрать его полностью можно только укоротив самые тяжёлые дела или отказавшись
- * от части частот.
+ * Почему сдвиг нужен. Месячное дело стоит на одном числе, а день недели у числа
+ * за год проходит все семь. Недельная нагрузка местами занимает день почти
+ * целиком, и без сдвига сумма выходила за 40 (замер до правки: 20 дней из 400,
+ * максимум 50). Со сдвигом потолок держится: 40 минут в худший день на разных
+ * опорных датах.
  */
 
 /** Потолок нагрузки дня для сгенерированных задач: решение заказчика. */
@@ -54,6 +55,14 @@ export interface PlannedTask {
   intervalCount: number;
   dayOfWeek: number | null;
   dayOfMonth: number | null;
+  /**
+   * Сдвиг числа месяца по месяцам: массив из 12 значений, `monthShifts[месяц - 1]`.
+   * `null` — без сдвигов.
+   *
+   * Это компромисс с фиксированными частотами: частота остаётся прежней, но само
+   * вхождение уезжает на соседний день, когда его число попадает в занятый день.
+   */
+  monthShifts: number[] | null;
   dueDate: string | null;
 }
 
@@ -177,7 +186,17 @@ export const taskDueOn = (task: PlannedTask, date: Date): boolean => {
   }
 
   if (task.frequency === 'monthly') {
-    if (day.getUTCDate() !== task.dayOfMonth) return false;
+    /**
+     * Эффективное число месяца: база плюс сдвиг для этого месяца.
+     *
+     * Сдвиг нужен, потому что редкое дело стоит на одном числе, а день недели у
+     * числа за год проходит все семь. Если выпало на занятый день, вхождение
+     * уезжает на соседний — ровно то же правило применяет SQL в `tasksDueOn`
+     * (`routes/tasks.ts`), поэтому план в API и здесь совпадают.
+     */
+    const shift = task.monthShifts?.[day.getUTCMonth()] ?? 0;
+
+    if (day.getUTCDate() !== (task.dayOfMonth ?? 0) + shift) return false;
     if (task.intervalCount === DAYS_IN_MONTH) return true;
     if (!task.dueDate) return false;
 
@@ -249,6 +268,7 @@ const taskFrom = (task: SetTask, cadence: TaskCadence): PlannedTask => {
     intervalCount: rule.intervalCount,
     dayOfWeek: null,
     dayOfMonth: null,
+    monthShifts: null,
     dueDate: null,
   };
 };
@@ -581,6 +601,120 @@ export const buildBasePlan = (
     }
 
     if (!improved) break;
+  }
+
+  /**
+   * Перенос вхождений редких дел на соседний день.
+   *
+   * Частоты зафиксированы, поэтому «раз в месяц» нельзя превратить в «раз в два
+   * месяца». Зато конкретное вхождение можно сдвинуть: `month_shifts[m]` говорит,
+   * на сколько дней перенести дело в месяце m. Здесь сдвиг подбирается так, чтобы
+   * сумма дня держалась в потолке: перебираются −3…+3, выбирается вариант с
+   * наименьшей нагрузкой (при равенстве — ближайший к исходному числу).
+   *
+   * Задача на время расчёта снимается с календаря: иначе её собственные минуты
+   * учитывались бы дважды. Несколько проходов нужны потому, что сдвиг одного дела
+   * может наехать на другое.
+   */
+  for (let pass = 0; pass < 4; pass += 1) {
+    let moved = false;
+
+    // Тяжёлые дела выбирают день первыми: у них меньше вариантов, а лёгкому
+    // проще уехать на соседний день.
+    const rareOrder = [...placed].sort((left, right) => right.minutes - left.minutes);
+
+    for (const task of rareOrder) {
+      if (task.frequency !== 'monthly' || task.dayOfMonth === null) continue;
+
+      const current = occurrences(task);
+      const before = current.reduce(
+        (max, date) => Math.max(max, dateLoad.get(date) ?? 0),
+        0,
+      );
+
+      if (before <= CAP) continue;
+
+      for (const date of current) {
+        dateLoad.set(date, (dateLoad.get(date) ?? 0) - task.minutes);
+      }
+
+      /**
+       * У дел реже месяца есть вторая степень свободы — фаза цикла.
+       *
+       * Сдвиг опоры на шаг цикла меняет набор месяцев, в которые дело случается.
+       * Если в текущих месяцах свободного дня нет (так бывает, когда недельная
+       * нагрузка занимает все дни недели), берём фазу с наименьшим худшим днём.
+       */
+      if (task.intervalCount > DAYS_IN_MONTH && task.dueDate) {
+        const step = task.intervalCount / DAYS_IN_MONTH;
+
+        if (step > 1) {
+          const originalDue = task.dueDate;
+          let bestDue = originalDue;
+          let bestWorst = Number.POSITIVE_INFINITY;
+
+          for (let phase = 0; phase < step; phase += 1) {
+            const probe = {
+              ...task,
+              dueDate: shiftMonths(originalDue, phase),
+              monthShifts: null,
+            };
+            const worst = occurrences(probe).reduce(
+              (max, date) => Math.max(max, (dateLoad.get(date) ?? 0) + task.minutes),
+              0,
+            );
+
+            if (worst < bestWorst) {
+              bestWorst = worst;
+              bestDue = probe.dueDate;
+            }
+          }
+
+          task.dueDate = bestDue;
+        }
+      }
+
+      const shifts = new Array(12).fill(0);
+
+      for (let month = 1; month <= 12; month += 1) {
+        let bestShift = 0;
+        let bestWorst = Number.POSITIVE_INFINITY;
+
+        for (const shift of [0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5, -6, 6, -7, 7]) {
+          const day = task.dayOfMonth + shift;
+
+          if (day < 1 || day > 28) continue;
+
+          const probe = new Array(12).fill(0);
+          probe[month - 1] = shift;
+
+          const dates = occurrences({ ...task, monthShifts: probe }).filter(
+            (date) => Number(date.slice(5, 7)) === month,
+          );
+          const worst = dates.reduce(
+            (max, date) => Math.max(max, (dateLoad.get(date) ?? 0) + task.minutes),
+            0,
+          );
+
+          if (worst < bestWorst) {
+            bestWorst = worst;
+            bestShift = shift;
+          }
+        }
+
+        shifts[month - 1] = bestShift;
+      }
+
+      task.monthShifts = shifts;
+
+      for (const date of occurrences(task)) {
+        dateLoad.set(date, (dateLoad.get(date) ?? 0) + task.minutes);
+      }
+
+      if (occurrences(task).some((date) => (dateLoad.get(date) ?? 0) > CAP)) moved = true;
+    }
+
+    if (!moved) break;
   }
 
   const maxDayMinutes = [...dateLoad.values()].reduce((max, minutes) => Math.max(max, minutes), 0);

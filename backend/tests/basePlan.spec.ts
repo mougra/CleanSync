@@ -34,8 +34,8 @@ describe('раскладка базового набора', () => {
     expect(plan.averagePerDay).toBeLessThanOrEqual(30);
   });
 
-  it('не выходит за предел худшего дня', () => {
-    expect(plan.maxDayMinutes).toBeLessThanOrEqual(55);
+  it('не выходит за потолок дня 40 минут', () => {
+    expect(plan.maxDayMinutes).toBeLessThanOrEqual(40);
   });
 
   it('детерминирована: два прогона дают один план', () => {

@@ -567,6 +567,8 @@ export interface DefaultTask {
   intervalCount: number;
   dayOfWeek: number | null;
   dayOfMonth: number | null;
+  /** Сдвиги числа месяца по месяцам (1–12): `null`/нет — без переносов. */
+  monthShifts?: number[] | null;
   /** Опора цикла для «раз в N ...»: ISO-дата первой постановки. */
   dueDate: string | null;
   source: string;
@@ -1453,6 +1455,7 @@ export const buildDefaultTasks = (
     intervalCount: task.intervalCount,
     dayOfWeek: task.dayOfWeek,
     dayOfMonth: task.dayOfMonth,
+    monthShifts: task.monthShifts,
     dueDate: task.dueDate,
     source: DEFAULT_TASK_SOURCE,
   }));

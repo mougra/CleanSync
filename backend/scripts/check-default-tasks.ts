@@ -29,8 +29,18 @@ import {
   type ExtraContextAnswers,
 } from '../services/taskSets';
 
-/** Допустимый пик дня: 40 — цель, 55 — предел из-за фиксированных частот. */
-const MAX_PEAK_MINUTES = 55;
+/** Потолок дня для базового набора: 40 минут, проверяется по настоящим датам. */
+const MAX_PEAK_MINUTES = MAX_DAILY_MINUTES;
+
+/**
+ * Предел для профилей с расширениями: 45.
+ *
+ * База держит строгие 40, а «полный дом» добавляет десятки дел (питомцы, дети,
+ * двор, кабинет), и недельная нагрузка вырастает настолько, что редкому делу на
+ * 20 минут иногда не находится дня даже со сдвигом. Расширения необязательны, а
+ * три минуты сверху в одном дне из четырёхсот — честный компромисс.
+ */
+const MAX_PROFILE_PEAK_MINUTES = MAX_DAILY_MINUTES + 5;
 
 const problems: string[] = [];
 
@@ -144,8 +154,8 @@ for (const [label, answers] of profiles) {
     `${label}: средняя ${profile.averagePerDay} выше бюджета ${dayBudget(answers)}`,
   );
   check(
-    profilePeak <= MAX_PEAK_MINUTES,
-    `${label}: худший день ${profilePeak} мин — выше предела ${MAX_PEAK_MINUTES}`,
+    profilePeak <= MAX_PROFILE_PEAK_MINUTES,
+    `${label}: худший день ${profilePeak} мин — выше предела ${MAX_PROFILE_PEAK_MINUTES}`,
   );
 }
 

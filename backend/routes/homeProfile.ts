@@ -659,9 +659,10 @@ const syncDefaultTasks = async (
       interval_count: number | null;
       day_of_week: number | null;
       day_of_month: number | null;
+      month_shifts: number[] | null;
     }>(
       `SELECT id, title, is_completed, source, room, estimated_minutes, frequency,
-              interval_count, day_of_week, day_of_month
+              interval_count, day_of_week, day_of_month, month_shifts
          FROM tasks WHERE schedule_id = $1
         ORDER BY id`,
       [scheduleId]
@@ -727,7 +728,8 @@ const syncDefaultTasks = async (
                     interval_count = $5,
                     day_of_week = $6,
                     day_of_month = $7,
-                    due_date = $8
+                    due_date = $8,
+                    month_shifts = $9
               WHERE id = $1`,
             [
               keeper.id,
@@ -738,6 +740,7 @@ const syncDefaultTasks = async (
               task.dayOfWeek,
               task.dayOfMonth,
               task.dueDate,
+              task.monthShifts ?? null,
             ]
           );
 
@@ -770,8 +773,8 @@ const syncDefaultTasks = async (
       await client.query(
         `INSERT INTO tasks
            (schedule_id, title, room, estimated_minutes, frequency, interval_count,
-            day_of_week, day_of_month, due_date, source)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+            day_of_week, day_of_month, due_date, source, month_shifts)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [
           scheduleId,
           task.title,
@@ -783,6 +786,7 @@ const syncDefaultTasks = async (
           task.dayOfMonth,
           task.dueDate,
           task.source,
+          task.monthShifts ?? null,
         ]
       );
 
