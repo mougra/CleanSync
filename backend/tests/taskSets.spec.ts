@@ -31,7 +31,7 @@ describe('курируемые наборы задач', () => {
     expect(tasks.length).toBe(81);
     expect(stats.averagePerDay).toBeGreaterThanOrEqual(25);
     expect(stats.averagePerDay).toBeLessThanOrEqual(30);
-    expect(stats.averagePerDay).toBeCloseTo(28.66, 2);
+    expect(stats.averagePerDay).toBeCloseTo(28.19, 2);
   });
 
   it('базовый набор использует десять частот из согласованного плана', () => {

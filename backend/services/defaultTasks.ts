@@ -6,6 +6,8 @@ import {
   type TaskTag,
 } from './taskCatalog';
 import { dayBudget, MAX_DAILY_MINUTES } from './dailyBudget';
+import { buildBasePlan } from './basePlan';
+import { extrasFor, getBaseTasks } from './taskSets';
 import {
   activeHomeTags,
   allowedLevels,
@@ -1233,7 +1235,7 @@ export const myTasksScheduleDescription = (set: DefaultTaskSet): string =>
  * `today` передаётся параметром (а не берётся из Date.now внутри): от него
  * зависят опорные даты циклов, и в проверках нужен предсказуемый результат.
  */
-export const buildDefaultTasks = (
+export const buildLegacyDefaultTasks = (
   input: PartialHomeAnswers,
   today: Date = new Date()
 ): DefaultTaskSet => {
@@ -1408,9 +1410,116 @@ export const buildDefaultTasks = (
   };
 };
 
+/** Сколько задач может попасть в набор по этим ответам: база плюс расширения. */
 export const defaultTaskCandidateCount = (input: PartialHomeAnswers): number => {
   const answers = withDefaultAnswers(input);
-  const declared = activeHomeTags(answers);
+  const extras = extrasFor({
+    pets: answers.pets,
+    outdoor: answers.outdoor,
+    hasKidsRoom: answers.hasKidsRoom,
+    worksFromHome: answers.worksFromHome,
+  });
 
-  return getTaskCatalog().filter((task) => isRelevant(task, answers, declared)).length;
+  return getBaseTasks().length + extras.length;
+};
+
+/**
+ * Постоянный набор «Мои задачи» по ответам анкеты.
+ *
+ * Работает на курируемых наборах (`services/taskSets.ts`) через раскладчик
+ * `services/basePlan.ts`: база из 81 задачи ставится всегда и на своих частотах,
+ * расширения по анкете — поверх неё, а потолок дня 40 минут проверяется по
+ * настоящим датам. Форма ответа прежняя: маршруты и интерфейс не переписываются.
+ *
+ * `legacy`-генератор (`buildLegacyDefaultTasks`) оставлен до конца переделки: он
+ * ещё собирает «План по дому» для старых профилей, и удалять его нужно вместе с
+ * `services/homePlan.ts` отдельным шагом.
+ */
+export const buildDefaultTasks = (
+  input: PartialHomeAnswers,
+  today: Date = new Date(),
+): DefaultTaskSet => {
+  const plan = buildBasePlan(input, today);
+
+  const tasks: DefaultTask[] = plan.tasks.map((task) => ({
+    title: task.title,
+    room: task.room,
+    minutes: task.minutes,
+    level: task.level,
+    // Тегов у курируемого набора нет: контекст расширений живёт в taskSets.
+    tags: [],
+    cadence: task.cadence,
+    frequency: task.frequency,
+    intervalCount: task.intervalCount,
+    dayOfWeek: task.dayOfWeek,
+    dayOfMonth: task.dayOfMonth,
+    dueDate: task.dueDate,
+    source: DEFAULT_TASK_SOURCE,
+  }));
+
+  const weekly = tasks.filter((task) => task.frequency === 'weekly');
+  const monthly = tasks.filter((task) => task.frequency === 'monthly');
+
+  const cadenceCounts = Object.fromEntries(
+    CADENCE_ORDER.map((cadence) => [cadence, 0]),
+  ) as Record<TaskCadence, number>;
+
+  for (const task of tasks) cadenceCounts[task.cadence] += 1;
+
+  const days: DefaultTaskDay[] = WEEK_DAYS.map(({ dayOfWeek, label }) => {
+    const dayTasks = weekly.filter((task) => task.dayOfWeek === dayOfWeek);
+
+    return {
+      dayOfWeek,
+      label,
+      // Дела стоят на каждый день недели: выбранных дней уборки больше нет.
+      selected: true,
+      tasks: dayTasks,
+      minutes: dayTasks.reduce((sum, task) => sum + task.minutes, 0),
+    };
+  });
+
+  const notes: string[] = [
+    `Набор: ${tasks.length} задач из ${plan.candidateCount} кандидатов, средняя ${plan.averagePerDay} мин/день, худший день ${plan.maxDayMinutes} мин при потолке ${MAX_DAILY_MINUTES}`,
+  ];
+
+  if (plan.demoted > 0) {
+    notes.push(
+      `Цикл удлинён у ${plan.demoted} дел из анкеты: при средней ${plan.averagePerDay} мин в день чаще они не помещаются`,
+    );
+  }
+
+  if (plan.dropped.length > 0) {
+    notes.push(`Не поместились даже на годовом цикле: ${plan.dropped.join(', ')}`);
+  }
+
+  return {
+    scheduleTitle: DEFAULT_TASKS_SCHEDULE_TITLE,
+    tasks,
+    summary: {
+      totalTasks: tasks.length,
+      totalMinutes: tasks.reduce((sum, task) => sum + task.minutes, 0),
+      // Ежедневных дел в наборе нет: база начинается с недельной частоты.
+      dailyTasks: 0,
+      dailyMinutes: 0,
+      rotatedTasks: 0,
+      rotatedMinutes: 0,
+      weeklyTasks: weekly.length,
+      weeklyMinutes: weekly.reduce((sum, task) => sum + task.minutes, 0),
+      monthlyTasks: monthly.length,
+      monthlyMinutes: monthly.reduce((sum, task) => sum + task.minutes, 0),
+      droppedTasks: plan.dropped.length,
+      droppedTitles: plan.dropped,
+      candidateTasks: plan.candidateCount,
+      includedTasks: tasks.length,
+      maxDailyMinutes: plan.maxDayMinutes,
+      dailyLimit: MAX_DAILY_MINUTES,
+      rooms: [...new Set(tasks.map((task) => task.room))],
+      tags: [],
+      cadences: cadenceCounts,
+      cycleScale: 1,
+      days,
+      notes,
+    },
+  };
 };
