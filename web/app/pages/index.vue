@@ -169,6 +169,40 @@ const { data: calendarDay } = await useAsyncData(
 /** День выбранной даты: у дня — задачи, итоги и распределение по зонам. */
 const day = computed<CalendarDay | null>(() => calendarDay.value ?? null);
 
+/**
+ * Базовый план дня: публичный, одинаковый для всех (`GET /api/plan/today`).
+ *
+ * Это не отдельный блок, а запасной источник для той же карточки «Сегодня»: пока
+ * личного плана нет (гость или вошедший без настройки дома), человек сразу видит
+ * реальные дела, а карточка предлагает создать аккаунт или собрать план.
+ */
+interface DefaultPlanTask {
+  title: string;
+  room: string;
+  minutes: number;
+  level: string;
+  cadence: string;
+  cadenceLabel?: string | null;
+}
+
+interface DefaultPlanDay {
+  date: string;
+  tasks: DefaultPlanTask[];
+  summary: { tasks: number; minutes: number };
+}
+
+const { data: defaultDay } = await useAsyncData(
+  () => `default-plan-${selectedDate.value}`,
+  async () => {
+    try {
+      return await api.request<DefaultPlanDay>(`/api/plan/today?date=${selectedDate.value}`);
+    } catch {
+      return null;
+    }
+  },
+  { watch: [selectedDate], default: () => null },
+);
+
 const checklists = computed(() => templates.value?.checklist ?? []);
 const checklistTasksTotal = computed(() =>
   checklists.value.reduce((sum, checklist) => sum + checklist.items.length, 0),
@@ -282,7 +316,28 @@ const challengeCards = computed<HomeChallengeCard[]>(() => {
  * Сводка выбранного дня — те же числа, что показывала шторка дня: сколько задач
  * запланировано и закрыто, минуты по плану и по факту. Считает их сервер
  * (`GET /api/tasks/calendar`), поэтому они совпадают с «Планом на сегодня».
+ *
+ * Когда карточка показывает базовый план (личного ещё нет), числа берутся из
+ * публичного ответа: третий источник не заводим, форма сводки одна.
  */
+const summary = computed(() => {
+  if (showDefaultPlan.value) {
+    return {
+      total_tasks: defaultDay.value?.summary.tasks ?? 0,
+      completed_tasks: 0,
+      total_minutes: defaultDay.value?.summary.minutes ?? 0,
+      completed_minutes: 0,
+    };
+  }
+
+  return {
+    total_tasks: day.value?.total_tasks ?? 0,
+    completed_tasks: day.value?.completed_tasks ?? 0,
+    total_minutes: day.value?.total_minutes ?? 0,
+    completed_minutes: day.value?.completed_minutes ?? 0,
+  };
+});
+
 const plural = (count: number, forms: [string, string, string]): string =>
   locale.value === 'ru'
     ? pluralRu(count, forms[0], forms[1], forms[2])
@@ -319,7 +374,7 @@ const dayTitle = computed(() => {
 
 /** «запланировано 5 задач» — число берём из итогов сервера, а не из длины списка. */
 const plannedLabel = computed(() => {
-  const count = day.value?.total_tasks ?? 0;
+  const count = summary.value.total_tasks;
 
   return plural(count, [
     t('calendar.plannedOne', { count }),
@@ -330,7 +385,7 @@ const plannedLabel = computed(() => {
 
 /** «выполнено 2 задачи» — только там, где факт вообще может быть не нулевым. */
 const doneLabel = computed(() => {
-  const count = day.value?.completed_tasks ?? 0;
+  const count = summary.value.completed_tasks;
 
   return plural(count, [
     t('calendar.doneOne', { count }),
@@ -348,13 +403,13 @@ const showFact = computed(() => true);
 
 /** «план 45 мин · факт 30 мин»: остаток показываем, только когда он ненулевой. */
 const minutesLabel = computed(() => {
-  const total = day.value?.total_minutes ?? 0;
+  const total = summary.value.total_minutes;
   // Длительность форматируем здесь, а не в строке словаря: «план 112 мин» человеку
   // ничего не говорит, а «план 1 ч 52 мин» — говорит.
   const parts = [t('calendar.planMinutes', { minutes: formatDuration(total, locale.value) })];
 
   if (showFact.value) {
-    const done = day.value?.completed_minutes ?? 0;
+    const done = summary.value.completed_minutes;
     parts.push(
       done > 0
         ? t('calendar.factMinutes', { minutes: formatDuration(done, locale.value) })
@@ -374,8 +429,11 @@ const minutesLabel = computed(() => {
  */
 const zones = computed(() => {
   const counts = new Map<string, number>();
+  const source = showDefaultPlan.value
+    ? (defaultDay.value?.tasks ?? [])
+    : (day.value?.tasks ?? []);
 
-  for (const task of day.value?.tasks ?? []) {
+  for (const task of source) {
     // Ключ группировки — значение из базы (оно же ключ срезов в статистике),
     // а на экран идёт переведённая подпись: иначе в английском интерфейсе
     // зоны оставались бы русскими.
@@ -524,17 +582,6 @@ const visiblePlanTasks = computed(() =>
   planTasks.value.filter((task) => !planRemoved.value.includes(task.id)),
 );
 
-/**
- * Прогресс кольца «План на сегодня».
- *
- * Считаем по строкам, а не по `summary` сервера: строки уже учитывают локальную
- * отметку (`useTaskMarks`), поэтому кольцо прибавляется в тот же кадр, что и
- * галочка в списке, а не после повторного запроса. Сводка сервера остаётся для
- * подписей ниже — там числа должны приходить с сервера.
- */
-const planDone = computed(() => visiblePlanTasks.value.filter((task) => task.done).length);
-const planTotal = computed(() => visiblePlanTasks.value.length);
-
 /** Задачи другого дня: только название, зона и минуты — отметки в них нет. */
 const calendarRows = computed<PlanDayRow[]>(() =>
   (day.value?.tasks ?? []).map((task) => ({
@@ -561,12 +608,69 @@ const calendarRows = computed<PlanDayRow[]>(() =>
 );
 
 /**
- * Список карточки: сегодня — строки «Плана на сегодня» (отметка, удаление и
- * возврат), другой день — компактный просмотр дня из календаря. Дата и данные
- * берутся из одного и того же выбора, поэтому чужой день сюда не подмешивается.
+ * Строки карточки: личный план, а пока его нет — базовый набор.
+ *
+ * Один блок «Сегодня» на всё: дефолтные дела, добавленные после анкеты и свои —
+ * это строки личного плана; у гостя и у вошедшего без настройки дома тот же блок
+ * показывает базовый набор. Отдельной карточки-дубля нет.
  */
-const dayRows = computed<PlanDayRow[]>(() =>
+const personalRows = computed<PlanDayRow[]>(() =>
   isToday.value ? visiblePlanTasks.value : calendarRows.value,
+);
+
+/** Базовый план в виде строк: без id (отмечать нечего) и без действий. */
+const defaultRows = computed<PlanDayRow[]>(() =>
+  (defaultDay.value?.tasks ?? []).map((task, index) => ({
+    id: -(index + 1),
+    title: task.title,
+    hint: [zoneLabel(task.room), task.cadenceLabel ?? null, t('plan.minutes', { minutes: task.minutes })]
+      .filter(Boolean)
+      .join(' · '),
+    icon: zoneIcon(task.room) ?? 'pi-list',
+    done: false,
+    generated: false,
+    scheduleId: 0,
+    frequency: null,
+    intervalCount: null,
+    dayOfWeek: null,
+    dayOfMonth: null,
+    dueDate: null,
+    time: null,
+    estimatedMinutes: task.minutes,
+    room: task.room,
+  })),
+);
+
+/**
+ * Показывать базовый план: гость, вошедший без настройки дома или пустой день
+ * «сегодня». У настроенного человека с задачами базовый набор не подмешивается —
+ * иначе в пустой вторник он увидел бы чужие дела.
+ */
+const showDefaultPlan = computed(() => {
+  if (!auth.isAuthenticated) return true;
+  if (!homeProfileDone.value) return true;
+
+  return isToday.value && personalRows.value.length === 0;
+});
+
+const dayRows = computed<PlanDayRow[]>(() =>
+  showDefaultPlan.value ? defaultRows.value : personalRows.value,
+);
+
+/**
+ * Прогресс кольца «План на сегодня».
+ *
+ * Считаем по строкам, а не по `summary` сервера: строки уже учитывают локальную
+ * отметку (`useTaskMarks`), поэтому кольцо прибавляется в тот же кадр, что и
+ * галочка в списке, а не после повторного запроса. Сводка сервера остаётся для
+ * подписей ниже — там числа должны приходить с сервера. У базового плана
+ * прогресса нет: отмечать его нельзя, пока нет аккаунта.
+ */
+const planDone = computed(() =>
+  showDefaultPlan.value ? 0 : visiblePlanTasks.value.filter((task) => task.done).length,
+);
+const planTotal = computed(() =>
+  showDefaultPlan.value ? defaultRows.value.length : visiblePlanTasks.value.length,
 );
 
 /**
@@ -929,6 +1033,12 @@ const serverHasMark = (id: number, value: boolean): boolean =>
  * а серия считает момент нажатия, а не день дела (services/streak.ts).
  */
 const togglePlanTask = async (task: { id: number; done: boolean }) => {
+  // Базовый план — не личные задачи: отмечать их нечем, отправляем к настройке.
+  if (showDefaultPlan.value) {
+    await navigateTo(localePath(auth.isAuthenticated ? '/settings?setup=1' : '/register'));
+    return;
+  }
+
   if (planBusy.value.includes(task.id)) {
     return;
   }
@@ -1092,23 +1202,6 @@ useStructuredData(() => ({
     </p>
 
     <!--
-      Гость видит реальный план дня из базового набора: он одинаков для всех и
-      собирается публичным маршрутом `/api/plan/today`. Отметок у гостя нет —
-      прогресс живёт в аккаунте, и карточка говорит об этом прямо.
-    -->
-    <GuestPlanCard v-if="!auth.isAuthenticated" :date="selectedDate" />
-
-    <!--
-      Приглашение пройти анкету о доме: только вошедшему и только пока анкета
-      не пройдена. По ответам сервер собирает план, поэтому до анкеты план дня
-      остаётся пустым — карточка объясняет, почему, и ведёт прямо в мастер.
-    -->
-    <HomeSetupCard
-      v-if="auth.isAuthenticated && !homeProfileDone"
-      :to="localePath('/settings?setup=1')"
-    />
-
-    <!--
       Режим отпуска: вместо плана — состояние отпуска и выход из него.
       Задачи никуда не деваются и не сдвигаются: человек вернётся, и план снова
       будет на месте. Серия за дни отпуска не рвётся (см. services/streak.ts).
@@ -1124,29 +1217,58 @@ useStructuredData(() => ({
     </section>
 
     <!--
-      План дня: карточка показывает выбранный в календаре день — его заголовок,
-      статистику и список задач. Отмечать можно только сегодня: прошлое и будущее
-      открываются на просмотр, без всплывающих панелей.
+      План дня — единственный блок «Сегодня». Пока личного плана нет, он же
+      показывает базовый набор: дефолтные дела видны сразу, а приглашение создать
+      аккаунт или собрать план живёт внутри карточки, а не отдельной карточкой.
     -->
     <section v-else class="plan card">
       <div class="plan__head">
         <AppBadge variant="accent">{{ dayTitle }}</AppBadge>
       </div>
 
-      <template v-if="auth.isAuthenticated">
-        <!--
-          Сводка дня: числа считает сервер (`GET /api/tasks/calendar`), поэтому они
+      <!--
+        Базовый план вместо пустого экрана: сначала дела, потом приглашение.
+        Гостю — аккаунт, вошедшему без настройки — мастер «Настройка по дому».
+      -->
+      <div v-if="showDefaultPlan" class="plan__default">
+        <p class="plan__default-text">
+          {{ auth.isAuthenticated ? t('plan.defaultNoteAuth') : t('plan.defaultNoteGuest') }}
+        </p>
+
+        <div class="plan__default-actions">
+          <template v-if="!auth.isAuthenticated">
+            <AppButton variant="filled" :to="localePath('/register')">
+              {{ t('plan.guestPlanCta') }}
+            </AppButton>
+            <AppButton variant="outline" :to="localePath('/login')">
+              {{ t('plan.guestPlanLogin') }}
+            </AppButton>
+            <NuxtLink :to="localePath('/plan')" class="plan__setup">
+              {{ t('plan.guestBuild') }}
+              <i class="pi pi-chevron-right" aria-hidden="true" />
+            </NuxtLink>
+          </template>
+
+          <NuxtLink v-else :to="localePath('/settings?setup=1')" class="plan__setup">
+            {{ t('plan.setupLink') }}
+            <i class="pi pi-chevron-right" aria-hidden="true" />
+          </NuxtLink>
+        </div>
+      </div>
+
+      <!--
+        Сводка дня: числа считает сервер (`GET /api/tasks/calendar`), поэтому они
           совпадают с «Планом на сегодня». У будущего дня «выполнено» и «факт» не
           показываем: факт там всегда нулевой, и строка выглядела бы результатом.
           Пустой день сводку не показывает вовсе — вместо неё ниже стоит понятная
           строка, а «запланировано 0 задач» читалось бы как отчёт.
         -->
         <div class="plan__body">
-          <!-- Кольцо — только у сегодняшнего дня: у остальных отмечать нечего -->
-          <PlanRing v-if="isToday" :done="planDone" :total="planTotal" />
+          <!-- Кольцо — только у сегодняшнего дня и только у личного плана -->
+          <PlanRing v-if="isToday && !showDefaultPlan" :done="planDone" :total="planTotal" />
 
           <div class="plan__aside">
-            <section v-if="day && day.total_tasks > 0" class="summary" :aria-label="t('calendar.summaryTitle')">
+            <section v-if="summary.total_tasks > 0" class="summary" :aria-label="t('calendar.summaryTitle')">
               <p class="summary__value">{{ plannedLabel }}</p>
 
               <p class="summary__meta">
@@ -1183,15 +1305,16 @@ useStructuredData(() => ({
         <ul v-if="dayRows.length" class="plan__list">
           <li v-for="task in dayRows" :key="task.id">
             <TaskRow
-              interactive
+              :interactive="!showDefaultPlan"
               :title="task.title"
               :hint="task.hint"
               :icon="task.icon"
               :done="task.done"
-              :disabled="planBusy.includes(task.id)"
+              :disabled="showDefaultPlan || planBusy.includes(task.id)"
               @toggle="togglePlanTask(task)"
             >
               <PlanTaskActions
+                v-if="!showDefaultPlan"
                 :generated="task.generated"
                 :pending="actionsPending"
                 @edit="openTaskEditFrom(task)"
@@ -1209,7 +1332,7 @@ useStructuredData(() => ({
           дня: задача создаётся на сегодня, и на чужом дне она была бы обманом.
         -->
         <button
-          v-if="dayRows.length && isToday"
+          v-if="dayRows.length && isToday && !showDefaultPlan"
           type="button"
           class="plan__add-row"
           @click="openTaskSheet"
@@ -1305,7 +1428,7 @@ useStructuredData(() => ({
           «порядка», а не отдельный экран. Показываем только для сегодняшнего
           дня — у прошлого и будущего привычек не бывает.
         -->
-        <section v-if="isToday" class="plan__habits">
+        <section v-if="isToday && auth.isAuthenticated" class="plan__habits">
           <header class="plan__habits-head">
             <div class="plan__habits-title">
               <h2 class="plan__habits-name">{{ t('home.habitsToday') }}</h2>
@@ -1371,37 +1494,6 @@ useStructuredData(() => ({
           @close="habitCreateOpen = false"
           @saved="afterHabitChange"
         />
-      </template>
-
-      <!--
-        Гость: приглашение живёт внутри карточки плана, а не отдельной карточкой
-        в меню или плашкой в потоке. Закрывать его нечего — это содержимое блока,
-        поэтому вместо баннера здесь короткое объяснение и два выхода.
-      -->
-      <template v-else>
-        <div class="plan__guest">
-          <div class="plan__guest-body">
-            <!-- Кольцо остаётся приглушённым (0 из 0): показывает, что появится здесь -->
-            <div class="plan__guest-ring" aria-hidden="true">
-              <PlanRing :done="0" :total="0" />
-            </div>
-
-            <div class="plan__guest-text">
-              <p class="plan__guest-title">{{ t('plan.guestTitle') }}</p>
-              <p class="plan__guest-hint">{{ t('plan.guestText') }}</p>
-            </div>
-          </div>
-
-          <div class="plan__guest-actions">
-            <AppButton variant="accent" :to="localePath('/plan')">
-              {{ t('plan.guestBuild') }}
-            </AppButton>
-            <AppButton variant="outline" :to="localePath('/register')">
-              {{ t('plan.guestRegister') }}
-            </AppButton>
-          </div>
-        </div>
-      </template>
     </section>
 
     <!-- Серия и недельная цель: день засчитывается за любой закрытый пункт -->
@@ -2068,6 +2160,30 @@ useStructuredData(() => ({
 
 .plan__add:hover {
   background: var(--c-brand-hover);
+}
+
+/*
+ * Базовый план внутри карточки: сначала приглашение, ниже — сами дела.
+ * Отдельной карточки нет, поэтому фон мягкий, а не рамка: это часть «Сегодня».
+ */
+.plan__default {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--r-row);
+  background: var(--c-surface-mint);
+}
+
+.plan__default-text {
+  color: var(--c-text-muted);
+  font-size: var(--fs-caption);
+}
+
+.plan__default-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 
 .plan__setup {

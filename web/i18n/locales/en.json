@@ -88,6 +88,8 @@
     "guestPlanNote": "Sign in to keep your progress and manage your tasks.",
     "guestPlanCta": "Create an account",
     "guestPlanLogin": "Sign in",
+    "defaultNoteGuest": "This is the basic plan that fits any home. Create an account to tick things off and tailor the plan to your home.",
+    "defaultNoteAuth": "This is the basic plan. Set up your home — the tasks move to “My tasks” and the plan becomes yours.",
     "actions": "Task actions",
     "edit": "Edit",
     "editHint": "Edit task",

@@ -1,7 +1,7 @@
 import express, { type Request, type Response } from 'express';
 import { appToday, parseAppDay } from '../services/appTime';
 import { buildBasePlan, taskDueOn, type PlannedTask } from '../services/basePlan';
-import { catalogTitle, catalogZone } from '../services/catalogLocale';
+import { catalogCadence, catalogTitle, catalogZone } from '../services/catalogLocale';
 import { resolveContentLocale } from '../services/contentLocale';
 
 /**
@@ -70,6 +70,9 @@ router.get('/today', (req: Request, res: Response) => {
         minutes: task.minutes,
         level: task.level,
         cadence: task.cadence,
+        // Подпись периодичности — с сервера: карточка показывает её той же
+        // строкой, что и «Мои задачи», а не собирает из кода ещё раз.
+        cadenceLabel: catalogCadence(task.cadence, locale),
       })),
       summary: {
         tasks: tasks.length,
