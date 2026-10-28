@@ -1,56 +1,24 @@
 import express, { Request, Response } from 'express';
 import pool from '../db';
 import { authMiddleware } from '../auth';
+import { appToday } from '../services/appTime';
+import { DEFAULT_TASKS_SCHEDULE_TITLE } from '../services/defaultTasks';
 import { resolveContentLocale } from '../services/contentLocale';
 
 /**
- * Чек-листы: публичные шаблоны и личные списки пользователя.
+ * Готовые наборы задач.
  *
- * Пункт чек-листа — это обычная задача (`tasks`), поэтому отметки,
- * добавление и удаление пунктов идут через уже существующий `/api/tasks`
- * с проверкой владельца. Здесь только то, что специфично для чек-листов:
- * список шаблонов, копирование шаблона себе и прогресс.
+ * Раньше «взять шаблон» создавало отдельный личный чек-лист (`schedules` с
+ * `source_template_id`), и его пункты жили своей жизнью: в план на сегодня они не
+ * попадали, а раздел назывался «Чек-листы». Решение заказчика (28 октября 2026):
+ * раздел становится «Мои задачи», готовые наборы — второй вкладкой, а «взять
+ * набор» добавляет пункты **разово** в общий список: на сегодня, с частотой
+ * «один раз». Никаких новых списков больше не создаётся.
  *
- * Личный чек-лист — это `schedules` с заполненным `source_template_id`.
- * Расписания без него остаются фичей «свои задачи».
+ * Шаблоны остаются публичными и переведёнными: они же служат контентом.
  */
 
 const router = express.Router();
-
-interface ChecklistRow {
-  id: number;
-  title: string;
-  description: string | null;
-  source_template_id: number | null;
-  created_at: string;
-  total: number;
-  done: number;
-}
-
-const loadChecklist = async (id: number, userId: string | number) => {
-  const checklist = await pool.query<ChecklistRow>(
-    `SELECT s.id, s.title, s.description, s.source_template_id, s.created_at,
-            COUNT(t.id)::int AS total,
-            COUNT(t.id) FILTER (WHERE t.is_completed)::int AS done
-       FROM schedules s
-       LEFT JOIN tasks t ON t.schedule_id = s.id
-      WHERE s.id = $1 AND s.user_id = $2
-      GROUP BY s.id`,
-    [id, userId]
-  );
-
-  if (checklist.rows.length === 0) {
-    return null;
-  }
-
-  const items = await pool.query(
-    `SELECT id, title AS text, room, estimated_minutes, is_completed AS done
-       FROM tasks WHERE schedule_id = $1 ORDER BY id`,
-    [id]
-  );
-
-  return { ...checklist.rows[0], items: items.rows };
-};
 
 /** Публичные шаблоны чек-листов с количеством пунктов. */
 router.get('/templates', async (req: Request, res: Response) => {
@@ -79,29 +47,28 @@ router.get('/templates', async (req: Request, res: Response) => {
   }
 });
 
-/** Мои чек-листы с прогрессом. */
-router.get('/', authMiddleware, async (req: Request, res: Response) => {
-  try {
-    const result = await pool.query<ChecklistRow>(
-      `SELECT s.id, s.title, s.description, s.source_template_id, s.created_at,
-              COUNT(t.id)::int AS total,
-              COUNT(t.id) FILTER (WHERE t.is_completed)::int AS done
-         FROM schedules s
-         LEFT JOIN tasks t ON t.schedule_id = s.id
-        WHERE s.user_id = $1 AND s.is_template = FALSE AND s.source_template_id IS NOT NULL
-        GROUP BY s.id
-        ORDER BY s.created_at DESC`,
-      [req.userId]
-    );
-
-    res.json(result.rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Failed to fetch checklists' });
-  }
+/**
+ * Мои прежние чек-листы.
+ *
+ * После миграции 0024 личные списки теряют `source_template_id` и становятся
+ * обычными расписаниями: их пункты видны в «Моих задачах». Маршрут оставлен,
+ * чтобы старый клиент не падал, и всегда отвечает пустым списком.
+ */
+router.get('/', authMiddleware, (_req: Request, res: Response) => {
+  res.json([]);
 });
 
-/** Добавить шаблон себе. Повторный вызов возвращает уже созданный чек-лист. */
+/**
+ * Добавить набор разово в «Мои задачи».
+ *
+ * Пункты копируются как разовые дела на сегодня (`frequency = 'once'`,
+ * `due_date = сегодня`): человек берёт набор, чтобы сделать его сейчас, а не
+ * заводит ещё один список. Повторный вызов добавляет ещё раз — это осознанное
+ * «добавить», а не «открыть существующее».
+ *
+ * Расписание «Мои задачи» создаётся при необходимости под advisory-lock: два
+ * одновременных нажатия иначе завели бы два расписания с одним названием.
+ */
 router.post('/from-template/:templateId', authMiddleware, async (req: Request, res: Response) => {
   const templateId = Number(req.params.templateId);
 
@@ -115,20 +82,9 @@ router.post('/from-template/:templateId', authMiddleware, async (req: Request, r
   try {
     const locale = resolveContentLocale(req);
 
-    /**
-     * Шаблон читаем сразу на языке запроса: скопированный чек-лист становится
-     * личным списком человека, и его текст больше не связан с шаблоном — иначе
-     * при смене языка интерфейса у человека менялись бы пункты уже начатой уборки.
-     */
-    const template = await client.query(
-      `SELECT s.id,
-              COALESCE(st.title, s.title) AS title,
-              COALESCE(st.description, s.description) AS description
-         FROM schedules s
-         LEFT JOIN schedule_translations st
-                ON st.schedule_id = s.id AND st.locale = $2
-        WHERE s.id = $1 AND s.is_template = TRUE`,
-      [templateId, locale]
+    const template = await client.query<{ id: number }>(
+      'SELECT id FROM schedules WHERE id = $1 AND is_template = TRUE',
+      [templateId]
     );
 
     if (template.rows.length === 0) {
@@ -136,43 +92,58 @@ router.post('/from-template/:templateId', authMiddleware, async (req: Request, r
       return;
     }
 
-    const existing = await client.query(
-      'SELECT id FROM schedules WHERE user_id = $1 AND source_template_id = $2',
-      [req.userId, templateId]
+    const items = await client.query<{
+      title: string;
+      room: string | null;
+      estimated_minutes: number | null;
+    }>(
+      `SELECT COALESCE(tt.title, t.title) AS title, t.room, t.estimated_minutes
+         FROM tasks t
+         LEFT JOIN task_translations tt ON tt.task_id = t.id AND tt.locale = $2
+        WHERE t.schedule_id = $1
+        ORDER BY t.id`,
+      [templateId, locale]
     );
-
-    if (existing.rows.length > 0) {
-      res.json({ checklist: await loadChecklist(existing.rows[0].id, req.userId!), created: false });
-      return;
-    }
 
     await client.query('BEGIN');
 
-    const created = await client.query(
-      `INSERT INTO schedules (user_id, title, description, source_template_id)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id`,
-      [req.userId, template.rows[0].title, template.rows[0].description, templateId]
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1), $2::int)', [
+      DEFAULT_TASKS_SCHEDULE_TITLE,
+      req.userId,
+    ]);
+
+    const existing = await client.query<{ id: number }>(
+      'SELECT id FROM schedules WHERE user_id = $1 AND title = $2 ORDER BY id LIMIT 1',
+      [req.userId, DEFAULT_TASKS_SCHEDULE_TITLE]
     );
 
-    // Копируем пункты шаблона на языке запроса, отметки начинаются с нуля.
-    await client.query(
-      `INSERT INTO tasks (schedule_id, title, room, estimated_minutes)
-       SELECT $1, COALESCE(tt.title, t.title), t.room, t.estimated_minutes
-         FROM tasks t
-         LEFT JOIN task_translations tt
-                ON tt.task_id = t.id AND tt.locale = $3
-        WHERE t.schedule_id = $2
-        ORDER BY t.id`,
-      [created.rows[0].id, templateId, locale]
-    );
+    let scheduleId = existing.rows[0]?.id;
+
+    if (scheduleId === undefined) {
+      const created = await client.query<{ id: number }>(
+        `INSERT INTO schedules (user_id, title, description)
+         VALUES ($1, $2, $3)
+         RETURNING id`,
+        [req.userId, DEFAULT_TASKS_SCHEDULE_TITLE, 'Постоянные и разовые дела']
+      );
+
+      scheduleId = created.rows[0].id;
+    }
+
+    const today = appToday();
+
+    for (const item of items.rows) {
+      await client.query(
+        `INSERT INTO tasks
+           (schedule_id, title, room, estimated_minutes, frequency, interval_count, due_date)
+         VALUES ($1, $2, $3, $4, 'once', 1, $5::date)`,
+        [scheduleId, item.title, item.room, item.estimated_minutes ?? 0, today]
+      );
+    }
 
     await client.query('COMMIT');
 
-    res.status(201).json({
-      checklist: await loadChecklist(created.rows[0].id, req.userId!),
-      created: true,
-    });
+    res.status(201).json({ scheduleId, added: items.rows.length });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => undefined);
     console.error(err);
@@ -182,24 +153,35 @@ router.post('/from-template/:templateId', authMiddleware, async (req: Request, r
   }
 });
 
-/** Один чек-лист с пунктами. */
+/** Один список с пунктами: старый адрес, оставлен ради совместимости. */
 router.get('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const checklist = await loadChecklist(Number(req.params.id), req.userId!);
+    const result = await pool.query(
+      `SELECT s.id, s.title, s.description, s.created_at
+         FROM schedules s
+        WHERE s.id = $1 AND s.user_id = $2 AND s.is_template = FALSE`,
+      [req.params.id, req.userId]
+    );
 
-    if (!checklist) {
+    if (result.rows.length === 0) {
       res.status(404).json({ error: 'Checklist not found' });
       return;
     }
 
-    res.json({ checklist });
+    const items = await pool.query(
+      `SELECT id, title AS text, room, estimated_minutes, is_completed AS done
+         FROM tasks WHERE schedule_id = $1 ORDER BY id`,
+      [req.params.id]
+    );
+
+    res.json({ checklist: { ...result.rows[0], items: items.rows } });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch checklist' });
   }
 });
 
-/** Удалить чек-лист вместе с пунктами. */
+/** Удалить список вместе с пунктами (старый адрес). */
 router.delete('/:id', authMiddleware, async (req: Request, res: Response) => {
   try {
     const result = await pool.query(

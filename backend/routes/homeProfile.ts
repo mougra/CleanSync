@@ -793,15 +793,39 @@ const syncDefaultTasks = async (
 
     if (options.removeStale) {
       const stale = current.rows.filter(
-        (row) => row.source === DEFAULT_TASK_SOURCE && !row.is_completed && !wanted.has(row.title)
+        (row) => row.source === DEFAULT_TASK_SOURCE && !wanted.has(row.title)
       );
 
-      if (stale.length > 0) {
+      /**
+       * Устаревшие сгенерированные дела делятся на две части.
+       *
+       * Незакрытые удаляются: человек их так и не сделал, и в новом наборе их
+       * нет. Закрытые **архивируются**, а не удаляются: у них есть история в
+       * журнале отметок, и стирать её нельзя — иначе статистика и серия теряют
+       * прошедшие дни. Признак `home_profile_archived` уже фильтруется в выборке
+       * плана (`routes/tasks.ts`), поэтому в «Сегодня» они не вернутся.
+       *
+       * Это же закрывает переименование набора: когда названия меняются (а в
+       * переделке меняются почти все), прежние закрытые задачи с именами-предками
+       * остаются в расписании и больше не всплывают в плане.
+       */
+      const deleted = stale.filter((row) => !row.is_completed);
+      const archived = stale.filter((row) => row.is_completed);
+
+      if (deleted.length > 0) {
         await client.query('DELETE FROM tasks WHERE id = ANY($1::int[])', [
-          stale.map((row) => row.id),
+          deleted.map((row) => row.id),
         ]);
-        removed = stale.length;
       }
+
+      if (archived.length > 0) {
+        await client.query(
+          `UPDATE tasks SET source = 'home_profile_archived' WHERE id = ANY($1::int[])`,
+          [archived.map((row) => row.id)]
+        );
+      }
+
+      removed = deleted.length + archived.length;
     }
 
     const total = await client.query<{ total: number }>(

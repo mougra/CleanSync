@@ -445,6 +445,44 @@ router.get('/calendar', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
+/**
+ * Все свои задачи одним списком: `GET /api/tasks/mine`.
+ *
+ * Основа раздела «Мои задачи». Раньше список задач был размазан по расписаниям
+ * (`/api/schedules` + задача в каждом), и «свои задачи» показывались карточками
+ * контейнеров, а не делами. Здесь ровно то, что нужно экрану: задача, её
+ * периодичность, зона, минуты и название списка, в котором она лежит.
+ *
+ * Отметки сюда не подмешиваются: раздел управляет делами, а не выполняет их —
+ * галочки ставятся в плане дня (`PUT /api/tasks/:id`).
+ */
+router.get('/mine', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const locale = resolveContentLocale(req);
+
+    const result = await pool.query(
+      `SELECT t.id, t.schedule_id,
+              COALESCE(tt.title, t.title) AS title,
+              t.room, t.estimated_minutes, t.frequency, t.interval_count,
+              t.day_of_week, t.day_of_month, t.due_date, t.time, t.source,
+              t.is_completed,
+              COALESCE(st.title, s.title) AS schedule_title
+         FROM tasks t
+         JOIN schedules s ON s.id = t.schedule_id
+         LEFT JOIN task_translations tt ON tt.task_id = t.id AND tt.locale = $2
+         LEFT JOIN schedule_translations st ON st.schedule_id = s.id AND st.locale = $2
+        WHERE s.user_id = $1
+        ORDER BY t.title COLLATE "C", t.id`,
+      [req.userId, locale]
+    );
+
+    res.json({ tasks: result.rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch own tasks' });
+  }
+});
+
 // Create task
 router.post('/', authMiddleware, async (req: Request, res: Response) => {
 
