@@ -1,22 +1,67 @@
 <script setup lang="ts">
 /**
- * Чек-листы и «свои задачи».
+ * «Мои задачи» — единственный раздел управления своими делами.
  *
- * Два раздела в одной вкладке: готовые шаблоны с прогрессом, если список уже
- * взят, и свои списки (расписания) — их пункты живут на странице списка.
+ * Решение заказчика (28 октября 2026): отдельные чек-листы больше не нужны.
+ * Здесь два взгляда на одно и то же:
+ *  - «Мои задачи» — плоский список всех дел человека (и базовый набор, и свои),
+ *    с правкой названия и частоты и удалением. Создание — общей шторкой «+»;
+ *  - «Готовые наборы» — прежние шаблоны, но «добавить» теперь значит добавить
+ *    пункты **разово на сегодня**, а не завести ещё один список.
+ *
+ * Отметки остаются в плане дня: раздел управляет делами, а не выполняет их.
  */
+import type { TaskFrequency } from '~/types/checklist';
+import type { TaskEditInput, TaskEditSource, TaskRepeatUnit } from '~/types/task';
+
 const { t, locale } = useI18n();
 const localePath = useLocalePath();
 const auth = useAuthStore();
+const api = useApi();
+const { openSheet, open: sheetOpen } = useTaskSheet();
+const repeatText = useTaskRepeatLabel();
+const { zoneLabel } = useZoneLabel();
 
-const { templates, mine, own, addedByTemplate, addFromTemplate, createOwn } = await useChecklists();
+interface MineTask {
+  id: number;
+  schedule_id: number;
+  title: string;
+  room: string | null;
+  estimated_minutes: number | null;
+  frequency: TaskFrequency | null;
+  interval_count: number | null;
+  day_of_week: number | null;
+  day_of_month: number | null;
+  due_date: string | null;
+  source: string | null;
+  schedule_title: string;
+  is_completed: boolean;
+}
 
-const tab = ref<'checklists' | 'own'>('checklists');
-const busy = ref<number | null>(null);
-const newTitle = ref('');
-const creating = ref(false);
+interface Template {
+  id: number;
+  title: string;
+  description: string | null;
+  items_count: number;
+}
 
-/** Склонение «пункт / пункта / пунктов». */
+const tab = ref<'mine' | 'sets'>('mine');
+
+const { data: mine, refresh: refreshMine } = await useAsyncData('my-tasks', () =>
+  auth.isAuthenticated
+    ? api.request<{ tasks: MineTask[] }>('/api/tasks/mine')
+    : Promise.resolve({ tasks: [] as MineTask[] }),
+);
+
+const { data: templates } = await useAsyncData(
+  'checklist-templates',
+  () => api.request<Template[]>('/api/checklists/templates'),
+  { default: () => [] as Template[] },
+);
+
+const tasks = computed<MineTask[]>(() => mine.value?.tasks ?? []);
+
+/** Склонение «пункт / пункта / пунктов» в готовых наборах. */
 const itemsLabel = (count: number) =>
   locale.value === 'ru'
     ? pluralRu(count, t('checklists.items_one'), t('checklists.items_few'), t('checklists.items_many'))
@@ -24,36 +69,137 @@ const itemsLabel = (count: number) =>
       ? t('checklists.items_one')
       : t('checklists.items_many');
 
-const add = async (templateId: number) => {
-  if (!auth.isAuthenticated) {
-    return navigateTo(localePath('/login'));
-  }
+/** Подпись строки: зона, частота и минуты — без названия списка, оно шумит. */
+const hintOf = (task: MineTask): string =>
+  [
+    zoneLabel(task.room),
+    repeatText(task),
+    task.estimated_minutes ? t('plan.minutes', { minutes: task.estimated_minutes }) : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
-  busy.value = templateId;
-  try {
-    const checklist = await addFromTemplate(templateId);
-    await navigateTo(localePath(`/checklists/${checklist.id}`));
-  } finally {
-    busy.value = null;
-  }
+/** Создание идёт общей шторкой: после закрытия список перечитывается. */
+const openAddTask = async () => {
+  await openSheet();
 };
 
-const create = async () => {
-  if (!newTitle.value.trim() || creating.value) {
+watch(sheetOpen, async (open, previous) => {
+  if (previous && !open) {
+    await refreshMine();
+    await refreshNuxtData(['today-plan', 'calendar-day', 'calendar-week']);
+  }
+});
+
+// ── Правка ─────────────────────────────────────────────────────────────────
+
+const editing = ref<MineTask | null>(null);
+const editPending = ref(false);
+const editError = ref('');
+
+const editSource = computed<TaskEditSource | null>(() =>
+  editing.value
+    ? {
+        title: editing.value.title,
+        frequency: editing.value.frequency,
+        intervalCount: editing.value.interval_count,
+      }
+    : null,
+);
+
+const apiFrequency = (unit: TaskRepeatUnit): TaskFrequency =>
+  unit === 'day' ? 'daily' : unit === 'week' ? 'weekly' : unit === 'month' ? 'monthly' : 'once';
+
+/**
+ * День периода при смене частоты.
+ *
+ * День недели и число месяца форма не собирает — переносим их из задачи, а если
+ * там пусто (раньше была другая частота), берём из даты постановки. Так правка
+ * названия не переставляет дело на другой день.
+ */
+const repeatBody = (task: MineTask, unit: TaskRepeatUnit) => {
+  if (unit === 'once' || unit === 'day') {
+    return { frequency: apiFrequency(unit), day_of_week: null, day_of_month: null };
+  }
+
+  const anchor = task.due_date ? fromISODate(task.due_date) : new Date();
+
+  return unit === 'week'
+    ? { frequency: 'weekly', day_of_week: task.day_of_week ?? anchor.getUTCDay(), day_of_month: null }
+    : { frequency: 'monthly', day_of_week: null, day_of_month: task.day_of_month ?? anchor.getUTCDate() };
+};
+
+const saveEdit = async (input: TaskEditInput) => {
+  const task = editing.value;
+
+  if (!task || editPending.value) {
     return;
   }
 
-  creating.value = true;
+  editPending.value = true;
+  editError.value = '';
+
   try {
-    const schedule = await createOwn(newTitle.value.trim());
-    newTitle.value = '';
-    await navigateTo(localePath(`/checklists/${schedule.id}`));
+    await api.request(`/api/tasks/${task.id}`, {
+      method: 'PUT',
+      body: {
+        title: input.title,
+        ...repeatBody(task, input.frequency),
+        interval_count: input.intervalCount,
+      },
+    });
+
+    editing.value = null;
+    await refreshMine();
+    await refreshNuxtData(['today-plan', 'calendar-day', 'calendar-week']);
+  } catch {
+    editError.value = t('tasks.editFailed');
   } finally {
-    creating.value = false;
+    editPending.value = false;
   }
 };
 
-const percent = (done: number, total: number) => (total === 0 ? 0 : Math.round((done / total) * 100));
+const remove = async (task: MineTask) => {
+  if (!window.confirm(t('checklists.deleteConfirm'))) {
+    return;
+  }
+
+  try {
+    await api.request(`/api/tasks/${task.id}`, { method: 'DELETE' });
+    await refreshMine();
+    await refreshNuxtData(['today-plan', 'calendar-day', 'calendar-week']);
+  } catch {
+    // Список остаётся прежним: сервер уже сказал, что удалить не вышло.
+  }
+};
+
+// ── Готовые наборы ─────────────────────────────────────────────────────────
+
+const adding = ref<number | null>(null);
+const added = ref('');
+
+const addSet = async (template: Template) => {
+  if (!auth.isAuthenticated) {
+    await navigateTo(localePath('/login'));
+    return;
+  }
+
+  adding.value = template.id;
+  added.value = '';
+
+  try {
+    const response = await api.request<{ added: number }>(
+      `/api/checklists/from-template/${template.id}`,
+      { method: 'POST' },
+    );
+
+    added.value = t('checklists.addedSet', { count: response.added });
+    await refreshMine();
+    await refreshNuxtData(['today-plan', 'calendar-day', 'calendar-week']);
+  } finally {
+    adding.value = null;
+  }
+};
 
 useSeoMeta({
   title: () => t('nav.checklists'),
@@ -69,117 +215,89 @@ useSeoMeta({
       <button
         type="button"
         class="segmented__item"
-        :class="{ 'segmented__item--active': tab === 'checklists' }"
-        :aria-pressed="tab === 'checklists'"
-        @click="tab = 'checklists'"
+        :class="{ 'segmented__item--active': tab === 'mine' }"
+        :aria-pressed="tab === 'mine'"
+        @click="tab = 'mine'"
       >
-        {{ t('checklists.templates') }}
+        {{ t('checklists.mineTab') }}
       </button>
       <button
         type="button"
         class="segmented__item"
-        :class="{ 'segmented__item--active': tab === 'own' }"
-        :aria-pressed="tab === 'own'"
-        @click="tab = 'own'"
+        :class="{ 'segmented__item--active': tab === 'sets' }"
+        :aria-pressed="tab === 'sets'"
+        @click="tab = 'sets'"
       >
-        {{ t('checklists.own') }}
+        {{ t('checklists.setsTab') }}
       </button>
     </div>
 
-    <template v-if="tab === 'checklists'">
-      <p class="hint">{{ t('checklists.templatesHint') }}</p>
+    <template v-if="tab === 'mine'">
+      <p class="hint">{{ t('checklists.mineHint') }}</p>
 
-      <ul class="list">
-        <li v-for="template in templates" :key="template.id" class="card">
-          <div class="card__body">
-            <h2 class="card__title">{{ template.title }}</h2>
-            <p class="card__meta">
-              {{ template.items_count }} {{ itemsLabel(template.items_count) }}
-            </p>
-            <p v-if="template.description" class="card__text">{{ template.description }}</p>
+      <AppButton variant="filled" block @click="openAddTask">
+        {{ t('checklists.addTask') }}
+      </AppButton>
+
+      <p v-if="!tasks.length" class="empty">{{ t('checklists.emptyMine') }}</p>
+
+      <ul v-else class="list">
+        <li v-for="task in tasks" :key="task.id" class="row">
+          <div class="row__body">
+            <p class="row__title">{{ task.title }}</p>
+            <p class="row__hint">{{ hintOf(task) }}</p>
           </div>
 
-          <!-- Шаблон уже взят: показываем прогресс и ведём в список -->
-          <template v-if="addedByTemplate.get(template.id)">
-            <ProgressBar
-              :value="
-                percent(
-                  addedByTemplate.get(template.id)!.done,
-                  addedByTemplate.get(template.id)!.total,
-                )
-              "
-            />
-            <AppButton
-              variant="outline"
-              block
-              :to="localePath(`/checklists/${addedByTemplate.get(template.id)!.id}`)"
-            >
-              {{ t('checklists.open') }} ·
-              {{ addedByTemplate.get(template.id)!.done }}/{{ addedByTemplate.get(template.id)!.total }}
-            </AppButton>
-          </template>
-
-          <AppButton
-            v-else
-            variant="filled"
-            block
-            :disabled="busy === template.id"
-            @click="add(template.id)"
+          <button
+            type="button"
+            class="row__action"
+            :aria-label="t('checklists.editTask')"
+            @click="editing = task"
           >
-            {{ t('checklists.add') }}
-          </AppButton>
+            <i class="pi pi-pencil" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            class="row__action row__action--danger"
+            :aria-label="t('checklists.removeTask')"
+            @click="remove(task)"
+          >
+            <i class="pi pi-trash" aria-hidden="true" />
+          </button>
         </li>
       </ul>
-
-      <template v-if="mine.length">
-        <h2 class="section">{{ t('checklists.mine') }}</h2>
-        <ul class="list">
-          <li v-for="checklist in mine" :key="checklist.id">
-            <NuxtLink :to="localePath(`/checklists/${checklist.id}`)" class="card card--link">
-              <div class="card__body">
-                <h3 class="card__title">{{ checklist.title }}</h3>
-                <p class="card__meta">
-                  {{ t('checklists.progress', { done: checklist.done, total: checklist.total }) }}
-                </p>
-              </div>
-              <ProgressBar :value="percent(checklist.done, checklist.total)" />
-            </NuxtLink>
-          </li>
-        </ul>
-      </template>
     </template>
 
     <template v-else>
-      <p class="hint">{{ t('checklists.ownHint') }}</p>
+      <p class="hint">{{ t('checklists.setsHint') }}</p>
+      <p v-if="added" class="notice">{{ added }}</p>
 
-      <form class="create" @submit.prevent="create">
-        <input
-          v-model="newTitle"
-          class="create__input"
-          type="text"
-          maxlength="120"
-          :placeholder="t('checklists.newSchedulePlaceholder')"
-          :aria-label="t('checklists.newSchedule')"
-        >
-        <AppButton variant="filled" type="submit" :disabled="!newTitle.trim() || creating">
-          {{ t('checklists.create') }}
-        </AppButton>
-      </form>
+      <ul class="list list--cards">
+        <li v-for="template in templates" :key="template.id" class="card">
+          <h2 class="card__title">{{ template.title }}</h2>
+          <p class="card__meta">{{ template.items_count }} {{ itemsLabel(template.items_count) }}</p>
+          <p v-if="template.description" class="card__text">{{ template.description }}</p>
 
-      <p v-if="!own.length" class="empty">{{ t('checklists.empty') }}</p>
-
-      <ul v-else class="list">
-        <li v-for="schedule in own" :key="schedule.id">
-          <NuxtLink :to="localePath(`/checklists/${schedule.id}`)" class="card card--link">
-            <div class="card__body">
-              <h3 class="card__title">{{ schedule.title }}</h3>
-              <p class="card__meta">{{ t('checklists.kindSchedule') }}</p>
-            </div>
-            <i class="pi pi-chevron-right" aria-hidden="true" />
-          </NuxtLink>
+          <AppButton
+            variant="filled"
+            block
+            :disabled="adding === template.id"
+            @click="addSet(template)"
+          >
+            {{ t('checklists.addSet') }}
+          </AppButton>
         </li>
       </ul>
     </template>
+
+    <TaskEditSheet
+      :open="editing !== null"
+      :task="editSource"
+      :pending="editPending"
+      :error="editError"
+      @close="editing = null"
+      @save="saveEdit"
+    />
   </div>
 </template>
 
@@ -220,14 +338,15 @@ useSeoMeta({
   font-weight: 600;
 }
 
-.hint {
+.hint,
+.empty {
   color: var(--c-text-muted);
   font-size: var(--fs-caption);
 }
 
-.section {
-  margin-top: var(--space-3);
-  font-size: 1.125rem;
+.notice {
+  color: var(--c-brand);
+  font-size: var(--fs-caption);
 }
 
 .list {
@@ -240,40 +359,68 @@ useSeoMeta({
 }
 
 @media (min-width: 768px) {
-  /* Десктоп: шаблоны чек-листов в сетке, а не одной длинной простынёй */
-  .list {
+  .list--cards {
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: var(--space-4);
   }
 }
 
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-row);
+  background: var(--c-surface);
+}
+
+.row__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.row__title {
+  font-size: var(--fs-body);
+}
+
+.row__hint {
+  color: var(--c-text-muted);
+  font-size: var(--fs-caption);
+}
+
+.row__action {
+  display: grid;
+  place-items: center;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  flex: 0 0 var(--tap-min);
+  border: none;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--c-text-muted);
+  cursor: pointer;
+}
+
+.row__action:hover {
+  color: var(--c-brand);
+}
+
+.row__action--danger:hover {
+  color: var(--c-danger);
+}
+
 .card {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-2);
   padding: var(--space-4);
   border: 1px solid var(--c-border);
   border-radius: var(--r-card);
   background: var(--c-surface);
-}
-
-.card--link {
-  flex-direction: row;
-  align-items: center;
-  color: var(--c-text);
-  text-decoration: none;
-}
-
-.card--link:hover .card__title {
-  color: var(--c-brand);
-}
-
-.card__body {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex: 1;
-  min-width: 0;
 }
 
 .card__title {
@@ -285,22 +432,5 @@ useSeoMeta({
 .card__text {
   color: var(--c-text-muted);
   font-size: var(--fs-caption);
-}
-
-.create {
-  display: flex;
-  gap: var(--space-2);
-}
-
-.create__input {
-  flex: 1;
-  min-width: 0;
-  min-height: 52px;
-  padding: 0 var(--space-4);
-  border: 1px solid var(--c-border);
-  border-radius: var(--r-row);
-  background: var(--c-surface);
-  color: var(--c-text);
-  font: inherit;
 }
 </style>

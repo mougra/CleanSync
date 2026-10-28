@@ -9,7 +9,6 @@
 
 import type { AchievementProgress } from '~/types/achievement';
 import type { ChallengeProgress } from '~/types/challenge';
-import type { TaskFrequency } from '~/types/checklist';
 import type { StatsPeriod } from '~/types/stats';
 import type {
   CalendarDay,
@@ -24,7 +23,6 @@ import type {
   TodayPlanTask,
 } from '~/types/task';
 import { isGeneratedTask } from '~/types/task';
-import { repeatLabel } from '~/utils/repeatLabel';
 
 interface SeasonalTemplate {
   title: string;
@@ -414,43 +412,11 @@ const planError = ref('');
 /**
  * Периодичность из пары «частота + интервал»: «раз в неделю», «раз в 3 месяца».
  *
- * Перевод дней в единицы шкалы живёт в `utils/repeatLabel.ts`: интервал хранится
- * в днях, а подпись должна читаться как «раз в 3 месяца», а не «раз в 90 месяцев».
- * Фразы вроде «раз в полтора месяца» и «раз в год» приходят оттуда же готовыми.
+ * Подпись общая с разделом «Мои задачи» (`composables/useTaskRepeatLabel.ts`):
+ * интервал хранится в днях, и текст собирается в одном месте, чтобы два экрана
+ * не расходились.
  */
-const frequencyLabel = (task: {
-  frequency: TaskFrequency | null;
-  interval_count: number | null;
-}): string | null => {
-  const parts = repeatLabel(task.frequency, task.interval_count);
-
-  if (parts.kind === 'none') {
-    return null;
-  }
-
-  if (parts.kind === 'once') {
-    return t('plan.repeatOnce');
-  }
-
-  if (parts.kind === 'phrase') {
-    return t(`plan.${parts.key}`);
-  }
-
-  const forms =
-    parts.unit === 'day'
-      ? [t('plan.unitDayOne'), t('plan.unitDayFew'), t('plan.unitDayMany')]
-      : parts.unit === 'week'
-        ? [t('plan.unitWeekOne'), t('plan.unitWeekFew'), t('plan.unitWeekMany')]
-        : [t('plan.unitMonthOne'), t('plan.unitMonthFew'), t('plan.unitMonthMany')];
-
-  // Склонения — как везде в проекте: русские формы через `pluralRu`, английские через `pluralEn`.
-  const unit =
-    locale.value === 'ru'
-      ? pluralRu(parts.count, forms[0]!, forms[1]!, forms[2]!)
-      : pluralEn(parts.count, forms[0]!, forms[2]!);
-
-  return t('plan.repeatN', { count: parts.count, unit });
-};
+const frequencyLabel = useTaskRepeatLabel();
 
 /** Подпись строки сегодняшнего дня: периодичность и время.
  *
