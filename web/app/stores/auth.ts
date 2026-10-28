@@ -57,6 +57,19 @@ export const useAuthStore = defineStore('auth', () => {
     return user.value;
   };
 
+  /**
+   * Сбрасывает кэш `useAsyncData` после смены пользователя.
+   *
+   * Гость и вошедший — разные ответы на те же ключи (`today-plan`, `calendar-day`,
+   * `home-profile`, `my-tasks`). Без сброса после регистрации страница могла
+   * показать гостевые данные: план пустой, хотя набор уже создан на сервере.
+   */
+  const resetCachedData = (): void => {
+    if (import.meta.client) {
+      clearNuxtData();
+    }
+  };
+
   const login = async (email: string, password: string): Promise<void> => {
     await ensureCsrf();
     const response = await useApi().request<{ user: AuthUser }>('/api/auth/login', {
@@ -65,6 +78,7 @@ export const useAuthStore = defineStore('auth', () => {
     });
     user.value = response.user;
     ready.value = true;
+    resetCachedData();
   };
 
   /**
@@ -92,6 +106,7 @@ export const useAuthStore = defineStore('auth', () => {
     if (response.user) {
       user.value = response.user;
       ready.value = true;
+      resetCachedData();
     }
 
     return response.user ?? null;
@@ -103,6 +118,7 @@ export const useAuthStore = defineStore('auth', () => {
       await useApi().request('/api/auth/logout', { method: 'POST' });
     } finally {
       user.value = null;
+      resetCachedData();
     }
   };
 
