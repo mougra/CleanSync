@@ -23,7 +23,7 @@ export const TASK_SET_TITLE_EN: Record<string, string> = {
   'Пропылесосить диван и диванные подушки': 'Vacuum the sofa and the sofa cushions',
   'Протереть подоконники': 'Wipe the windowsills',
   'Разобрать одну полку в шкафу': 'Sort out one shelf in the cupboard',
-  'Протереть входную дверь, ручки и выключатели': 'Wipe the front door, handles and switches',
+  'Протереть входную дверь и домофон': 'Wipe the front door and the intercom',
   'Протереть зеркала': 'Wipe the mirrors',
   'Помыть мусорное ведро': 'Wash the bin',
   'Протереть пульты': 'Wipe the remotes',
