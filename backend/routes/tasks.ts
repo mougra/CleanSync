@@ -644,6 +644,9 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
     const result = await client.query(
       `UPDATE tasks SET
         title = COALESCE($1, title),
+        -- Правка названия снимает метку «из набора»: дело становится своим и
+        -- переезжает в «Мои задачи», а пересборка базового набора его не трогает.
+        source = CASE WHEN $1 IS NOT NULL THEN NULL ELSE source END,
         frequency = COALESCE($2, frequency),
         day_of_week = COALESCE($3, day_of_week),
         day_of_month = COALESCE($4, day_of_month),

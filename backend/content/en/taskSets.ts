@@ -13,25 +13,30 @@ import { CATALOG_TITLE_EN } from './taskCatalog';
  * Ключ — русское название задачи символ в символ, как и в каталоге.
  */
 export const TASK_SET_TITLE_EN: Record<string, string> = {
-  'Протереть рабочие поверхности на кухне и убрать всё лишнее с неё':
-    'Wipe the kitchen worktops and clear everything off them',
-  'Постирать и загрузить бельё в стиральную машину':
-    'Wash the laundry and load it into the washing machine',
+  'Протереть рабочие поверхности на кухне и убрать с них лишнее':
+    'Wipe the kitchen worktops and clear the clutter off them',
+  'Загрузить бельё в стиральную машину и запустить стирку':
+    'Load the washing machine and start the cycle',
   'Вымыть или пропылесосить полы во всей квартире': 'Wash or vacuum the floors throughout the flat',
   'Вымыть ванну': 'Wash the bath',
-  'Полотенца заменить на свежие': 'Change the towels for fresh ones',
+  'Заменить полотенца на свежие': 'Change the towels for fresh ones',
+  'Пропылесосить диван и диванные подушки': 'Vacuum the sofa and the sofa cushions',
   'Протереть подоконники': 'Wipe the windowsills',
   'Разобрать одну полку в шкафу': 'Sort out one shelf in the cupboard',
-  'Протереть ручки дверей, шкафов и выключатели':
-    'Wipe the door and cupboard handles and the switches',
+  'Протереть входную дверь, ручки и выключатели': 'Wipe the front door, handles and switches',
   'Протереть зеркала': 'Wipe the mirrors',
   'Помыть мусорное ведро': 'Wash the bin',
   'Протереть пульты': 'Wipe the remotes',
   'Прочистить вытяжку': 'Clean the extractor hood',
-  'Протереть двери по всей квартире': 'Wipe the doors throughout the flat',
+  'Убрать за мебелью и вдоль стен': 'Clean behind the furniture and along the walls',
   'Разобрать вещи и выбросить ненужное': 'Sort out the things and bin what is not needed',
   'Помыть окна изнутри и снаружи': 'Wash the windows inside and out',
   'Разобрать лоток с документами': 'Sort out the document tray',
+  'Проверить дымовые датчики': 'Check the smoke alarms',
+  'Разобрать шкаф с одеждой и убрать несезонное':
+    'Sort out the wardrobe and put away off-season clothes',
+  'Почистить аквариум и заменить воду': 'Clean the aquarium and change the water',
+  'Расставить книжки на полке': 'Put the books back on the shelf',
   'Вымыть лоток и заменить наполнитель': 'Wash the litter tray and change the litter',
   'Помыть лапы после прогулки': 'Wash the paws after a walk',
 };

@@ -93,7 +93,6 @@ export const CATALOG_TITLE_EN: Record<string, string> = {
   'Пропылесосить пол под кроватью': 'Vacuum the floor under the bed',
   'Протереть пыль на тумбочке и полке': 'Wipe dust from the bedside table and the shelf',
   'Протереть выключатели у кровати': 'Wipe the switches by the bed',
-  'Поменять наволочки и прогладить их': 'Change the pillowcases and iron them',
   'Протереть зеркало в спальне': 'Wipe the bedroom mirror',
   'Протереть подоконник и раму в спальне': 'Wipe the bedroom windowsill and frame',
   'Протереть полки шкафа от пыли': 'Wipe dust from the wardrobe shelves',
@@ -144,11 +143,9 @@ export const CATALOG_TITLE_EN: Record<string, string> = {
   'Протереть полки и стеллаж в кабинете': 'Wipe the office shelves and the bookcase',
   'Пропылесосить кресло и подушку': 'Vacuum the armchair and the cushion',
   'Разобрать ящик стола': 'Sort out the desk drawer',
-  'Протереть дверь и выключатель в кабинете': 'Wipe the office door and switch',
   'Проверить и подписать кабели за столом': 'Check and label the cables behind the desk',
   'Постирать чехол кресла': 'Wash the armchair cover',
   'Разобрать полку с книгами и документами': 'Sort out the shelf of books and documents',
-  'Заменить батарейки в беспроводной мыши': 'Replace the batteries in the wireless mouse',
   'Разобрать лоток с документами за год': 'Sort out a year of papers in the tray',
   'Выбросить старые зарядки и кабели': 'Bin the old chargers and cables',
 
@@ -173,18 +170,15 @@ export const CATALOG_TITLE_EN: Record<string, string> = {
   'Постирать пледы и покрывала': 'Wash the throws and bedspreads',
   'Протереть двери и наличники в гостиной': 'Wipe the living room doors and frames',
   'Протереть плинтусы в гостиной': 'Wipe the living room skirting boards',
-  'Пропылесосить шторы и тюль': 'Vacuum the curtains and net curtains',
   'Почистить ковёр средством': 'Clean the carpet with shampoo',
   'Разобрать коробку с мелочами и рассортировать': 'Sort out the box of bits and pieces',
   'Постирать тюль в гостиной': 'Wash the living room net curtains',
-  'Проверить батарейки в пультах и часах': 'Check the batteries in the remotes and clocks',
 
   // ── Прихожая ────────────────────────────────────────────────────────────
-  'Протереть дверь и ручку изнутри': 'Wipe the door and handle inside',
+  'Протереть входную дверь и домофон': 'Wipe the front door and the intercom',
   'Протереть зеркало в прихожей': 'Wipe the hallway mirror',
   'Разобрать почту и выбросить рекламу': 'Sort out the post and bin the junk mail',
   'Пропылесосить коврик у двери': 'Vacuum the doormat',
-  'Протереть дверные ручки и домофон': 'Wipe the door handles and the intercom',
   'Проверить и разобрать пакеты': 'Check and sort out the bags',
   'Протереть выключатель в прихожей': 'Wipe the hallway switch',
   'Разложить обувь по парам': 'Sort the shoes into pairs',
@@ -294,7 +288,7 @@ export const CATALOG_TITLE_EN: Record<string, string> = {
   'Протереть стены и откосы от пыли': 'Wipe dust from the walls and reveals',
   'Помыть двери и косяки с мылом': 'Wash the doors and frames with soap',
   'Собрать вещи на отдачу и вывезти': 'Gather things to donate and take them away',
-  'Проверить дымовые датчики и батарейки': 'Check the smoke alarms and batteries',
+  'Проверить дымовые датчики': 'Check the smoke alarms',
   'Разобрать антресоли и выбросить лишнее': 'Sort out the overhead storage and bin what is extra',
 
   // ── Питомцы ─────────────────────────────────────────────────────────────
@@ -345,7 +339,6 @@ export const CATALOG_TITLE_EN: Record<string, string> = {
   'Помыть двери и косяки': 'Wash the doors and frames',
   'Проверить аптечку и сроки лекарств': 'Check the first-aid kit and medicine dates',
   'Смазать петли и фурнитуру': 'Oil the hinges and fittings',
-  'Заменить батарейки в датчиках': 'Replace the batteries in the sensors',
   'Перебрать документы и выбросить лишнее': 'Go through the documents and bin what is extra',
   'Помыть окна на балконе': 'Wash the balcony windows',
 };

@@ -426,8 +426,11 @@
   "checklists": {
     "templates": "Ready-made checklists",
     "mineTab": "My tasks",
+    "baseTab": "Base set",
     "setsTab": "Ready-made sets",
-    "mineHint": "All your tasks. Change the title and the repeat — the plan on the home page updates.",
+    "mineHint": "Only your own tasks. Change the title and the repeat — the plan on the home page updates.",
+    "baseHint": "Tasks everyone gets. Renaming one moves it to “My tasks”.",
+    "emptyBase": "The base set is not here yet — it appears when you open the day plan.",
     "setsHint": "A ready-made set adds its items once, for today.",
     "addSet": "Add for today",
     "addedSet": "{count} tasks added",

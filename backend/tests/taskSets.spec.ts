@@ -13,7 +13,7 @@ import {
 /**
  * Курируемые наборы задач — фундамент новой переделки: из них собирается план
  * гостя и зарегистрированного, поэтому проверяем не только форму, но и
- * обещанные числа: 81 задача, 38 расширений и средняя нагрузка 25–30 минут в
+ * обещанные числа: 79 задач, 38 расширений и средняя нагрузка 25–30 минут в
  * день при потолке 40.
  */
 const noContext: ExtraContextAnswers = {
@@ -24,11 +24,11 @@ const noContext: ExtraContextAnswers = {
 };
 
 describe('курируемые наборы задач', () => {
-  it('базовый набор — 81 задача со средней нагрузкой 25–30 минут в день', () => {
+  it('базовый набор — 79 задач со средней нагрузкой 25–30 минут в день', () => {
     const tasks = getBaseTasks();
     const stats = setStats(tasks);
 
-    expect(tasks.length).toBe(81);
+    expect(tasks.length).toBe(79);
     expect(stats.averagePerDay).toBeGreaterThanOrEqual(25);
     expect(stats.averagePerDay).toBeLessThanOrEqual(30);
     expect(stats.averagePerDay).toBeCloseTo(28.19, 2);

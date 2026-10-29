@@ -3,9 +3,13 @@
  * «Мои задачи» — единственный раздел управления своими делами.
  *
  * Решение заказчика (28 октября 2026): отдельные чек-листы больше не нужны.
- * Здесь два взгляда на одно и то же:
- *  - «Мои задачи» — плоский список всех дел человека (и базовый набор, и свои),
- *    с правкой названия и частоты и удалением. Создание — общей шторкой «+»;
+ * Здесь три взгляда на одно и то же:
+ *  - «Мои задачи» — **только свои** дела: созданные вручную и добавленные
+ *    наборами. Базовый набор сюда не подмешивается: он живёт отдельно, потому
+ *    что он есть у всех и не является «моим» списком (решение 30 октября);
+ *  - «Базовый набор» — дела, которые создал генератор (81 → 79 дел). Их можно
+ *    править и удалять: правка названия снимает метку «из набора» и переносит
+ *    дело в «Мои задачи»;
  *  - «Готовые наборы» — прежние шаблоны, но «добавить» теперь значит добавить
  *    пункты **разово на сегодня**, а не завести ещё один список.
  *
@@ -45,7 +49,10 @@ interface Template {
   items_count: number;
 }
 
-const tab = ref<'mine' | 'sets'>('mine');
+const tab = ref<'mine' | 'base' | 'sets'>('mine');
+
+/** Метка задач, которые создал генератор базового набора. */
+const DEFAULT_TASK_SOURCE = 'home_profile_defaults';
 
 const { data: mine, refresh: refreshMine } = await useAsyncData('my-tasks', () =>
   auth.isAuthenticated
@@ -60,6 +67,16 @@ const { data: templates } = await useAsyncData(
 );
 
 const tasks = computed<MineTask[]>(() => mine.value?.tasks ?? []);
+
+/** «Мои задачи» — только своё: без базового набора. */
+const ownTasks = computed(() =>
+  tasks.value.filter((task) => task.source !== DEFAULT_TASK_SOURCE),
+);
+
+/** Базовый набор — то, что создал генератор; живёт отдельной вкладкой. */
+const baseTasks = computed(() =>
+  tasks.value.filter((task) => task.source === DEFAULT_TASK_SOURCE),
+);
 
 /** Склонение «пункт / пункта / пунктов» в готовых наборах. */
 const itemsLabel = (count: number) =>
@@ -224,6 +241,15 @@ useSeoMeta({
       <button
         type="button"
         class="segmented__item"
+        :class="{ 'segmented__item--active': tab === 'base' }"
+        :aria-pressed="tab === 'base'"
+        @click="tab = 'base'"
+      >
+        {{ t('checklists.baseTab') }}
+      </button>
+      <button
+        type="button"
+        class="segmented__item"
         :class="{ 'segmented__item--active': tab === 'sets' }"
         :aria-pressed="tab === 'sets'"
         @click="tab = 'sets'"
@@ -239,10 +265,42 @@ useSeoMeta({
         {{ t('checklists.addTask') }}
       </AppButton>
 
-      <p v-if="!tasks.length" class="empty">{{ t('checklists.emptyMine') }}</p>
+      <p v-if="!ownTasks.length" class="empty">{{ t('checklists.emptyMine') }}</p>
 
       <ul v-else class="list">
-        <li v-for="task in tasks" :key="task.id" class="row">
+        <li v-for="task in ownTasks" :key="task.id" class="row">
+          <div class="row__body">
+            <p class="row__title">{{ task.title }}</p>
+            <p class="row__hint">{{ hintOf(task) }}</p>
+          </div>
+
+          <button
+            type="button"
+            class="row__action"
+            :aria-label="t('checklists.editTask')"
+            @click="editing = task"
+          >
+            <i class="pi pi-pencil" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            class="row__action row__action--danger"
+            :aria-label="t('checklists.removeTask')"
+            @click="remove(task)"
+          >
+            <i class="pi pi-trash" aria-hidden="true" />
+          </button>
+        </li>
+      </ul>
+    </template>
+
+    <template v-else-if="tab === 'base'">
+      <p class="hint">{{ t('checklists.baseHint') }}</p>
+
+      <p v-if="!baseTasks.length" class="empty">{{ t('checklists.emptyBase') }}</p>
+
+      <ul v-else class="list">
+        <li v-for="task in baseTasks" :key="task.id" class="row">
           <div class="row__body">
             <p class="row__title">{{ task.title }}</p>
             <p class="row__hint">{{ hintOf(task) }}</p>

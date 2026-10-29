@@ -6,7 +6,7 @@
  * инварианты проверяются прямо на наборе ответов анкеты.
  *
  * Что проверяем и почему:
- *  - 81 базовое дело, средняя 25–30 минут в день — решение заказчика;
+ *  - 79 базовых дел, средняя 25–30 минут в день — решение заказчика;
  *  - ни одно базовое дело не потеряно и не сменило частоту — частоты фиксированы,
  *    бюджет их не удлиняет;
  *  - худший день не выходит за разумный предел. Строгие 40 недостижимы: месячное
@@ -71,7 +71,7 @@ const peakOf = (load: Map<string, number>): number =>
 const baseTasks = getBaseTasks();
 const baseStats = setStats(baseTasks);
 
-check(baseStats.totalTasks === 81, `базовых задач ${baseStats.totalTasks}, ожидается 81`);
+check(baseStats.totalTasks === 79, `базовых задач ${baseStats.totalTasks}, ожидается 79`);
 check(
   baseStats.averagePerDay >= 25 && baseStats.averagePerDay <= 30,
   `средняя ${baseStats.averagePerDay} мин/день, ожидается 25–30`,
