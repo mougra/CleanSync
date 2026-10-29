@@ -86,6 +86,7 @@
     "guestPlanTitle": "Today’s plan",
     "guestPlanSummary": "{count} tasks · {minutes}",
     "guestPlanNote": "Sign in to keep your progress and manage your tasks.",
+    "guestMarksNote": "Ticks are kept in this browser only. Create an account and we will move them into your profile.",
     "guestPlanCta": "Create an account",
     "guestPlanLogin": "Sign in",
     "defaultNoteGuest": "This is the basic plan that fits any home. Create an account to tick things off and tailor the plan to your home.",

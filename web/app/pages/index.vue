@@ -385,7 +385,7 @@ const plannedLabel = computed(() => {
 
 /** «выполнено 2 задачи» — только там, где факт вообще может быть не нулевым. */
 const doneLabel = computed(() => {
-  const count = summary.value.completed_tasks;
+  const count = showDefaultPlan.value ? planDone.value : summary.value.completed_tasks;
 
   return plural(count, [
     t('calendar.doneOne', { count }),
@@ -409,7 +409,7 @@ const minutesLabel = computed(() => {
   const parts = [t('calendar.planMinutes', { minutes: formatDuration(total, locale.value) })];
 
   if (showFact.value) {
-    const done = summary.value.completed_minutes;
+    const done = showDefaultPlan.value ? guestDoneMinutes.value : summary.value.completed_minutes;
     parts.push(
       done > 0
         ? t('calendar.factMinutes', { minutes: formatDuration(done, locale.value) })
@@ -460,6 +460,13 @@ const zones = computed(() => {
  * менялось только после перезагрузки страницы.
  */
 const { mark: markTask, unmark: clearPlanMark, isMarked } = useTaskMarks();
+
+/**
+ * Гостевые отметки: у гостя нет аккаунта, поэтому прогресс базового плана живёт
+ * в localStorage (`composables/useGuestMarks.ts`). При регистрации отметки
+ * переносятся в профиль по названиям дел.
+ */
+const guestMarks = useGuestMarks();
 
 /** Задачи, по которым прямо сейчас идёт запрос: повторный тап по ним не проходит. */
 const planBusy = ref<number[]>([]);
@@ -627,7 +634,7 @@ const defaultRows = computed<PlanDayRow[]>(() =>
       .filter(Boolean)
       .join(' · '),
     icon: zoneIcon(task.room) ?? 'pi-list',
-    done: false,
+    done: guestMarksReady.value && guestMarks.isMarked(selectedDate.value, task.title),
     generated: false,
     scheduleId: 0,
     frequency: null,
@@ -656,6 +663,34 @@ const dayRows = computed<PlanDayRow[]>(() =>
   showDefaultPlan.value ? defaultRows.value : personalRows.value,
 );
 
+/** Гость отмечает базовый план локально: сервер в этом не участвует. */
+const guestPlanActive = computed(() => showDefaultPlan.value && !auth.isAuthenticated);
+
+/**
+ * Отметки читаются из localStorage только на клиенте: на сервере их нет, и
+ * рисовать их до монтирования значило бы рассинхронизировать гидратацию.
+ */
+const guestMarksReady = ref(false);
+onMounted(() => {
+  guestMarksReady.value = true;
+});
+
+/**
+ * Перенос гостевых отметок после входа или регистрации.
+ *
+ * Регистрация переносит их сама (`pages/register.vue`), но человек может войти
+ * в существующий аккаунт с тем же браузером — тогда забираем отметки здесь и
+ * перечитываем день, чтобы галочки встали на место.
+ */
+onMounted(async () => {
+  if (!auth.isAuthenticated || guestMarks.entries().length === 0) {
+    return;
+  }
+
+  await guestMarks.transfer();
+  await refreshNuxtData(['today-plan', 'calendar-day']);
+});
+
 /**
  * Прогресс кольца «План на сегодня».
  *
@@ -666,10 +701,19 @@ const dayRows = computed<PlanDayRow[]>(() =>
  * прогресса нет: отмечать его нельзя, пока нет аккаунта.
  */
 const planDone = computed(() =>
-  showDefaultPlan.value ? 0 : visiblePlanTasks.value.filter((task) => task.done).length,
+  showDefaultPlan.value
+    ? defaultRows.value.filter((task) => task.done).length
+    : visiblePlanTasks.value.filter((task) => task.done).length,
 );
 const planTotal = computed(() =>
   showDefaultPlan.value ? defaultRows.value.length : visiblePlanTasks.value.length,
+);
+
+/** Минуты, закрытые гостем: по отмеченным строкам базового плана. */
+const guestDoneMinutes = computed(() =>
+  defaultRows.value
+    .filter((task) => task.done)
+    .reduce((sum, task) => sum + (task.estimatedMinutes ?? 0), 0),
 );
 
 /**
@@ -1031,10 +1075,16 @@ const serverHasMark = (id: number, value: boolean): boolean =>
  * уборке или закрывает дело заранее. День едет в теле запроса (`completed_on`),
  * а серия считает момент нажатия, а не день дела (services/streak.ts).
  */
-const togglePlanTask = async (task: { id: number; done: boolean }) => {
-  // Базовый план — не личные задачи: отмечать их нечем, отправляем к настройке.
+const togglePlanTask = async (task: { id: number; done: boolean; title: string }) => {
+  // Базовый план: гость отмечает локально, а вошедшему без набора предлагаем
+  // настроить дом — отмечать нечего, пока набор не создан.
   if (showDefaultPlan.value) {
-    await navigateTo(localePath(auth.isAuthenticated ? '/settings?setup=1' : '/register'));
+    if (guestPlanActive.value) {
+      guestMarks.toggle(selectedDate.value, task.title);
+      return;
+    }
+
+    await navigateTo(localePath('/settings?setup=1'));
     return;
   }
 
@@ -1263,8 +1313,8 @@ useStructuredData(() => ({
           строка, а «запланировано 0 задач» читалось бы как отчёт.
         -->
         <div class="plan__body">
-          <!-- Кольцо — только у сегодняшнего дня и только у личного плана -->
-          <PlanRing v-if="isToday && !showDefaultPlan" :done="planDone" :total="planTotal" />
+          <!-- Кольцо — только у сегодняшнего дня: у гостя считает локальные отметки -->
+          <PlanRing v-if="isToday" :done="planDone" :total="planTotal" />
 
           <div class="plan__aside">
             <section v-if="summary.total_tasks > 0" class="summary" :aria-label="t('calendar.summaryTitle')">
@@ -1304,12 +1354,12 @@ useStructuredData(() => ({
         <ul v-if="dayRows.length" class="plan__list">
           <li v-for="task in dayRows" :key="task.id">
             <TaskRow
-              :interactive="!showDefaultPlan"
+              :interactive="!showDefaultPlan || guestPlanActive"
               :title="task.title"
               :hint="task.hint"
               :icon="task.icon"
               :done="task.done"
-              :disabled="showDefaultPlan || planBusy.includes(task.id)"
+              :disabled="(showDefaultPlan && !guestPlanActive) || planBusy.includes(task.id)"
               @toggle="togglePlanTask(task)"
             >
               <PlanTaskActions
@@ -1323,6 +1373,16 @@ useStructuredData(() => ({
             </TaskRow>
           </li>
         </ul>
+
+        <!--
+          Гость отмечает план локально: прогресс живёт в этом браузере, а не в
+          аккаунте. Строка прямо говорит об этом, чтобы никто не удивился, что
+          после смены устройства галочки пропали.
+        -->
+        <p v-if="guestPlanActive" class="plan__guest-note">
+          <i class="pi pi-info-circle" aria-hidden="true" />
+          {{ t('plan.guestMarksNote') }}
+        </p>
 
         <!--
           Строка «Добавить задачу» в конце списка: плюсик в углу экрана оказался
@@ -2183,6 +2243,21 @@ useStructuredData(() => ({
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+}
+
+/* Пометка «отметки только в браузере»: тихая строка под списком гостя */
+.plan__guest-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  color: var(--c-text-muted);
+  font-size: var(--fs-caption);
+}
+
+.plan__guest-note .pi {
+  margin-top: 2px;
+  color: var(--c-text-subtle);
 }
 
 .plan__setup {

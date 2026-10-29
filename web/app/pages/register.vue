@@ -72,6 +72,10 @@ const submit = async () => {
       return;
     }
 
+    // Гость мог отмечать базовый план до регистрации: отметки лежат в браузере,
+    // переносим их в профиль (заодно это создаёт набор «Мои задачи»).
+    await useGuestMarks().transfer();
+
     await navigateTo(localePath('/'));
   } catch {
     error.value = true;
