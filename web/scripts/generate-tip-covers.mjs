@@ -4,43 +4,36 @@ import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 
 /**
- * Собирает уникальные обложки статей-советов из четырёх исходных фотографий.
+ * Собирает обложки статей-советов из 24 разных фотографий — по одной на тему.
  *
- * Зачем: обложек в `public/photos/` всего четыре, а статей — 24. Пока каждый
- * совет брал один и тот же кадр, сетка «Советы» выглядела как одна картинка,
- * повторённая восемь раз. Здесь каждой статье достаётся свой **кадр** (окно
- * кропа), своя лёгкая тонировка по категории и своя иконка темы, поэтому файлы
- * не повторяются ни внутри языка, ни между RU и EN.
+ * Зачем: раньше обложек было всего четыре, и каждая статья брала свой кадр одного
+ * и того же фото. В сетке это читалось как повтор: «окно», «ванная» и «полы»
+ * оказывались разными окнами одного интерьера. Теперь у каждой статьи свой
+ * исходник (`public/photos/tips-src/<slug>.jpg`, свободные фото Burst), а скрипт
+ * только приводит его к 1200×630, добавляет тонировку по категории и плашку с
+ * иконкой. Тематические фото берутся с бесплатной лицензией Burst (Shopify):
+ * коммерческое использование и изменение разрешены, атрибуция не обязательна.
  *
  * Запуск: `node scripts/generate-tip-covers.mjs` из каталога web/.
  *
  * Правила, которые важно не потерять:
  *  - размер ровно 1200×630: это же значение уходит в `og:image`, а в карточках
  *    кадр всё равно режется `object-fit: cover`;
- *  - координаты кропа заданы в пикселях ИСХОДНИКА и проверяются: окно за
- *    границей кадра — ошибка, а не тихо обрезанная картинка;
+ *  - исходник обязан существовать: отсутствие фото — ошибка, а не тихо
+ *    подставленная заглушка (иначе повтор вернётся незаметно);
  *  - иконки берём из PrimeIcons (MIT), цвет — из дизайн-токенов, а не «на глаз»;
- *  - исходники не перезаписываем: обложки челленджей и «Совета дня» на главной
- *    продолжают жить на старых файлах.
+ *  - исходники лежат отдельно от готовых обложек: генератор их не перезаписывает.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
 const webDir = resolve(here, '..');
 const photosDir = resolve(webDir, 'public', 'photos');
+const srcDir = resolve(photosDir, 'tips-src');
 const outDir = resolve(photosDir, 'tips');
 const iconsDir = resolve(webDir, 'node_modules', 'primeicons', 'raw-svg');
 
 const W = 1200;
 const H = 630;
-const ASPECT = W / H;
-
-/** Исходники: короткое имя → файл и его реальные размеры (проверяются при чтении). */
-const sources = {
-  wipe: resolve(photosDir, 'spring-cleaning.jpg'),
-  kitchen: resolve(photosDir, 'kitchen-white.jpg'),
-  laundry: resolve(photosDir, 'laundry.jpg'),
-  cozy: resolve(photosDir, 'autumn-home.jpg'),
-};
 
 /**
  * Тонировка по категории. Цвета — из `app/assets/css/tokens.css`
@@ -57,54 +50,53 @@ const tints = {
 };
 
 /**
- * Манифест обложек: одна запись — одна статья.
+ * Манифест обложек: одна запись — одна статья и её собственное фото.
  *
- * `crop` — окно [left, top, width, height] в пикселях исходника, отношение
- * сторон 1200:630 (проверяется). `flip` зеркалит кадр: там, где два совета
- * берут один и тот же предмет (окно, люк машины), зеркало разводит композицию.
- * `icon` — имя SVG в PrimeIcons, у всех 24 статей иконки разные.
+ * `icon` — имя SVG в PrimeIcons, у всех 24 статей иконки разные. Файл исходника
+ * выводится из `slug` (`public/photos/tips-src/<slug>.jpg`), поэтому добавить
+ * статью — значит положить фото и дописать строку сюда.
  */
 const covers = [
-  // ── Балкон и окна: свет из окна, а не тряпка ─────────────────────────────
-  { slug: 'balcony-cleaning', category: 'home', src: 'kitchen', icon: 'sun', crop: [520, 700, 680, 357] },
-  { slug: 'windows-without-streaks', category: 'home', src: 'kitchen', icon: 'window-maximize', crop: [500, 400, 700, 368] },
+  // ── Балкон и окна ────────────────────────────────────────────────────────
+  { slug: 'balcony-cleaning', category: 'home', icon: 'sun' },
+  { slug: 'windows-without-streaks', category: 'home', icon: 'window-maximize' },
 
-  // ── Ванная и стиральная машина: один предмет, разные кадры ────────────────
-  { slug: 'bathroom-without-mold', category: 'bathroom', src: 'laundry', icon: 'shield', crop: [300, 150, 640, 336] },
-  { slug: 'washing-machine', category: 'home', src: 'laundry', icon: 'sync', crop: [240, 0, 700, 368], flip: true },
+  // ── Ванная и стиральная машина ───────────────────────────────────────────
+  { slug: 'bathroom-without-mold', category: 'bathroom', icon: 'shield' },
+  { slug: 'washing-machine', category: 'home', icon: 'sync' },
 
-  // ── Питомцы и текстиль: клубок шерсти крупным планом ─────────────────────
-  { slug: 'cat-litter-and-hair', category: 'pets', src: 'laundry', icon: 'star', crop: [520, 500, 560, 294] },
-  { slug: 'dog-in-a-flat', category: 'pets', src: 'cozy', icon: 'heart', crop: [720, 400, 480, 252], flip: true },
+  // ── Питомцы и текстиль ───────────────────────────────────────────────────
+  { slug: 'cat-litter-and-hair', category: 'pets', icon: 'star' },
+  { slug: 'dog-in-a-flat', category: 'pets', icon: 'heart' },
 
-  // ── Уборка руками: разные зоны одного кадра ──────────────────────────────
-  { slug: 'cleaning-with-kids', category: 'family', src: 'wipe', icon: 'users', crop: [300, 980, 900, 473] },
-  { slug: 'dust-and-allergy', category: 'home', src: 'wipe', icon: 'filter', crop: [130, 1080, 700, 368] },
-  { slug: 'fifteen-minutes-evening', category: 'habits', src: 'wipe', icon: 'clock', crop: [0, 690, 1200, 630] },
-  { slug: 'floors-by-material', category: 'home', src: 'wipe', icon: 'th-large', crop: [0, 950, 1200, 630], flip: true },
-  { slug: 'hallway-order', category: 'home', src: 'wipe', icon: 'key', crop: [0, 470, 720, 378] },
-  { slug: 'home-workout-10-minutes', category: 'habits', src: 'wipe', icon: 'bolt', crop: [600, 1080, 600, 315] },
-  { slug: 'seven-day-spring-clean', category: 'planning', src: 'wipe', icon: 'calendar', crop: [0, 300, 1200, 630] },
+  // ── Уборка и порядок ─────────────────────────────────────────────────────
+  { slug: 'cleaning-with-kids', category: 'family', icon: 'users' },
+  { slug: 'dust-and-allergy', category: 'home', icon: 'filter' },
+  { slug: 'fifteen-minutes-evening', category: 'habits', icon: 'clock' },
+  { slug: 'floors-by-material', category: 'home', icon: 'th-large' },
+  { slug: 'hallway-order', category: 'home', icon: 'key' },
+  { slug: 'home-workout-10-minutes', category: 'habits', icon: 'bolt' },
+  { slug: 'seven-day-spring-clean', category: 'planning', icon: 'calendar' },
 
-  // ── Кухня: полки, банки, свет из окна ────────────────────────────────────
-  { slug: 'fridge-order', category: 'kitchen', src: 'kitchen', icon: 'warehouse', crop: [300, 1260, 560, 294] },
-  { slug: 'kitchen-30-minutes', category: 'kitchen', src: 'kitchen', icon: 'sparkles', crop: [60, 380, 1080, 567] },
-  { slug: 'three-boxes-method', category: 'planning', src: 'kitchen', icon: 'box', crop: [200, 1220, 780, 410] },
+  // ── Кухня ────────────────────────────────────────────────────────────────
+  { slug: 'fridge-order', category: 'kitchen', icon: 'warehouse' },
+  { slug: 'kitchen-30-minutes', category: 'kitchen', icon: 'sparkles' },
+  { slug: 'three-boxes-method', category: 'planning', icon: 'box' },
 
-  // ── Привычки: книги, плед, чай ───────────────────────────────────────────
-  { slug: 'good-habits-for-home-and-self', category: 'habits', src: 'cozy', icon: 'check-circle', crop: [0, 150, 1200, 630] },
-  { slug: 'home-office-order', category: 'home', src: 'cozy', icon: 'desktop', crop: [0, 330, 660, 347] },
-  { slug: 'how-not-to-quit-a-habit', category: 'habits', src: 'cozy', icon: 'replay', crop: [420, 40, 700, 368] },
-  { slug: 'language-10-minutes-a-day', category: 'habits', src: 'cozy', icon: 'language', crop: [580, 260, 620, 326] },
-  { slug: 'yard-and-garden-care', category: 'home', src: 'cozy', icon: 'compass', crop: [0, 430, 660, 347], flip: true },
+  // ── Привычки ─────────────────────────────────────────────────────────────
+  { slug: 'good-habits-for-home-and-self', category: 'habits', icon: 'check-circle' },
+  { slug: 'home-office-order', category: 'home', icon: 'desktop' },
+  { slug: 'how-not-to-quit-a-habit', category: 'habits', icon: 'replay' },
+  { slug: 'language-10-minutes-a-day', category: 'habits', icon: 'language' },
+  { slug: 'yard-and-garden-care', category: 'home', icon: 'compass' },
 
-  // ── Детская и бельё ─────────────────────────────────────────────────────
-  { slug: 'kids-room-15-minutes', category: 'family', src: 'laundry', icon: 'gift', crop: [420, 60, 780, 410] },
-  { slug: 'laundry-system', category: 'home', src: 'laundry', icon: 'inbox', crop: [260, 310, 880, 462] },
-  { slug: 'mattress-and-bedding', category: 'home', src: 'laundry', icon: 'moon', crop: [420, 380, 640, 336] },
+  // ── Детская и бельё ──────────────────────────────────────────────────────
+  { slug: 'kids-room-15-minutes', category: 'family', icon: 'gift' },
+  { slug: 'laundry-system', category: 'home', icon: 'inbox' },
+  { slug: 'mattress-and-bedding', category: 'home', icon: 'moon' },
 ];
 
-/** Гарантированно уникальный набор: иконка, кадр и файл не повторяются. */
+/** Гарантированно уникальный набор: иконка, файл и статья не повторяются. */
 const assertUnique = () => {
   for (const key of ['slug', 'icon']) {
     const seen = new Set();
@@ -112,29 +104,10 @@ const assertUnique = () => {
       if (seen.has(item[key])) {
         throw new Error(`Повтор в манифесте обложек: ${key} = ${item[key]}`);
       }
+
       seen.add(item[key]);
     }
   }
-};
-
-/** Окно кропа обязано лежать внутри исходника и иметь отношение сторон 1200:630. */
-const normalizeCrop = (crop, meta) => {
-  const [left, top, width, height] = crop.map(Math.round);
-  const need = { width, height: Math.round(width / ASPECT) };
-
-  if (left < 0 || top < 0 || left + width > meta.width || top + height > meta.height) {
-    throw new Error(
-      `Кроп ${crop.join(',')} выходит за кадр ${meta.width}×${meta.height} — поправьте манифест`,
-    );
-  }
-
-  if (Math.abs(width / height - ASPECT) > 0.02) {
-    throw new Error(
-      `Кроп ${crop.join(',')} имеет отношение ${(width / height).toFixed(3)}, нужно ${ASPECT.toFixed(3)}`,
-    );
-  }
-
-  return { left, top, width: need.width, height: need.height };
 };
 
 const svgBuf = (svg) => Buffer.from(svg);
@@ -227,7 +200,7 @@ const angleFor = (index) => {
   return angles[index % angles.length];
 };
 
-/** Небольшая разбежка яркости и насыщенности: кадры с одного фото не выглядят одинаковыми. */
+/** Небольшая разбежка яркости и насыщенности: разные фото сближаются по настроению. */
 const grade = (index) => ({
   saturation: 0.94 + ((index * 7) % 9) * 0.015,
   brightness: 0.97 + ((index * 5) % 7) * 0.01,
@@ -239,23 +212,21 @@ await mkdir(outDir, { recursive: true });
 const rows = [];
 
 for (const [index, item] of covers.entries()) {
-  const base = sharp(sources[item.src]).rotate();
-  const meta = await base.metadata();
-  const crop = normalizeCrop(item.crop, meta);
-  const { saturation, brightness } = grade(index);
+  const source = resolve(srcDir, `${item.slug}.jpg`);
 
-  let frame = sharp(sources[item.src])
-    .rotate()
-    .extract(crop)
-    .resize(W, H, { fit: 'cover', position: 'centre' });
+  let frame;
 
-  if (item.flip) {
-    frame = frame.flop();
+  try {
+    frame = sharp(source).rotate();
+  } catch {
+    throw new Error(`Нет исходника для «${item.slug}»: положите ${source}`);
   }
 
-  frame = frame.modulate({ saturation, brightness });
+  const { saturation, brightness } = grade(index);
 
   const buffer = await frame
+    .resize(W, H, { fit: 'cover', position: 'centre' })
+    .modulate({ saturation, brightness })
     .composite([
       { input: tintLayer(tints[item.category], angleFor(index)), blend: 'soft-light' },
       { input: shadeLayer(), blend: 'over' },
@@ -264,11 +235,10 @@ for (const [index, item] of covers.entries()) {
     .jpeg({ quality: 80, mozjpeg: true, chromaSubsampling: '4:4:4' })
     .toBuffer();
 
-  const out = resolve(outDir, `${item.slug}.jpg`);
-  await sharp(buffer).toFile(out);
+  await sharp(buffer).toFile(resolve(outDir, `${item.slug}.jpg`));
 
   const kb = Math.round(buffer.length / 1024);
-  rows.push({ slug: item.slug, category: item.category, icon: item.icon, kb, crop });
+  rows.push({ slug: item.slug, category: item.category, icon: item.icon, kb });
 }
 
 // Сверяем с содержимым коллекций: у каждой статьи (RU и EN) должна быть обложка.
@@ -280,11 +250,7 @@ const missing = [...tipsRu, ...tipsEn]
   .filter((slug) => !made.has(slug));
 
 for (const row of rows) {
-  const crop = row.crop;
-  console.log(
-    `  ${row.slug.padEnd(30)} ${row.category.padEnd(9)} ${row.icon.padEnd(16)} ` +
-      `crop ${crop.left},${crop.top} ${crop.width}×${crop.height}  ${row.kb} KB`,
-  );
+  console.log(`  ${row.slug.padEnd(30)} ${row.category.padEnd(9)} ${row.icon.padEnd(16)} ${row.kb} KB`);
 }
 
 if (missing.length) {
