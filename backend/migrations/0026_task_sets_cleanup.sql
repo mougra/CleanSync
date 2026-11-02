@@ -15,12 +15,16 @@
 -- в мастере), поэтому правку данных делаем здесь, иначе список остался бы старым.
 
 -- 1. Три двери → одно дело. Оставляем самую раннюю строку пользователя.
+--    Владелец задачи — не `tasks.user_id` (такой колонки нет: она была удалена
+--    как источник багов, см. правило про схему), а `schedules.user_id`, поэтому
+--    группируем через расписание.
 WITH door AS (
-  SELECT id,
-         row_number() OVER (PARTITION BY user_id ORDER BY id) AS rn
-  FROM tasks
-  WHERE source = 'home_profile_defaults'
-    AND title IN (
+  SELECT t.id,
+         row_number() OVER (PARTITION BY s.user_id ORDER BY t.id) AS rn
+  FROM tasks t
+  JOIN schedules s ON s.id = t.schedule_id
+  WHERE t.source = 'home_profile_defaults'
+    AND t.title IN (
       'Протереть дверные ручки и домофон',
       'Протереть дверь и ручку изнутри',
       'Протереть дверь и выключатель в кабинете'
@@ -63,9 +67,18 @@ SET title = 'Проверить дымовые датчики'
 WHERE source = 'home_profile_defaults'
   AND title = 'Проверить дымовые датчики и батарейки';
 
--- 4. Шторы и тюль — раз в год (частота хранится в днях).
+-- 4. Шторы и тюль — раз в год, а не раз в полгода.
+--    В `tasks.frequency` допустимы только daily / weekly / monthly (так их
+--    понимает выборка «Сегодня»); «раз в год» — это `monthly` с интервалом
+--    360 дней. Ставить сюда `frequency = 'yearly'` нельзя: такого значения
+--    выборка не знает и дело молча исчезло бы из плана.
+--    Опорой цикла для интервала больше месяца служит `due_date` — без неё
+--    задача тоже не попадёт в план, поэтому пустую опору заполняем сегодняшним
+--    днём (цикл начнётся с него, а не с начала года).
 UPDATE tasks
-SET frequency = 'yearly', interval_count = 1
+SET frequency = 'monthly',
+    interval_count = 360,
+    due_date = COALESCE(due_date, CURRENT_DATE)
 WHERE source = 'home_profile_defaults'
   AND title IN ('Постирать шторы в комнатах', 'Постирать тюль в гостиной');
 
