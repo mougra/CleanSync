@@ -3,6 +3,7 @@ import request from 'supertest';
 import app from '../app';
 import pool from '../db';
 import { generateTokens } from '../auth';
+import { appToday } from '../services/appTime';
 import { DEFAULT_TASK_SOURCE, normalizeTaskTitle } from '../services/defaultTasks';
 
 /**
@@ -124,6 +125,7 @@ describe.skipIf(!dbReady)('DELETE /api/tasks/:id: ответ отдаёт уда
       'interval_count',
       'day_of_week',
       'day_of_month',
+      'month_shifts',
       'due_date',
       'time',
       'estimated_minutes',
@@ -146,6 +148,7 @@ describe.skipIf(!dbReady)('DELETE /api/tasks/:id: ответ отдаёт уда
         'id',
         'interval_count',
         'is_completed',
+        'month_shifts',
         'room',
         'schedule_id',
         'source',
@@ -264,7 +267,9 @@ describe.skipIf(!dbReady)('POST /api/tasks/restore: задача возвращ�
     );
 
     expect(journal.rows).toHaveLength(1);
-    expect(journal.rows[0].completed_on).toBe(new Date().toISOString().slice(0, 10));
+    // Дату отметки пишет сервер в поясе приложения, а не UTC: сравнивать её с
+    // `toISOString()` значит падать на каждом прогоне после полуночи по Москве.
+    expect(journal.rows[0].completed_on).toBe(appToday());
     expect(Number(journal.rows[0].completed_by)).toBe(userId);
   });
 

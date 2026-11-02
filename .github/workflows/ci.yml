@@ -66,6 +66,13 @@ jobs:
       - name: Схема базы
         run: npm --prefix backend run migrate:up
 
+      # Справочники: достижения, челленджи, привычки, шаблоны и переводы.
+      # Тесты читают их через API, поэтому прогон без сида — это пустые ответы
+      # и падения вида «expected 0 to be greater than 0», а не проверка кода.
+      # Сид идемпотентен, повторный запуск безопасен.
+      - name: Справочники
+        run: npm --prefix backend run seed
+
       - name: Типы
         run: npm run typecheck
 

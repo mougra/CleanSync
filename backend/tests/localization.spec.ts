@@ -7,6 +7,7 @@ import { ACHIEVEMENT_EN } from '../content/en/achievements';
 import { CHALLENGE_EN } from '../content/en/challenges';
 import { HABIT_TEMPLATE_EN } from '../content/en/habits';
 import { CATALOG_TITLE_EN } from '../content/en/taskCatalog';
+import { TASK_SET_TITLE_EN } from '../content/en/taskSets';
 
 /**
  * Язык контента, который лежит в базе.
@@ -163,15 +164,16 @@ describe.skipIf(!dbReady)('Язык сгенерированного набор�
     expect(englishTitles.length).toBeGreaterThan(0);
     expect(englishTitles.length).toBe(russianTitles.length);
 
-    // Английские названия — значения словаря каталога, русские — его ключи.
-    // Так проверка не зависит от того, какие именно задачи выбрал генератор.
-    const englishValues = new Set(Object.values(CATALOG_TITLE_EN));
+    // Английские названия — значения двух словарей: библиотеки каталога и
+    // курируемого набора. Второй нужен для составных и переименованных дел
+    // («Протереть рабочие поверхности на кухне и убрать с них лишнее»): их
+    // перевода в каталоге нет по определению. Русские названия — ключи обоих.
+    const englishValues = new Set([...Object.values(CATALOG_TITLE_EN), ...Object.values(TASK_SET_TITLE_EN)]);
+    const russianKeys = new Set([...Object.keys(CATALOG_TITLE_EN), ...Object.keys(TASK_SET_TITLE_EN)]);
 
     for (const title of englishTitles) {
       expect(englishValues.has(title), `не английское название: ${title}`).toBe(true);
     }
-
-    const russianKeys = new Set(Object.keys(CATALOG_TITLE_EN));
 
     for (const title of russianTitles) {
       expect(russianKeys.has(title), `не русское название: ${title}`).toBe(true);
