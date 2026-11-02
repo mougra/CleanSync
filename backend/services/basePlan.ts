@@ -170,17 +170,61 @@ const shiftMonths = (date: string, months: number): string => {
   return iso(base);
 };
 
-/** Попадает ли задача на конкретный день — те же правила, что в SQL «Сегодня». */
-export const taskDueOn = (task: PlannedTask, date: Date): boolean => {
-  const day = utcDay(date);
+/**
+ * День, разложенный на части.
+ *
+ * Зачем структура, а не `Date`: раскладка перебирает десятки тысяч вхождений
+ * (79 дел × 28 чисел месяца × до 12 фаз × 400 дней), и создание объекта `Date`
+ * на каждый день съедало почти всё время. Части считаются один раз на окно,
+ * дальше сравнение идёт по числам.
+ */
+interface CivilDay {
+  /** Дата в ISO: она и попадает в результат. */
+  iso: string;
+  /** Дней с 1970-01-01: по ним считаются интервалы в днях и неделях. */
+  index: number;
+  dow: number;
+  dom: number;
+  /** Месяц от начала эпохи: `year * 12 + month`. По нему считаются месячные фазы. */
+  months: number;
+}
 
+const civilOf = (ms: number): CivilDay => {
+  const date = new Date(ms);
+
+  return {
+    iso: iso(date),
+    index: Math.floor(ms / DAY_MS),
+    dow: date.getUTCDay(),
+    dom: date.getUTCDate(),
+    months: date.getUTCFullYear() * 12 + date.getUTCMonth(),
+  };
+};
+
+/** Окно дней от `from`: считается один раз на всю раскладку. */
+const buildWindow = (from: Date, days: number): CivilDay[] => {
+  const start = utcDay(from).getTime();
+  const window: CivilDay[] = new Array(days);
+
+  for (let offset = 0; offset < days; offset += 1) {
+    window[offset] = civilOf(start + offset * DAY_MS);
+  }
+
+  return window;
+};
+
+/** Опора цикла: разбирается один раз на кандидата, а не на каждый день. */
+const anchorOf = (dueDate: string | null): CivilDay | null =>
+  dueDate === null ? null : civilOf(Date.parse(`${dueDate}T00:00:00Z`));
+
+/** Попадает ли задача на день — те же правила, что в SQL «Сегодня». */
+const matchesDay = (task: PlannedTask, day: CivilDay, anchor: CivilDay | null): boolean => {
   if (task.frequency === 'weekly') {
-    if (day.getUTCDay() !== task.dayOfWeek) return false;
+    if (day.dow !== task.dayOfWeek) return false;
     if (task.intervalCount === DAYS_IN_WEEK) return true;
-    if (!task.dueDate) return false;
+    if (!anchor) return false;
 
-    const anchor = new Date(`${task.dueDate}T00:00:00Z`);
-    const weeks = Math.floor((day.getTime() - anchor.getTime()) / (DAY_MS * DAYS_IN_WEEK));
+    const weeks = Math.floor((day.index - anchor.index) / DAYS_IN_WEEK);
 
     return weeks >= 0 && weeks % (task.intervalCount / DAYS_IN_WEEK) === 0;
   }
@@ -194,43 +238,44 @@ export const taskDueOn = (task: PlannedTask, date: Date): boolean => {
      * уезжает на соседний — ровно то же правило применяет SQL в `tasksDueOn`
      * (`routes/tasks.ts`), поэтому план в API и здесь совпадают.
      */
-    const shift = task.monthShifts?.[day.getUTCMonth()] ?? 0;
+    const shift = task.monthShifts?.[day.months % 12] ?? 0;
 
-    if (day.getUTCDate() !== (task.dayOfMonth ?? 0) + shift) return false;
+    if (day.dom !== (task.dayOfMonth ?? 0) + shift) return false;
     if (task.intervalCount === DAYS_IN_MONTH) return true;
-    if (!task.dueDate) return false;
+    if (!anchor) return false;
 
-    const anchor = new Date(`${task.dueDate}T00:00:00Z`);
-    const months =
-      day.getUTCFullYear() * 12 +
-      day.getUTCMonth() -
-      (anchor.getUTCFullYear() * 12 + anchor.getUTCMonth());
+    const months = day.months - anchor.months;
     const step = task.intervalCount / DAYS_IN_MONTH;
 
     return months >= 0 && months % step === 0;
   }
 
-  if (!task.dueDate) return false;
+  if (!anchor) return false;
 
-  const anchor = new Date(`${task.dueDate}T00:00:00Z`);
-  const apart = Math.round((day.getTime() - anchor.getTime()) / DAY_MS);
+  const apart = day.index - anchor.index;
 
   return apart >= 0 && apart % task.intervalCount === 0;
 };
 
-/** Все даты, когда задача случается, в окне от `from`. */
-export const occurrencesOf = (task: PlannedTask, from: Date, days: number): string[] => {
-  const start = utcDay(from);
+/** Публичная проверка одного дня: используется тестами и календарём. */
+export const taskDueOn = (task: PlannedTask, date: Date): boolean =>
+  matchesDay(task, civilOf(utcDay(date).getTime()), anchorOf(task.dueDate));
+
+/** Все даты, когда задача случается, внутри готового окна. */
+const occurrencesInWindow = (task: PlannedTask, window: readonly CivilDay[]): string[] => {
+  const anchor = anchorOf(task.dueDate);
   const dates: string[] = [];
 
-  for (let offset = 0; offset < days; offset += 1) {
-    const date = new Date(start.getTime() + offset * DAY_MS);
-
-    if (taskDueOn(task, date)) dates.push(iso(date));
+  for (const day of window) {
+    if (matchesDay(task, day, anchor)) dates.push(day.iso);
   }
 
   return dates;
 };
+
+/** Все даты, когда задача случается, в окне от `from`. */
+export const occurrencesOf = (task: PlannedTask, from: Date, days: number): string[] =>
+  occurrencesInWindow(task, buildWindow(from, days));
 
 /** Лестница от каталоговой частоты к более редким: только для расширений. */
 const ladderFrom = (cadence: TaskCadence): TaskCadence[] => {
@@ -307,7 +352,13 @@ export const buildBasePlan = (
   const dropped: string[] = [];
   let demoted = 0;
 
-  const occurrences = (task: PlannedTask): string[] => occurrencesOf(task, start, WINDOW_DAYS);
+  /**
+   * Окно считается один раз на всю раскладку: кандидатов десятки тысяч, и
+   * собирать окно (400 дней) на каждого было бы дороже самой проверки.
+   */
+  const window = buildWindow(start, WINDOW_DAYS);
+
+  const occurrences = (task: PlannedTask): string[] => occurrencesInWindow(task, window);
 
   /** Кандидат на место вместе с его датами и худшей нагрузкой после постановки. */
   interface Placement {
