@@ -73,6 +73,14 @@ describe('курируемые наборы задач', () => {
     expect(cat.some((task) => task.task === 'Почистить аквариум и заменить воду')).toBe(false);
     expect(fish.some((task) => task.task === 'Почистить аквариум и заменить воду')).toBe(true);
     expect(fish.some((task) => task.task === 'Вымыть лоток и заменить наполнитель')).toBe(false);
+
+    // Шерсть, лежанка и переноска бывают у кошки или собаки, но не у аквариума.
+    const furAndCarrier = ['Пропылесосить шерсть с ковра', 'Помыть лежанку питомца', 'Помыть переноску питомца'];
+
+    for (const title of furAndCarrier) {
+      expect(cat.some((task) => task.task === title), `кошка: ${title}`).toBe(true);
+      expect(fish.some((task) => task.task === title), `рыбки: ${title}`).toBe(false);
+    }
   });
 
   it('без ответов анкеты расширений нет', () => {
