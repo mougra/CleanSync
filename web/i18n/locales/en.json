@@ -496,6 +496,9 @@
     },
     "faqTitle": "Frequently asked questions",
     "relatedTitle": "Related tips",
+    "planCtaTitle": "Build a plan for your home",
+    "planCtaText": "Six questions about your flat, pets and free time — and a weekly plan of 25–30 minutes a day. No sign-up needed, and you can export it to your calendar.",
+    "planCtaButton": "Build my plan",
     "nextTitle": "What to try next"
   },
   "zonesPage": {
@@ -725,6 +728,8 @@
     "appearance": "Appearance",
     "theme": "Theme",
     "notifications": "Notifications",
+    "digest": "Weekly plan email",
+    "digestHint": "Arrives on Sunday evening with tomorrow’s tasks. You can also unsubscribe straight from the email.",
     "household": "Homes and members",
     "homeSetupHint": "The plan will be rebuilt from the new answers; manual edits stay.",
     "guide": "How to use the app",

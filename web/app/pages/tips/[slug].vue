@@ -189,6 +189,19 @@ useStructuredData(() => {
       </dl>
     </section>
 
+    <!--
+      Мягкий переход в продукт: читатель уже получил ответ, ему не продают,
+      а предлагают следующий шаг — план под свою квартиру без регистрации.
+      Из статей на /plan раньше не вела ни одна ссылка, а это главный магнит.
+    -->
+    <aside class="plan-cta">
+      <p class="plan-cta__title">{{ t('tipsPage.planCtaTitle') }}</p>
+      <p class="plan-cta__text">{{ t('tipsPage.planCtaText') }}</p>
+      <AppButton variant="filled" :to="localePath('/plan')">
+        {{ t('tipsPage.planCtaButton') }}
+      </AppButton>
+    </aside>
+
     <!-- Похожие советы: статьи ссылаются друг на друга, а не живут поодиночке -->
     <section v-if="related?.length" class="related">
       <h2 class="related__title">{{ t('tipsPage.relatedTitle') }}</h2>
@@ -316,6 +329,27 @@ useStructuredData(() => {
 
 .faq__answer {
   margin: 0;
+  color: var(--c-text-muted);
+}
+
+/* Мягкий CTA в продукт: план под свой дом без регистрации */
+.plan-cta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-4);
+  border-radius: var(--r-card);
+  background: var(--c-surface-mint);
+}
+
+.plan-cta__title {
+  font-size: var(--fs-body);
+  font-weight: 600;
+}
+
+.plan-cta__text {
   color: var(--c-text-muted);
 }
 
