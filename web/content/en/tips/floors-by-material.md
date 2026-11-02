@@ -1,6 +1,7 @@
 ---
 title: "Floors: laminate, tiles, parquet — what to wash them with and how, without ruining them"
 description: "Laminate fears water, parquet fears alkali, tiles fear dirty water: what to wash each floor with, so as not to ruin the surface or lose the shine."
+pinTitle: "What to wash floors with: laminate, tiles, parquet"
 cover: /photos/tips/floors-by-material.jpg
 category: home
 icon: pi-th-large

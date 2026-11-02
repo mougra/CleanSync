@@ -1,0 +1,44 @@
+{
+  "ru": {
+    "minutes": "мин",
+    "categories": {
+      "home": "Дом",
+      "kitchen": "Кухня",
+      "bathroom": "Ванная",
+      "habits": "Привычки",
+      "planning": "Планирование",
+      "family": "Семья",
+      "pets": "Питомцы"
+    },
+    "boards": {
+      "home": "Уборка дома",
+      "kitchen": "Кухня",
+      "bathroom": "Ванная",
+      "habits": "Привычки и ритуалы",
+      "planning": "Расхламление",
+      "family": "Семья и дети",
+      "pets": "Питомцы"
+    }
+  },
+  "en": {
+    "minutes": "min",
+    "categories": {
+      "home": "Home",
+      "kitchen": "Kitchen",
+      "bathroom": "Bathroom",
+      "habits": "Habits",
+      "planning": "Planning",
+      "family": "Family",
+      "pets": "Pets"
+    },
+    "boards": {
+      "home": "Home cleaning",
+      "kitchen": "Kitchen cleaning",
+      "bathroom": "Bathroom",
+      "habits": "Cleaning routines",
+      "planning": "Decluttering",
+      "family": "Family & kids",
+      "pets": "Pets"
+    }
+  }
+}
