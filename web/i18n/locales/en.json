@@ -495,6 +495,7 @@
       "pets": "Pets"
     },
     "faqTitle": "Frequently asked questions",
+    "relatedTitle": "Related tips",
     "nextTitle": "What to try next"
   },
   "zonesPage": {
@@ -804,7 +805,10 @@
     "save": "Save"
   },
   "checklistsPage": {
-    "title": "Checklists",
+    "title": "Cleaning checklists by room",
+    "lead": "Ready-made task sets for each room: add a set to Today and tick the items off one by one — the plan shows what is left.",
+    "guestNote": "A set is added to your day, so you need an account — signing up takes half a minute.",
+    "guestAdd": "Sign in and add",
     "metaDescription": "Cleaning checklists by zone: kitchen, living room, bathroom, bedroom, hallway and balcony. Take a ready-made list, tick items off and add your own tasks."
   },
   "tasks": {

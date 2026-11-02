@@ -74,6 +74,33 @@ const absolute = useAbsoluteUrl();
 /** Вопросы из front-matter: показываем на странице и отдаём в FAQPage. */
 const faq = computed(() => article.value?.faq ?? []);
 
+/**
+ * Похожие советы.
+ *
+ * Раньше статьи жили поодиночке: внизу были только общие ссылки на чек-листы
+ * и челленджи, и кластер «дом / кухня / привычки» не складывался ни для
+ * читателя, ни для поисковика. Теперь каждая статья ссылается на соседей по
+ * категории, а если их мало — на ближайшие по порядку. Названия берём из
+ * Markdown: источник правды один, дублировать их в i18n не нужно.
+ */
+const { data: related } = await useAsyncData(
+  () => `tip-related-${locale.value}-${slug}`,
+  async () => {
+    const all = await queryCollection(collection.value).order('order', 'ASC').all();
+    const others = all.filter((item) => item.path !== route.path);
+    const sameCategory = others.filter((item) => item.category === article.value?.category);
+    const rest = others.filter((item) => !sameCategory.includes(item));
+
+    return [...sameCategory, ...rest].slice(0, 3).map((item) => ({
+      path: item.path,
+      title: item.title,
+      category: item.category,
+      minutes: item.minutes,
+    }));
+  },
+  { watch: [locale] },
+);
+
 useStructuredData(() => {
   const current = article.value;
 
@@ -160,6 +187,22 @@ useStructuredData(() => {
           <dd class="faq__answer">{{ item.answer }}</dd>
         </div>
       </dl>
+    </section>
+
+    <!-- Похожие советы: статьи ссылаются друг на друга, а не живут поодиночке -->
+    <section v-if="related?.length" class="related">
+      <h2 class="related__title">{{ t('tipsPage.relatedTitle') }}</h2>
+      <ul class="related__list">
+        <li v-for="item in related" :key="item.path">
+          <NuxtLink :to="localePath(item.path)" class="related__item">
+            <span class="related__name">{{ item.title }}</span>
+            <span class="related__meta">
+              {{ t(`tipsPage.category.${item.category}`) }} · {{ item.minutes }}
+              {{ t('tipsPage.minutes') }}
+            </span>
+          </NuxtLink>
+        </li>
+      </ul>
     </section>
 
     <!-- Перелинковка: статья ведёт в чек-листы и челленджи, а не в тупик -->
@@ -274,6 +317,50 @@ useStructuredData(() => {
 .faq__answer {
   margin: 0;
   color: var(--c-text-muted);
+}
+
+/* Похожие советы: короткий список карточек вместо простыни ссылок */
+.related {
+  width: 100%;
+}
+
+.related__title {
+  margin-bottom: var(--space-2);
+  font-weight: 600;
+}
+
+.related__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.related__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-row);
+  background: var(--c-surface);
+  color: var(--c-text);
+  text-decoration: none;
+}
+
+.related__item:hover {
+  border-color: var(--c-brand);
+}
+
+.related__name {
+  font-size: var(--fs-body);
+}
+
+.related__meta {
+  color: var(--c-text-muted);
+  font-size: var(--fs-caption);
 }
 
 /* Куда пойти дальше */

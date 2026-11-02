@@ -49,7 +49,18 @@ interface Template {
   items_count: number;
 }
 
-const tab = ref<'mine' | 'base' | 'sets'>('mine');
+/**
+ * Вкладка по умолчанию.
+ *
+ * Гость не видит ни «Мои задачи», ни «Базовый набор» — оба списка привязаны
+ * к аккаунту, и страница для него была пустой: таб «Мои» открывался первым,
+ * а в нём только «Пока пусто» и кнопка добавления, которая уводит на вход.
+ * При этом из поиска на `/checklists` приходят именно за готовыми наборами.
+ * Поэтому гостю открываем «Готовые наборы», а свои задачи — тому, у кого они
+ * есть. Значение вычисляется и на сервере: в гостевой разметке обязаны быть
+ * сами наборы, иначе поисковик видит пустую страницу.
+ */
+const tab = ref<'mine' | 'base' | 'sets'>(auth.isAuthenticated ? 'mine' : 'sets');
 
 /** Метка задач, которые создал генератор базового набора. */
 const DEFAULT_TASK_SOURCE = 'home_profile_defaults';
@@ -218,15 +229,29 @@ const addSet = async (template: Template) => {
   }
 };
 
+/**
+ * Заголовок страницы.
+ *
+ * Гостю показываем то, что на странице действительно есть (наборы по зонам),
+ * — это же видят поисковики. Вошедшему человеку оставляем привычное «Мои
+ * задачи» из меню: для него страница начинается с его списка.
+ */
+const pageTitle = computed(() =>
+  auth.isAuthenticated ? t('nav.checklists') : t('checklistsPage.title'),
+);
+
 useSeoMeta({
-  title: () => t('nav.checklists'),
+  // `<title>` не зависит от входа: адрес один, и в выдаче он должен называться
+  // одинаково — с зонами и словом «чек-лист», а не «Мои задачи».
+  title: () => t('checklistsPage.title'),
   description: () => t('checklistsPage.metaDescription'),
 });
 </script>
 
 <template>
   <div class="page">
-    <h1 class="page__title">{{ t('nav.checklists') }}</h1>
+    <h1 class="page__title">{{ pageTitle }}</h1>
+    <p class="page__lead">{{ t('checklistsPage.lead') }}</p>
 
     <div class="segmented" role="group">
       <button
@@ -328,6 +353,10 @@ useSeoMeta({
 
     <template v-else>
       <p class="hint">{{ t('checklists.setsHint') }}</p>
+      <!-- Гость: наборы видны, но добавлять их некуда — говорим об этом до клика -->
+      <p v-if="!auth.isAuthenticated" class="hint">
+        {{ t('checklistsPage.guestNote') }}
+      </p>
       <p v-if="added" class="notice">{{ added }}</p>
 
       <ul class="list list--cards">
@@ -342,7 +371,7 @@ useSeoMeta({
             :disabled="adding === template.id"
             @click="addSet(template)"
           >
-            {{ t('checklists.addSet') }}
+            {{ auth.isAuthenticated ? t('checklists.addSet') : t('checklistsPage.guestAdd') }}
           </AppButton>
         </li>
       </ul>
@@ -368,6 +397,10 @@ useSeoMeta({
 
 .page__title {
   font-size: var(--fs-display);
+}
+
+.page__lead {
+  color: var(--c-text-muted);
 }
 
 .segmented {
