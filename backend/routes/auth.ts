@@ -1,63 +1,16 @@
 import express, { Request, Response } from 'express';
 import bcryptjs from 'bcryptjs';
 import crypto from 'crypto';
-import nodemailer from 'nodemailer';
 import pool from '../db';
 import { generateTokens, verifyRefreshToken, authMiddleware } from '../auth';
 import { normalizeLocale, resolveContentLocale, type ContentLocale } from '../services/contentLocale';
-import { EMAIL_EN } from '../content/en/emails';
 import { relocalizeGeneratedContent } from '../services/generatedContent';
+import { EMAIL_EN } from '../content/en/emails';
+import { appLink, getEmailTemplate, isEmailConfigured, sendEmail } from '../services/mailer';
 import { clearAuthCookies, ensureCsrfToken, issueCsrfToken, readRefreshToken, setAuthCookies } from '../cookies';
 
 const router = express.Router();
 
-const emailFrom = process.env.EMAIL_FROM || 'no-reply@localhost';
-
-/**
- * Адрес для ответов (`Reply-To`).
- *
- * Письма уходят от `noreply@домен`, у которого нет и не должно быть ящика: ответ
- * на такое письмо вернулся бы отправителю ошибкой. Поэтому в `Reply-To` кладём
- * живой адрес поддержки — пользователь нажимает «Ответить» и попадает к человеку,
- * а формальный отправитель остаётся `noreply@`.
- */
-const emailReplyTo = process.env.EMAIL_REPLY_TO || '';
-const smtpConfig = {
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT) || 587,
-  secure: process.env.SMTP_SECURE === 'true',
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-};
-
-const createTransporter = () => {
-  if (
-    !process.env.SMTP_HOST ||
-    !process.env.SMTP_USER ||
-    !process.env.SMTP_PASS
-  ) {
-    return null;
-  }
-  return nodemailer.createTransport(smtpConfig);
-};
-
-/**
- * Настроена ли отправка писем.
- *
- * Пока SMTP нет, подтвердить почту физически невозможно: письмо некуда отправить,
- * а ссылка подтверждения попадает только в лог сервера. Поэтому требовать
- * подтверждение в этом режиме нельзя — иначе пользователь, который зарегистрировался
- * и вошёл, не сможет сменить пароль и останется в тупике (см. change-password).
- * Как только SMTP появится в окружении, проверка включается сама, без правок кода.
- */
-const isEmailConfigured = () =>
-  Boolean(
-    process.env.SMTP_HOST &&
-      process.env.SMTP_USER &&
-      process.env.SMTP_PASS,
-  );
 
 /**
  * Тексты писем на двух языках.
@@ -98,74 +51,6 @@ const EMAIL_RU: Record<'reset' | 'confirm' | 'changed', EmailCopy> = {
 const emailCopy = (key: 'reset' | 'confirm' | 'changed', lang: ContentLocale): EmailCopy =>
   lang === 'en' ? EMAIL_EN[key] : EMAIL_RU[key];
 
-const getEmailTemplate = (
-  title: string,
-  content: string,
-  actionText: string,
-  actionLink: string,
-  lang: ContentLocale,
-) => {
-  const footer =
-    lang === 'en'
-      ? `© ${new Date().getFullYear()} TidyPlan. ${EMAIL_EN.footer}${
-          emailReplyTo ? `<br>${EMAIL_EN.replyNote}` : ''
-        }`
-      : `© ${new Date().getFullYear()} TidyPlan. Помогаем делать мир чище.${
-          emailReplyTo ? '<br>На это письмо можно ответить — оно придёт в поддержку.' : ''
-        }`;
-  const fallback =
-    lang === 'en' ? EMAIL_EN.fallbackNote : 'Если кнопка не работает, скопируйте эту ссылку:';
-
-  return `
-    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px; background-color: #f9f9f9;">
-      <div style="text-align: center; margin-bottom: 20px;">
-        <h1 style="color: #28a745; margin: 0;">✨ TidyPlan</h1>
-      </div>
-      <div style="background-color: #ffffff; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-        <h2 style="color: #333; text-align: center; margin-top: 0;">${title}</h2>
-        <p style="color: #666; font-size: 16px; line-height: 1.5; text-align: center;">
-          ${content}
-        </p>
-        <div style="text-align: center; margin: 30px 0;">
-          <a href="${actionLink}" style="background-color: #28a745; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; font-size: 16px; display: inline-block;">
-            ${actionText}
-          </a>
-        </div>
-        <p style="color: #999; font-size: 12px; text-align: center; margin-top: 20px;">
-          ${fallback}<br>
-          <a href="${actionLink}" style="color: #007bff; word-break: break-all;">${actionLink}</a>
-        </p>
-      </div>
-      <div style="text-align: center; margin-top: 20px; color: #aaa; font-size: 12px;">
-        ${footer}
-      </div>
-    </div>
-  `;
-};
-
-const sendEmail = async ({ to, subject, html }: { to: string; subject: string; html: string }) => {
-  const transporter = createTransporter();
-  if (!transporter) {
-    return false;
-  }
-  await transporter.sendMail({
-    from: emailFrom,
-    to,
-    subject,
-    html,
-    // Пустая строка в replyTo ломает заголовок, поэтому передаём только когда задан.
-    replyTo: emailReplyTo || undefined,
-  });
-  return true;
-};
-
-/**
- * Публичный адрес приложения для ссылок в письмах.
- * Раньше здесь был жёстко зашит прежний SPA на порту 5173 — письма вели
- * на несуществующий адрес. Теперь это настройка окружения.
- */
-const appBaseUrl = (process.env.APP_BASE_URL || 'http://localhost:3000').replace(/\/+$/, '');
-const appLink = (path: string) => `${appBaseUrl}${path}`;
 
 const sendPasswordResetEmail = async (to: string, resetToken: string, lang: ContentLocale) => {
   const resetLink = appLink(`/reset-password?token=${resetToken}`);
@@ -570,7 +455,7 @@ router.post('/resend-confirmation', async (req: Request, res: Response) => {
 router.get('/me', authMiddleware, async (req: Request, res: Response) => {
   try {
     const result = await pool.query(
-      'SELECT id, email, username, avatar_url, is_email_confirmed, locale, timezone FROM users WHERE id = $1',
+      'SELECT id, email, username, avatar_url, is_email_confirmed, locale, timezone, digest_enabled FROM users WHERE id = $1',
       [req.userId],
     );
 
@@ -664,9 +549,42 @@ router.put('/locale', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
-// Change password
-router.post('/change-password', authMiddleware, async (req: Request, res: Response) => {
+/**
+ * Недельное письмо: включить или выключить.
+ *
+ * Отдельный маршрут, а не `PUT /profile`: в настройках это один переключатель,
+ * и посылать ради него имя с аватаром — лишний повод потерять их при
+ * синхронизации. По умолчанию письмо включено (миграция 0027), отписка из
+ * самого письма ходит через `GET /api/digest/unsubscribe` — без входа.
+ */
+router.put('/digest', authMiddleware, async (req: Request, res: Response) => {
   try {
+    const { enabled } = req.body as { enabled?: unknown };
+
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: 'enabled must be a boolean' });
+    }
+
+    const result = await pool.query(
+      `UPDATE users SET digest_enabled = $1, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $2
+    RETURNING id, email, username, avatar_url, is_email_confirmed, locale, timezone, digest_enabled`,
+      [enabled, req.userId],
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update digest settings' });
+  }
+});
+
+// Change password
+router.post('/change-password', authMiddleware, async (req: Request, res: Response) => {  try {
     const { currentPassword, newPassword } = req.body;
 
     if (!currentPassword || !newPassword) {

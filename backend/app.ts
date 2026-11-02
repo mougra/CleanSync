@@ -18,6 +18,7 @@ import homeProfileRoutes from './routes/homeProfile';
 import defaultPlanRoutes from './routes/defaultPlan';
 import streakRoutes from './routes/streak';
 import pushRoutes from './routes/push';
+import digestRoutes from './routes/digest';
 import pool from './db';
 import { csrfProtection } from './cookies';
 import { sentryEnabled } from './services/observability';
@@ -130,6 +131,7 @@ app.use('/api/home-profile', homeProfileRoutes);
 app.use('/api/plan', defaultPlanRoutes);
 app.use('/api/streak', streakRoutes);
 app.use('/api/push', pushRoutes);
+app.use('/api/digest', digestRoutes);
 
 /** Неизвестный маршрут API отвечает JSON, а не HTML-страницей Express. */
 app.use('/api', (req: Request, res: Response) => {

@@ -37,6 +37,31 @@ const colorMode = useColorMode();
 const api = useApi();
 
 /**
+ * Недельное письмо.
+ *
+ * Состояние живёт в профиле (`digest_enabled`), а не в отдельном запросе: его
+ * отдаёт `/api/auth/me`, и после переключения достаточно перечитать сессию —
+ * иначе после перезагрузки страницы переключатель показывал бы прежнее значение.
+ */
+const digestOn = computed(() => auth.user?.digest_enabled !== false);
+const digestBusy = ref(false);
+
+const toggleDigest = async () => {
+  if (digestBusy.value || !auth.isAuthenticated) return;
+
+  digestBusy.value = true;
+  try {
+    await api.request('/api/auth/digest', {
+      method: 'PUT',
+      body: { enabled: !digestOn.value },
+    });
+    await auth.fetchSession();
+  } finally {
+    digestBusy.value = false;
+  }
+};
+
+/**
  * Установка приложения. Состояние события установки ловит плагин на старте,
  * поэтому к моменту открытия настроек кнопка уже готова (см. useInstallPrompt).
  */
@@ -502,6 +527,33 @@ useSeoMeta({ title: () => t('nav.settings') });
               :disabled="vacationBusy || !auth.isAuthenticated"
               :aria-label="t('vacation.settingsTitle')"
               @change="toggleVacation"
+            >
+            <span class="switch__track"><span class="switch__thumb" /></span>
+          </label>
+        </template>
+      </SettingsRow>
+
+      <!--
+        Недельное письмо. Отдельная строка, а не часть «Уведомлений»: push и
+        почта живут по разным правилам (письмо приходит и без установки), и
+        человек вправе отключить одно, оставив другое. Отписка из письма ведёт
+        сюда же — включить обратно.
+      -->
+      <SettingsRow
+        v-if="auth.isAuthenticated"
+        icon="pi-envelope"
+        :title="t('settings.digest')"
+        :subtitle="t('settings.digestHint')"
+      >
+        <template #control>
+          <label class="switch" :class="{ 'switch--on': digestOn }">
+            <input
+              class="switch__input"
+              type="checkbox"
+              :checked="digestOn"
+              :disabled="digestBusy"
+              :aria-label="t('settings.digest')"
+              @change="toggleDigest"
             >
             <span class="switch__track"><span class="switch__thumb" /></span>
           </label>
