@@ -44,11 +44,18 @@ describe('раскладка базового набора', () => {
 
   it('ставит дело на конкретный день, а не «вообще»', () => {
     for (const task of plan.tasks) {
-      const hits = Array.from({ length: 60 }, (_, offset) =>
+      /*
+       * Горизонт — собственный цикл дела, а не фиксированные 60 дней.
+       * У «раз в год» первое вхождение стоит через 240–360 дней от опоры, и
+       * проверка на двух месяцах падала не потому, что дело потеряно, а потому
+       * что окно короче цикла.
+       */
+      const horizon = Math.max(60, task.intervalCount + 31);
+      const hits = Array.from({ length: horizon }, (_, offset) =>
         taskDueOn(task, new Date(today.getTime() + offset * 24 * 60 * 60 * 1000)),
       ).filter(Boolean);
 
-      expect(hits.length).toBeGreaterThan(0);
+      expect(hits.length, task.title).toBeGreaterThan(0);
     }
   });
 });

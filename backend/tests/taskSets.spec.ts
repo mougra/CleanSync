@@ -31,7 +31,9 @@ describe('курируемые наборы задач', () => {
     expect(tasks.length).toBe(79);
     expect(stats.averagePerDay).toBeGreaterThanOrEqual(25);
     expect(stats.averagePerDay).toBeLessThanOrEqual(30);
-    expect(stats.averagePerDay).toBeCloseTo(28.19, 2);
+    // Средняя считается из минут и частот набора: после слияния трёх «дверных»
+    // дел в одно и переноса штор на год она сместилась с 28.19 на 27.75.
+    expect(stats.averagePerDay).toBeCloseTo(27.75, 2);
   });
 
   it('базовый набор использует десять частот из согласованного плана', () => {
@@ -68,8 +70,8 @@ describe('курируемые наборы задач', () => {
     const fish = extrasFor({ ...noContext, pets: ['fish'] });
 
     expect(cat.some((task) => task.task === 'Вымыть лоток и заменить наполнитель')).toBe(true);
-    expect(cat.some((task) => task.task === 'Почистить аквариум и поменять воду')).toBe(false);
-    expect(fish.some((task) => task.task === 'Почистить аквариум и поменять воду')).toBe(true);
+    expect(cat.some((task) => task.task === 'Почистить аквариум и заменить воду')).toBe(false);
+    expect(fish.some((task) => task.task === 'Почистить аквариум и заменить воду')).toBe(true);
     expect(fish.some((task) => task.task === 'Вымыть лоток и заменить наполнитель')).toBe(false);
   });
 
@@ -86,7 +88,7 @@ describe('курируемые наборы задач', () => {
     };
     const tasks = extrasFor(answers).map((task) => task.task);
 
-    expect(tasks).toContain('Убрать книжки на полку');
+    expect(tasks).toContain('Расставить книжки на полке');
     expect(tasks).toContain('Полить клумбы и грядки');
     expect(tasks).toContain('Разобрать полку с книгами и документами');
     expect(tasks).not.toContain('Вымыть пол на балконе');
