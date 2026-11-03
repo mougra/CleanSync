@@ -1,5 +1,5 @@
 import pool from '../db';
-import { APP_TIME_ZONE } from './appTime';
+import { APP_TIME_ZONE, SQL_APP_TODAY } from './appTime';
 
 /**
  * Таймер уборки: одна активная сессия на человека.
@@ -206,4 +206,30 @@ export const focusMinutesOn = async (userId: string, iso: string): Promise<numbe
   const byDay = await focusMinutesByDay(userId, iso, iso);
 
   return byDay.get(iso) ?? 0;
+};
+
+/**
+ * Факт за период статистики: минуты по завершённым сессиям.
+ *
+ * `days === null` — всё время. Граница считается по дню приложения, как и
+ * остальные срезы: сессия в 23:30 относится к своему дню, а не к следующему.
+ */
+export const focusMinutesForPeriod = async (
+  userId: string,
+  days: number | null,
+): Promise<number> => {
+  const result = await pool.query<{ seconds: number }>(
+    `SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (ended_at - started_at)) - paused_seconds), 0)::int AS seconds
+       FROM focus_sessions
+      WHERE user_id = $1
+        AND status = 'finished'
+        AND ended_at IS NOT NULL
+        AND (
+          $2::int IS NULL
+          OR (started_at AT TIME ZONE $3)::date >= (${SQL_APP_TODAY} - ($2 || ' days')::interval)::date
+        )`,
+    [userId, days, APP_TIME_ZONE],
+  );
+
+  return Math.max(0, Math.round(Number(result.rows[0]?.seconds ?? 0) / 60));
 };

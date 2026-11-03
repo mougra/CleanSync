@@ -185,6 +185,18 @@ useSeoMeta({ title: () => t('analytics.title'), robots: 'noindex, nofollow' });
           </section>
         </div>
 
+        <!--
+          Факт по таймеру: «затраченное время» выше — это оценка закрытых дел, а
+          здесь время, которое человек действительно отмерил. Плитку показываем
+          только тем, кто таймером пользовался: ноль в ней ничего не сообщает.
+        -->
+        <section v-if="overview.totals.timer_minutes > 0" class="card tile">
+          <span class="tile__icon" aria-hidden="true"><i class="pi pi-stopwatch" /></span>
+          <p class="tile__title">{{ t('analytics.timerTitle') }}</p>
+          <p class="tile__value tile__value--time">{{ formatClock(overview.totals.timer_minutes) }}</p>
+          <p class="tile__hint">{{ t('analytics.timerHint') }}</p>
+        </section>
+
         <!-- Самая долгая задача -->
         <section class="card card--mint longest">
           <span class="tile__icon" aria-hidden="true"><i class="pi pi-chart-bar" /></span>

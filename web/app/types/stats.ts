@@ -16,8 +16,9 @@ export interface StatsHistoryItem {
 
 export interface StatsOverview {
   period: StatsPeriod;
-  totals: { tasks: number; minutes: number; days: number };
-  last7: { tasks: number; minutes: number };
+  /** `timer_minutes` — факт по таймеру, отдельно от оценки `minutes`. */
+  totals: { tasks: number; minutes: number; days: number; timer_minutes: number };
+  last7: { tasks: number; minutes: number; timer_minutes: number };
   weekday: StatsWeekday[];
   busiestWeekday: number | null;
   longest: { title: string; minutes: number; date: string } | null;

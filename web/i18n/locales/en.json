@@ -172,6 +172,8 @@
     "last7Hint": "Tasks completed over the last 7 days.",
     "timeTitle": "Time spent",
     "timeHint": "Without a timer the estimated duration is used.",
+    "timerTitle": "Timer time",
+    "timerHint": "How much you actually timed with the timer over the period.",
     "longestTitle": "Longest task",
     "longestEmpty": "No tasks with a time estimate yet",
     "historyTitle": "Cleaning history",

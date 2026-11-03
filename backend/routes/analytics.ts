@@ -3,6 +3,7 @@ import pool from '../db';
 import { SQL_APP_TODAY, sqlAppDate } from '../services/appTime';
 import { authMiddleware } from '../auth';
 import { resolveContentLocale } from '../services/contentLocale';
+import { focusMinutesForPeriod } from '../services/focus';
 
 const router = express.Router();
 
@@ -200,7 +201,10 @@ const isPeriod = (value: unknown): value is Period =>
 router.get('/overview', authMiddleware, async (req: Request, res: Response) => {
   try {
     const period: Period = isPeriod(req.query.period) ? req.query.period : 'all';
+    // «2000 дней» — тот же приём «заведомо раньше данных», что и в SQL выше;
+    // для среза по таймеру переводим в число дней.
     const since = PERIOD_SINCE[period];
+    const sinceDays = Number.parseInt(since, 10) || null;
     // Названия задач и пунктов челленджей в истории и «самой долгой задаче» —
     // на языке запроса: у сгенерированных задач русское название остаётся
     // ключом, а английское лежит в таблице переводов.
@@ -307,10 +311,14 @@ router.get('/overview', authMiddleware, async (req: Request, res: Response) => {
         tasks: Number(totals.rows[0]?.tasks ?? 0),
         minutes: Number(totals.rows[0]?.minutes ?? 0),
         days: Number(totals.rows[0]?.days ?? 0),
+        // Факт по таймеру: «затраченное время» выше — это оценка закрытых дел,
+        // а здесь время, которое человек действительно отмерил.
+        timer_minutes: await focusMinutesForPeriod(String(req.userId), sinceDays),
       },
       last7: {
         tasks: Number(last7.rows[0]?.tasks ?? 0),
         minutes: Number(last7.rows[0]?.minutes ?? 0),
+        timer_minutes: await focusMinutesForPeriod(String(req.userId), 6),
       },
       weekday: byWeekday,
       busiestWeekday: busiest?.weekday ?? null,
