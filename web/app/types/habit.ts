@@ -36,6 +36,22 @@ export interface HabitWeekDay {
   total: number;
 }
 
+/**
+ * День для колец привычек в полосе недели: сколько отмечено из тех привычек,
+ * которые уже существовали в этот день (как недельный график на экране привычек).
+ */
+export interface HabitCalendarDay {
+  date: string;
+  done: number;
+  total: number;
+}
+
+export interface HabitCalendarResponse {
+  from: string;
+  to: string;
+  days: HabitCalendarDay[];
+}
+
 export interface HabitsResponse {
   today: string;
   habits: Habit[];

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
  * Вкладка «Привычки» по макетам docs/design/mockups/привычки 1-4:
- * пустое состояние, список «Привычки на сегодня», лист выбора из каталога
- * и лист создания своей привычки.
+ * пустое состояние, список «Привычки на сегодня» и один лист «Добавить
+ * привычку» с вкладками (идеи каталога и своя привычка).
  */
 import type { Habit } from '~/types/habit';
 
@@ -17,12 +17,15 @@ const { show: showAchievements } = useAchievementToast();
 const { habits, dueToday, doneToday, week, today, catalog, categories, refreshMine, archiveHabit } =
   await useHabits();
 
-const pickerOpen = ref(false);
-const busy = ref<number | null>(null);
-
-/** Лист привычки: `true` — создание, `habit` — правка существующей. */
-const formOpen = ref(false);
+/**
+ * Лист «Добавить привычку»: идеи каталога и своя привычка — две вкладки одного
+ * листа. `editingHabit` переводит его в режим правки (вкладок тогда нет).
+ */
+const sheetOpen = ref(false);
 const editingHabit = ref<Habit | null>(null);
+const busy = ref<number | null>(null);
+/** Отметка не сохранилась: причина строкой, а не молчание. */
+const toggleError = ref('');
 
 /** Лист действий у строки: открыт для этой привычки. */
 const actionsHabit = ref<Habit | null>(null);
@@ -38,7 +41,10 @@ const countLabel = computed(() => {
 });
 
 const progressPercent = computed(() => {
-  const total = habits.value.length;
+  // Знаменатель — привычки на сегодня, а не все вообще: иначе «всё отмечено»
+  // недостижимо, пока есть привычки с другим ритмом. Так же считает внутреннее
+  // кольцо на главной.
+  const total = dueToday.value.length + doneToday.value.length;
   return total === 0 ? 0 : Math.round((doneToday.value.length / total) * 100);
 });
 
@@ -48,22 +54,28 @@ const toggle = async (habit: Habit) => {
   }
 
   busy.value = habit.id;
+  toggleError.value = '';
   try {
     const response = await api.request<{ awarded?: string[] }>(`/api/habits/${habit.id}/toggle`, {
       method: 'POST',
     });
     await refreshMine();
+    // Кольца привычек в календаре считаются по своему ключу: отметка обязана
+    // доехать и до полосы недели, иначе она покажет вчерашнюю картину.
+    await refreshNuxtData('habits-calendar-week');
     await refreshNuxtData('achievements-progress');
     await showAchievements(response.awarded);
+  } catch {
+    toggleError.value = t('habits.toggleFailed');
   } finally {
     busy.value = null;
   }
 };
 
-/** Открыть лист создания своей привычки. */
+/** Открыть лист добавления: вкладка идей — первая. */
 const openCreate = () => {
   editingHabit.value = null;
-  formOpen.value = true;
+  sheetOpen.value = true;
 };
 
 /** Открыть правку из листа действий. */
@@ -77,11 +89,11 @@ const openEditFromActions = () => {
   actionError.value = '';
   actionsHabit.value = null;
   editingHabit.value = habit;
-  formOpen.value = true;
+  sheetOpen.value = true;
 };
 
-const closeForm = () => {
-  formOpen.value = false;
+const closeSheet = () => {
+  sheetOpen.value = false;
   editingHabit.value = null;
 };
 
@@ -109,6 +121,7 @@ const confirmDelete = async () => {
   try {
     await archiveHabit(habit.id);
     closeActions();
+    await refreshNuxtData('habits-calendar-week');
     await refreshNuxtData('achievements-progress');
   } catch {
     actionError.value = t('habits.deleteFailed');
@@ -118,10 +131,10 @@ const confirmDelete = async () => {
 };
 
 const afterChange = async () => {
-  pickerOpen.value = false;
-  closeForm();
+  closeSheet();
   clearNuxtData('habits-mine');
   await refreshMine();
+  await refreshNuxtData('habits-calendar-week');
   await refreshNuxtData('achievements-progress');
 };
 
@@ -189,14 +202,9 @@ useHead(() => ({
         <h2 class="empty__title">{{ t('habits.emptyTitle') }}</h2>
         <p class="empty__text">{{ t('habits.emptyText') }}</p>
 
-        <AppButton variant="filled" block @click="pickerOpen = true">
-          {{ t('habits.pick') }}
+        <AppButton variant="filled" block @click="openCreate">
+          {{ t('habits.add') }}
         </AppButton>
-
-        <button type="button" class="link" @click="openCreate">
-          <i class="pi pi-pencil" aria-hidden="true" />
-          {{ t('habits.createOwn') }}
-        </button>
       </section>
     </template>
 
@@ -205,10 +213,6 @@ useHead(() => ({
       <section class="today">
         <div class="today__head">
           <h2 class="today__title">{{ t('habits.todayTitle') }}</h2>
-          <button type="button" class="link link--small" @click="pickerOpen = true">
-            <i class="pi pi-sliders-h" aria-hidden="true" />
-            {{ t('habits.edit') }}
-          </button>
         </div>
 
         <p class="today__count">{{ countLabel }}</p>
@@ -242,15 +246,12 @@ useHead(() => ({
           </li>
         </ul>
 
-        <button type="button" class="pick-row" @click="pickerOpen = true">
-          <i class="pi pi-plus" aria-hidden="true" />
-          <span>{{ t('habits.pick') }}</span>
-          <i class="pi pi-chevron-right" aria-hidden="true" />
-        </button>
+        <p v-if="toggleError" class="today__error" role="alert">{{ toggleError }}</p>
 
-        <button type="button" class="link" @click="openCreate">
-          <i class="pi pi-pencil" aria-hidden="true" />
-          {{ t('habits.createOwn') }}
+        <button type="button" class="pick-row" @click="openCreate">
+          <i class="pi pi-plus" aria-hidden="true" />
+          <span>{{ t('habits.add') }}</span>
+          <i class="pi pi-chevron-right" aria-hidden="true" />
         </button>
       </section>
 
@@ -271,18 +272,12 @@ useHead(() => ({
       </ul>
     </section>
 
-    <HabitPickerSheet
-      :open="pickerOpen"
+    <HabitSheet
+      :open="sheetOpen"
+      :habit="editingHabit"
       :templates="catalog"
       :categories="categories"
-      @close="pickerOpen = false"
-      @added="afterChange"
-    />
-
-    <HabitCreateSheet
-      :open="formOpen"
-      :habit="editingHabit"
-      @close="closeForm"
+      @close="closeSheet"
       @saved="afterChange"
     />
 
@@ -360,6 +355,11 @@ useHead(() => ({
 
 .today__done {
   color: var(--c-brand);
+  font-size: var(--fs-caption);
+}
+
+.today__error {
+  color: var(--c-danger);
   font-size: var(--fs-caption);
 }
 
@@ -471,31 +471,5 @@ useHead(() => ({
 .pick-row span {
   flex: 1;
   text-align: left;
-}
-
-.link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  align-self: center;
-  min-height: var(--tap-min);
-  padding: 0 var(--space-3);
-  border: none;
-  background: transparent;
-  color: var(--c-text);
-  font: inherit;
-  font-weight: 600;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  cursor: pointer;
-}
-
-.link--small {
-  align-self: auto;
-  color: var(--c-text-muted);
-  font-size: var(--fs-caption);
-  font-weight: 500;
-  text-decoration: none;
 }
 </style>

@@ -6,14 +6,26 @@
  * удаление не должно случаться от промаха. Удаление спрашивает подтверждение
  * внутри того же листа — второй шторки ради этого не открываем.
  */
-const props = defineProps<{
-  open: boolean;
-  title: string;
-  /** Идёт запрос удаления: кнопки заблокированы. */
-  pending?: boolean;
-  /** Удаление не прошло: причина остаётся в листе. */
-  error?: string;
-}>();
+const props = withDefaults(
+  defineProps<{
+    open: boolean;
+    title: string;
+    /**
+     * Что показать: обычный выбор действия (`menu`) или сразу подтверждение
+     * удаления (`delete`).
+     *
+     * `delete` нужен там, где действие уже выбрано в строке — у привычек на
+     * главной «⋯» раскрывает иконки «изменить» и «удалить», и повторять выбор
+     * действия в листе было бы шагом назад.
+     */
+    mode?: 'menu' | 'delete';
+    /** Идёт запрос удаления: кнопки заблокированы. */
+    pending?: boolean;
+    /** Удаление не прошло: причина остаётся в листе. */
+    error?: string;
+  }>(),
+  { mode: 'menu', pending: false, error: '' },
+);
 
 const emit = defineEmits<{ close: []; edit: []; delete: [] }>();
 
@@ -22,13 +34,25 @@ const { t } = useI18n();
 /** Подтверждение удаления: `false` — обычные действия, `true` — «точно удалить?». */
 const confirming = ref(false);
 
+/** Заголовок листа: при удалении сразу говорим, что произойдёт. */
+const heading = computed(() => (props.mode === 'delete' ? t('habits.removeTitle') : t('habits.actions')));
+
+/** «Отмена»: в режиме удаления закрывает лист, в меню — возвращает к действиям. */
+const cancel = () => {
+  if (props.mode === 'delete') {
+    emit('close');
+    return;
+  }
+
+  confirming.value = false;
+};
+
 watch(
   () => props.open,
   (open) => {
-    if (!open) {
-      confirming.value = false;
-    }
+    confirming.value = open && props.mode === 'delete';
   },
+  { immediate: true },
 );
 </script>
 
@@ -38,7 +62,7 @@ watch(
       <div class="action">
         <span class="action__icon" aria-hidden="true"><i class="pi pi-ellipsis-h" /></span>
         <div class="action__head">
-          <h2 class="action__title">{{ t('habits.actions') }}</h2>
+          <h2 class="action__title">{{ heading }}</h2>
           <p class="action__task">{{ title }}</p>
         </div>
       </div>
@@ -64,7 +88,7 @@ watch(
       </div>
 
       <div v-else class="action__footer">
-        <button type="button" class="action__cancel" :disabled="pending" @click="confirming = false">
+        <button type="button" class="action__cancel" :disabled="pending" @click="cancel">
           {{ t('habits.cancel') }}
         </button>
 

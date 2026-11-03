@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { CalendarResponse } from '~/types/task';
+import type { HabitCalendarResponse } from '~/types/habit';
 
 /**
  * Компактная календарная полоса недели: месяц/год со стрелками листания и семь
@@ -138,10 +139,45 @@ const dayPercent = (iso: string): number | null => {
   return Math.round((done / day.total_tasks) * 100);
 };
 
-/** Длина окружности кольца: радиус 16 в системе координат 36×36. */
-const RING_LENGTH = 2 * Math.PI * 16;
+/**
+ * Привычки по дням — отдельный запрос: у них своя история, а полосе недели нужно
+ * только число отмеченных за день.
+ *
+ * Будущие дни не показываем: привычку нельзя отметить вперёд (отметка всегда на
+ * сегодня), и кольцо «0 %» на завтра читалось бы как провал, которого ещё нет.
+ */
+const { data: habitsWeek } = await useAsyncData(
+  'habits-calendar-week',
+  () =>
+    auth.isAuthenticated
+      ? api.request<HabitCalendarResponse>(
+          `/api/habits/calendar?from=${range.value.from}&to=${range.value.to}`,
+        )
+      : Promise.resolve(null),
+  { watch: [() => range.value.from] },
+);
+
+const habitPercent = (iso: string): number | null => {
+  if (iso > todayISO.value) {
+    return null;
+  }
+
+  const day = habitsWeek.value?.days.find((entry) => entry.date === iso);
+
+  if (!day || day.total === 0) {
+    return null;
+  }
+
+  return Math.round((day.done / day.total) * 100);
+};
+
+/** Длина окружности кольца: радиус 18.5 в системе координат 40×40. */
+const RING_LENGTH = 2 * Math.PI * 18.5;
+/** Внутреннее кольцо привычек: радиус 15 — сразу за кружком числа. */
+const INNER_RING_LENGTH = 2 * Math.PI * 15;
 
 const ringDash = (percent: number) => `${(RING_LENGTH * percent) / 100} ${RING_LENGTH}`;
+const innerRingDash = (percent: number) => `${(INNER_RING_LENGTH * percent) / 100} ${INNER_RING_LENGTH}`;
 
 /** Цвет кольца по доле: пусто — приглушённый, половина — бренд, всё — акцент. */
 const ringTone = (percent: number): string => {
@@ -150,6 +186,21 @@ const ringTone = (percent: number): string => {
 
   return 'week-strip__ring--low';
 };
+
+/**
+ * День полосы со своими кольцами: задачи и привычки считаются независимо.
+ *
+ * Считаем один раз на рендер, а не по вызову в шаблоне: у каждого числа два
+ * кольца, и повторные поиски по ответам сервера были бы лишней работой.
+ */
+const dayCells = computed(() =>
+  days.value.map((day) => ({
+    ...day,
+    taskPercent: dayPercent(day.iso),
+    habitPercent: habitPercent(day.iso),
+    hasRing: dayPercent(day.iso) !== null || habitPercent(day.iso) !== null,
+  })),
+);
 
 /**
  * «октябрь 2026» — месяц и год одной строкой без предлога, как в макетах.
@@ -215,13 +266,19 @@ const selectDay = (iso: string) => {
 <template>
   <header class="week-strip">
     <!--
-      Золотой градиент финального дня — один на компонент: `<defs>` внутри
-      каждой ячейки дал бы дубли id в документе, и браузер взял бы первый.
+      Два финальных градиента, по одному на шкалу: золотой для задач и золотой для
+      привычек. `<defs>` внутри каждой ячейки дал бы дубли id в документе, и
+      браузер взял бы первый.
     -->
     <svg class="week-strip__defs" aria-hidden="true" focusable="false">
       <defs>
-        <linearGradient id="weekRingGold" x1="0" y1="0" x2="36" y2="36" gradientUnits="userSpaceOnUse">
+        <linearGradient id="weekRingGold" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
           <stop class="week-strip__stop-brand" offset="0" />
+          <stop class="week-strip__stop-gold" offset="0.6" />
+          <stop class="week-strip__stop-gold-soft" offset="1" />
+        </linearGradient>
+        <linearGradient id="weekRingHabitGold" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
+          <stop class="week-strip__stop-accent" offset="0" />
           <stop class="week-strip__stop-gold" offset="0.6" />
           <stop class="week-strip__stop-gold-soft" offset="1" />
         </linearGradient>
@@ -257,7 +314,7 @@ const selectDay = (iso: string) => {
     </div>
 
     <ul class="week-strip__days">
-      <li v-for="day in days" :key="day.iso" class="week-strip__cell">
+      <li v-for="day in dayCells" :key="day.iso" class="week-strip__cell">
         <button
           type="button"
           class="week-strip__day"
@@ -275,25 +332,40 @@ const selectDay = (iso: string) => {
 
           <span class="week-strip__number">
             <!--
-              Кольцо прогресса вокруг числа: его видно, не открывая день, и по
-              цвету понятно, закрыт план или нет. `aria-hidden` — у кнопки уже
-              есть подпись с полной датой.
+              Два кольца прогресса вокруг числа. Внешнее — задачи, внутреннее —
+              привычки: это два независимых слоя дня, и человеку нужно видеть их
+              вместе, не открывая день. `aria-hidden` — у кнопки уже есть подпись
+              с полной датой.
             -->
             <svg
-              v-if="dayPercent(day.iso) !== null"
+              v-if="day.hasRing"
               class="week-strip__ring"
-              :class="ringTone(dayPercent(day.iso) as number)"
-              viewBox="0 0 36 36"
+              :class="day.taskPercent !== null ? ringTone(day.taskPercent) : undefined"
+              viewBox="0 0 40 40"
               aria-hidden="true"
             >
-              <circle class="week-strip__ring-track" cx="18" cy="18" r="16" />
-              <circle
-                class="week-strip__ring-fill"
-                cx="18"
-                cy="18"
-                r="16"
-                :stroke-dasharray="ringDash(dayPercent(day.iso) as number)"
-              />
+              <template v-if="day.taskPercent !== null">
+                <circle class="week-strip__ring-track" cx="20" cy="20" r="18.5" />
+                <circle
+                  class="week-strip__ring-fill"
+                  cx="20"
+                  cy="20"
+                  r="18.5"
+                  :stroke-dasharray="ringDash(day.taskPercent)"
+                />
+              </template>
+
+              <template v-if="day.habitPercent !== null">
+                <circle class="week-strip__habit-track" cx="20" cy="20" r="15" />
+                <circle
+                  class="week-strip__habit-fill"
+                  :class="{ 'week-strip__habit-fill--full': day.habitPercent >= 100 }"
+                  cx="20"
+                  cy="20"
+                  r="15"
+                  :stroke-dasharray="innerRingDash(day.habitPercent)"
+                />
+              </template>
             </svg>
 
             {{ day.dayNumber }}
@@ -378,11 +450,11 @@ const selectDay = (iso: string) => {
   align-items: center;
   justify-content: center;
   /*
-   * Отступ между подписью дня недели и числом — с поправкой на кольцо: оно
-   * выходит за кружок числа примерно на 6 px сверху, и при меньшем зазоре
-   * «пн»/«вт» почти касались дуги. 9 px = 6 px кольца + 3 px воздуха.
+   * Отступ между подписью дня недели и числом — с поправкой на кольца: они
+   * выходят за кружок числа на 7 px сверху, и при меньшем зазоре «пн»/«вт»
+   * почти касались дуги. 10 px = 7 px колец + 3 px воздуха.
    */
-  gap: 9px;
+  gap: 10px;
   /* Кружок не должен упираться в края ячейки на узком экране */
   padding: 2px var(--space-1);
   border: 1.5px solid transparent;
@@ -403,8 +475,13 @@ const selectDay = (iso: string) => {
   position: relative;
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  /*
+   * 26, а не 28: внутреннее кольцо привычек начинается сразу за кружком числа,
+   * поэтому заливка «сегодня» (акцент) не перекрывает его дугу. С 28 кружок
+   * доставал до кольца, и коралловая дуга на коралловой заливке пропадала.
+   */
+  width: 26px;
+  height: 26px;
   border-radius: var(--r-pill);
   font-size: 0.9375rem;
   font-weight: 600;
@@ -412,13 +489,13 @@ const selectDay = (iso: string) => {
 }
 
 /*
- * Кольцо прогресса: чуть больше числа и повёрнуто на -90°, чтобы заполнение
- * начиналось сверху. Обводка 3 px вместо прежних 2: тонкая линия на 28-пиксельном
- * кружке терялась, а после отметки задачи её прирост было почти не видно.
+ * Кольца прогресса: чуть больше числа и повёрнуты на -90°, чтобы заполнение
+ * начиналось сверху. Внешнее кольцо — задачи (радиус 18.5), внутреннее —
+ * привычки (радиус 15): они идут вплотную, но не сливаются в одну обводку.
  */
 .week-strip__ring {
   position: absolute;
-  inset: -6px;
+  inset: -7px;
   width: 40px;
   height: 40px;
   transform: rotate(-90deg);
@@ -427,8 +504,8 @@ const selectDay = (iso: string) => {
 }
 
 /*
- * Скрытый `<svg>` с одним градиентом на компонент: у него нет размеров и
- * отрисовки, он существует только ради `<defs>`.
+ * Скрытый `<svg>` с градиентами: у него нет размеров и отрисовки, он существует
+ * только ради `<defs>`.
  */
 .week-strip__defs {
   position: absolute;
@@ -441,6 +518,10 @@ const selectDay = (iso: string) => {
   stop-color: var(--c-brand);
 }
 
+.week-strip__stop-accent {
+  stop-color: var(--c-accent);
+}
+
 .week-strip__stop-gold {
   stop-color: var(--c-gold);
 }
@@ -449,13 +530,20 @@ const selectDay = (iso: string) => {
   stop-color: var(--c-gold-soft);
 }
 
+/*
+ * Обе шкалы: внешняя — задачи, внутренняя — привычки. Толщина 2.5 вместо 3:
+ * два кольца рядом, и более жирные сливались бы в одно.
+ */
 .week-strip__ring-track,
-.week-strip__ring-fill {
+.week-strip__ring-fill,
+.week-strip__habit-track,
+.week-strip__habit-fill {
   fill: none;
-  stroke-width: 3;
+  stroke-width: 2.5;
 }
 
-.week-strip__ring-track {
+.week-strip__ring-track,
+.week-strip__habit-track {
   stroke: var(--c-track);
 }
 
@@ -463,7 +551,8 @@ const selectDay = (iso: string) => {
  * Дуга «доезжает» до нового значения: сервер отвечает позже нажатия, поэтому
  * переход — единственное, что показывает, что отметка уже сработала.
  */
-.week-strip__ring-fill {
+.week-strip__ring-fill,
+.week-strip__habit-fill {
   stroke-linecap: round;
   transition:
     stroke-dasharray var(--dur-base) var(--ease-out),
@@ -481,6 +570,15 @@ const selectDay = (iso: string) => {
 /* План дня закрыт: дуга уходит в зелёно-золотую шкалу. */
 .week-strip__ring--full .week-strip__ring-fill {
   stroke: url(#weekRingGold);
+}
+
+/* Привычки — коралловые в работе и золотые, когда отмечены все. */
+.week-strip__habit-fill {
+  stroke: var(--c-accent);
+}
+
+.week-strip__habit-fill--full {
+  stroke: url(#weekRingHabitGold);
 }
 
 .week-strip__day--weekend .week-strip__number {

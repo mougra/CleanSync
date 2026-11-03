@@ -9,6 +9,7 @@
 
 import type { AchievementProgress } from '~/types/achievement';
 import type { ChallengeProgress } from '~/types/challenge';
+import type { Habit } from '~/types/habit';
 import type { StatsPeriod } from '~/types/stats';
 import type {
   CalendarDay,
@@ -147,14 +148,43 @@ const endVacationNow = async () => {
 
 // Привычки: тот же composable, что и на вкладке «Привычки», ключи общие —
 // отметка на главной сразу видна и там. Каталог нужен для листа идей, который
-// теперь открывается прямо из карточки плана.
-const { habits, dueToday, doneToday, catalog: habitCatalog, categories: habitCategories, refreshMine: refreshHabits } =
-  await useHabits();
+// открывается прямо из карточки плана.
+const {
+  habits,
+  dueToday,
+  doneToday,
+  catalog: habitCatalog,
+  categories: habitCategories,
+  refreshMine: refreshHabits,
+  archiveHabit,
+} = await useHabits();
 const { intervalLabel, categoryLabel } = useHabitLabels();
 const habitBusy = ref<number | null>(null);
-/** Листы привычек на главной: идеи и своя привычка. */
-const habitPickerOpen = ref(false);
-const habitCreateOpen = ref(false);
+/** Понятная ошибка отметки привычки: строка вместо молчаливого отката. */
+const habitError = ref('');
+
+/**
+ * Лист «Добавить привычку» с двумя вкладками — идеи каталога и своя привычка.
+ * `habitEditing` переводит тот же лист в режим правки.
+ */
+const habitSheetOpen = ref(false);
+const habitEditing = ref<Habit | null>(null);
+
+/** Удаление привычки: лист подтверждения и его состояние. */
+const habitToDelete = ref<Habit | null>(null);
+const habitDeleteBusy = ref(false);
+const habitDeleteError = ref('');
+
+/**
+ * Привычки сегодня — для внутреннего кольца плана.
+ *
+ * `dueToday` не годится само по себе: отмеченная привычка уходит из него, и
+ * кольцо «схлопывалось» бы к 100 % сразу после первой отметки. Поэтому кольцо
+ * считает объединение — актуальные и уже закрытые, — а `doneToday` даёт числитель.
+ */
+const habitsToday = computed(() => [...dueToday.value, ...doneToday.value]);
+const habitsRingDone = computed(() => doneToday.value.length);
+const habitsRingTotal = computed(() => habitsToday.value.length);
 
 const { data: templates, error: templatesError } = await useAsyncData(
   'templates',
@@ -1250,27 +1280,82 @@ const toggleHabit = async (habit: { id: number }) => {
   }
 
   habitBusy.value = habit.id;
+  habitError.value = '';
   try {
     const response = await api.request<{ awarded?: string[] }>(`/api/habits/${habit.id}/toggle`, {
       method: 'POST',
     });
 
     await refreshHabits();
+    // Кольцо привычек в календаре живёт на своём ключе: без перечитывания оно
+    // показывало бы вчерашнюю долю до перезагрузки страницы.
+    await refreshNuxtData('habits-calendar-week');
     await refreshNuxtData('achievements-progress');
     await showAchievements(response.awarded);
+  } catch {
+    habitError.value = t('habits.toggleFailed');
   } finally {
     habitBusy.value = null;
   }
 };
 
+/** Открыть лист добавления: всегда с вкладки идей. */
+const openHabitCreate = () => {
+  habitEditing.value = null;
+  habitSheetOpen.value = true;
+};
+
+/** Открыть лист правки этой привычки. */
+const openHabitEdit = (habit: Habit) => {
+  habitEditing.value = habit;
+  habitSheetOpen.value = true;
+};
+
+const closeHabitSheet = () => {
+  habitSheetOpen.value = false;
+  habitEditing.value = null;
+};
+
+/** Удаление спрашивает подтверждение: во «⋯» это уже выбранное действие. */
+const openHabitDelete = (habit: Habit) => {
+  habitDeleteError.value = '';
+  habitToDelete.value = habit;
+};
+
+const closeHabitDelete = () => {
+  habitToDelete.value = null;
+  habitDeleteError.value = '';
+};
+
+const confirmHabitDelete = async () => {
+  const habit = habitToDelete.value;
+
+  if (!habit || habitDeleteBusy.value) {
+    return;
+  }
+
+  habitDeleteBusy.value = true;
+  habitDeleteError.value = '';
+
+  try {
+    await archiveHabit(habit.id);
+    closeHabitDelete();
+    await refreshNuxtData(['habits-calendar-week', 'achievements-progress']);
+  } catch {
+    habitDeleteError.value = t('habits.deleteFailed');
+  } finally {
+    habitDeleteBusy.value = false;
+  }
+};
+
 /**
- * Привычку добавили из листа идей или создали свою: закрываем оба листа и
- * перечитываем общий ключ, чтобы список тут же появился под задачами.
+ * Привычку добавили из листа идей, создали свою или изменили: закрываем лист и
+ * перечитываем общий ключ, чтобы список тут же обновился под задачами.
  */
 const afterHabitChange = async () => {
-  habitPickerOpen.value = false;
-  habitCreateOpen.value = false;
+  closeHabitSheet();
   await refreshHabits();
+  await refreshNuxtData('habits-calendar-week');
   await refreshNuxtData('achievements-progress');
 };
 
@@ -1397,7 +1482,13 @@ useStructuredData(() => ({
         -->
         <div class="plan__body">
           <!-- Кольцо — только у сегодняшнего дня: у гостя считает локальные отметки -->
-          <PlanRing v-if="isToday" :done="planDone" :total="planTotal" />
+          <PlanRing
+            v-if="isToday"
+            :done="planDone"
+            :total="planTotal"
+            :inner-done="habitsRingDone"
+            :inner-total="habitsRingTotal"
+          />
 
           <div class="plan__aside">
             <section v-if="summary.total_tasks > 0" class="summary" :aria-label="t('calendar.summaryTitle')">
@@ -1625,7 +1716,7 @@ useStructuredData(() => ({
             <div class="plan__habits-title">
               <h2 class="plan__habits-name">{{ t('home.habitsToday') }}</h2>
               <p class="plan__habits-meta">
-                {{ t('home.habitsForSelf') }} · {{ doneToday.length }}/{{ habits.length }}
+                {{ t('home.habitsForSelf') }} · {{ habitsRingDone }}/{{ habitsRingTotal }}
               </p>
             </div>
 
@@ -1644,7 +1735,7 @@ useStructuredData(() => ({
           </p>
 
           <ul v-else class="plan__habits-list">
-            <li v-for="habit in [...dueToday, ...doneToday].slice(0, 4)" :key="habit.id">
+            <li v-for="habit in habitsToday.slice(0, 4)" :key="habit.id">
               <HabitRow
                 :title="habit.title"
                 :icon="habit.icon"
@@ -1652,39 +1743,57 @@ useStructuredData(() => ({
                 :meta="habitMeta(habit)"
                 :disabled="habitBusy !== null"
                 @toggle="toggleHabit(habit)"
-              />
+              >
+                <!--
+                  Тот же «⋯», что у задач: раскрывает иконки «изменить» и
+                  «удалить». У привычки нет «перенести» — она не привязана к
+                  дню недели, — поэтому стопка короче на одно действие.
+                -->
+                <template #actions>
+                  <PlanTaskActions
+                    kind="habit"
+                    :generated="false"
+                    :movable="false"
+                    :pending="habitBusy !== null || habitDeleteBusy"
+                    @edit="openHabitEdit(habit)"
+                    @delete="openHabitDelete(habit)"
+                  />
+                </template>
+              </HabitRow>
             </li>
           </ul>
 
-          <button type="button" class="plan__add-row" @click="habitPickerOpen = true">
+          <p v-if="habitError" class="plan__error" role="alert">{{ habitError }}</p>
+
+          <!--
+            Один вход вместо прежних двух («выбрать» и «создать свою»): лист сам
+            предлагает вкладки — готовые идеи и своя привычка.
+          -->
+          <button type="button" class="plan__add-row" @click="openHabitCreate">
             <i class="pi pi-plus" aria-hidden="true" />
             {{ t('plan.addHabit') }}
           </button>
-
-          <button
-            v-if="habits.length === 0"
-            type="button"
-            class="plan__habit-create"
-            @click="habitCreateOpen = true"
-          >
-            {{ t('habits.createOwn') }}
-            <i class="pi pi-chevron-right" aria-hidden="true" />
-          </button>
         </section>
 
-        <!-- Листы привычек: идеи из каталога и своя привычка -->
-        <HabitPickerSheet
-          :open="habitPickerOpen"
+        <!-- Один лист на добавление и правку привычки -->
+        <HabitSheet
+          :open="habitSheetOpen"
+          :habit="habitEditing"
           :templates="habitCatalog"
           :categories="habitCategories"
-          @close="habitPickerOpen = false"
-          @added="afterHabitChange"
+          @close="closeHabitSheet"
+          @saved="afterHabitChange"
         />
 
-        <HabitCreateSheet
-          :open="habitCreateOpen"
-          @close="habitCreateOpen = false"
-          @saved="afterHabitChange"
+        <!-- Подтверждение удаления: действие уже выбрано в «⋯» строки -->
+        <HabitActionsSheet
+          :open="habitToDelete !== null"
+          :title="habitToDelete?.title ?? ''"
+          mode="delete"
+          :pending="habitDeleteBusy"
+          :error="habitDeleteError"
+          @close="closeHabitDelete"
+          @delete="confirmHabitDelete"
         />
     </section>
 
@@ -2147,24 +2256,6 @@ useStructuredData(() => ({
   margin: 0;
   color: var(--c-text-muted);
   font-size: var(--fs-caption);
-}
-
-/* Своя привычка — тихая ссылка под листом идей, не вторая кнопка. */
-.plan__habit-create {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  align-self: center;
-  min-height: var(--tap-min);
-  padding: 0 var(--space-3);
-  border: none;
-  background: transparent;
-  color: var(--c-brand);
-  font: inherit;
-  font-size: var(--fs-caption);
-  font-weight: 600;
-  cursor: pointer;
 }
 
 /* Заголовок и содержимое листа переноса задачи */

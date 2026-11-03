@@ -9,6 +9,7 @@ import {
   isHabitDue,
   todayIso,
 } from '../services/habitSchedule';
+import { parseAppDay } from '../services/appTime';
 
 const router = express.Router();
 
@@ -151,6 +152,71 @@ router.get('/templates', async (req: Request, res: Response) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch habit templates' });
+  }
+});
+
+/**
+ * Отметки привычек по дням для календаря: `GET /api/habits/calendar?from=…&to=…`.
+ *
+ * Зачем отдельный маршрут, а не поле в ответе календаря задач: это данные другой
+ * предметной области, и полосе недели они нужны только у вошедшего. Задачи и
+ * привычки собираются независимо, поэтому и запросы разные.
+ *
+ * Семантика доли — как у недельного графика (`buildWeek`): «сколько отмечено из
+ * тех привычек, что уже существовали в тот день». Привычка, созданная позже, не
+ * ухудшает прошлое, а ноль отмеченных при нуле существующих — это не «0 %», а
+ * «нечего считать»: клиент такую клетку кольцом не помечает.
+ *
+ * Заодно «сегодня» берётся по серверу приложения: отметки привычек датируются тем
+ * же днём (`todayIso`), поэтому историю и текущий день считает один календарь.
+ */
+const CALENDAR_MAX_DAYS = 42;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+router.get('/calendar', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const from = parseAppDay(req.query.from);
+    const to = parseAppDay(req.query.to);
+
+    if (!from || !to) {
+      return res.status(400).json({ error: 'from and to must be valid dates in YYYY-MM-DD format' });
+    }
+
+    if (from.getTime() > to.getTime()) {
+      return res.status(400).json({ error: 'from must not be later than to' });
+    }
+
+    const span = Math.round((to.getTime() - from.getTime()) / DAY_MS) + 1;
+
+    // Шире шести недель не обслуживаем осознанно: это ошибка клиента, а не
+    // повод молча обрезать диапазон и отдать не те дни.
+    if (span > CALENDAR_MAX_DAYS) {
+      return res.status(400).json({
+        error: `Range is too wide: at most ${CALENDAR_MAX_DAYS} days per request`,
+        max_days: CALENDAR_MAX_DAYS,
+      });
+    }
+
+    const rows = await loadHabits(String(req.userId));
+    const days: Array<{ date: string; done: number; total: number }> = [];
+
+    for (let offset = 0; offset < span; offset += 1) {
+      const date = new Date(from.getTime() + offset * DAY_MS);
+      const iso = date.toISOString().slice(0, 10);
+      const existed = rows.filter((habit) => habit.created_at.slice(0, 10) <= iso);
+      const done = existed.filter((habit) => (habit.completions ?? []).includes(iso)).length;
+
+      days.push({ date: iso, done, total: existed.length });
+    }
+
+    res.json({
+      from: from.toISOString().slice(0, 10),
+      to: new Date(from.getTime() + (span - 1) * DAY_MS).toISOString().slice(0, 10),
+      days,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch habit calendar' });
   }
 });
 

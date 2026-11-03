@@ -27,8 +27,18 @@ const props = withDefaults(
     generated: boolean;
     /** Идёт запрос по строке: повторное нажатие не проходит. */
     pending?: boolean;
+    /**
+     * Что за строка: задача или привычка.
+     *
+     * От этого зависят подписи действий. У привычек нет «отказа от
+     * предложения», а слова «изменить задачу» рядом с привычкой читались бы
+     * как ошибка интерфейса.
+     */
+    kind?: 'task' | 'habit';
+    /** «Перенести на другой день» — действие только для задач плана. */
+    movable?: boolean;
   }>(),
-  { pending: false },
+  { pending: false, kind: 'task', movable: true },
 );
 
 const emit = defineEmits<{ edit: []; delete: []; move: [] }>();
@@ -63,17 +73,25 @@ const closeAndFocus = () => {
   trigger.value?.focus();
 };
 
-/** «Изменить задачу» — одна строка и для тултипа, и для `aria-label`. */
-const editLabel = computed(() => t('plan.editHint'));
+/** «Изменить задачу» / «Изменить привычку» — одна строка и для тултипа, и для `aria-label`. */
+const editLabel = computed(() => (props.kind === 'habit' ? t('habits.editHint') : t('plan.editHint')));
 
 /**
- * Текст удаления берётся тот же, что у подтверждения в окне: у отказа — «Больше
- * не предлагать», у своего дела — «Удалить». Двух источников смысла нет: тултип
- * и `aria-label` всегда говорят одно и то же.
+ * Текст удаления: у отказа от предложения — «Больше не предлагать», у своего
+ * дела — «Удалить», у привычки — «Удалить привычку». Двух источников смысла нет:
+ * тултип и `aria-label` всегда говорят одно и то же.
  */
-const deleteLabel = computed(() => (props.generated ? t('plan.forgetConfirm') : t('plan.deleteConfirm')));
+const deleteLabel = computed(() => {
+  if (props.kind === 'habit') {
+    return t('habits.removeHint');
+  }
 
-const deleteIcon = computed(() => (props.generated ? 'pi-ban' : 'pi-trash'));
+  return props.generated ? t('plan.forgetConfirm') : t('plan.deleteConfirm');
+});
+
+const deleteIcon = computed(() =>
+  props.kind === 'habit' ? 'pi-trash' : props.generated ? 'pi-ban' : 'pi-trash',
+);
 
 /** «Перенести на другой день» — перенос всей серии, а не одной отметки. */
 const moveLabel = computed(() => t('plan.moveHint'));
@@ -83,14 +101,30 @@ const moveLabel = computed(() => t('plan.moveHint'));
  * нажатия, — а «Изменить» прижато к триггеру как основное действие. «Перенести»
  * в середине: это изменение расписания, но не удаление.
  *
- * Разметка идёт в этом же порядке, поэтому Tab идёт от «⋯» вверх по стопке, а
- * задержка появления считается от конца списка: снизу вверх, как она и растёт.
+ * Задержка появления считается от конца списка: стопка растёт снизу вверх, и
+ * первым появляется ближний к «⋯» кружок.
  */
-const actions = computed(() => [
-  { key: 'delete', icon: deleteIcon.value, label: deleteLabel.value, danger: true, delay: 2 },
-  { key: 'move', icon: 'pi-calendar-plus', label: moveLabel.value, danger: false, delay: 1 },
-  { key: 'edit', icon: 'pi-pencil', label: editLabel.value, danger: false, delay: 0 },
-] as const);
+/** Ключи действий: по ним страница и стопка понимают, что выбрано. */
+type ActionKey = 'delete' | 'move' | 'edit';
+
+interface ActionItem {
+  key: ActionKey;
+  icon: string;
+  label: string;
+  danger: boolean;
+}
+
+const actions = computed<(ActionItem & { delay: number })[]>(() => {
+  const items: ActionItem[] = [
+    { key: 'delete', icon: deleteIcon.value, label: deleteLabel.value, danger: true },
+    ...(props.movable
+      ? [{ key: 'move' as const, icon: 'pi-calendar-plus', label: moveLabel.value, danger: false }]
+      : []),
+    { key: 'edit', icon: 'pi-pencil', label: editLabel.value, danger: false },
+  ];
+
+  return items.map((item, index) => ({ ...item, delay: items.length - 1 - index }));
+});
 
 /** Выбрали «Изменить»: стопка сворачивается, окно открывает страница. */
 const chooseEdit = () => {
