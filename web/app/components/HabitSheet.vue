@@ -29,7 +29,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{ close: []; saved: [] }>();
 
-const { t, locale } = useI18n();
+const { t } = useI18n();
 const api = useApi();
 const { categoryLabel, intervalLabel } = useHabitLabels();
 
@@ -80,15 +80,15 @@ const frequencyOpen = ref(false);
 
 const units: HabitIntervalUnit[] = ['once', 'month', 'week', 'day'];
 
-const dueLabel = computed(() => {
-  const formatted = dueDate.value
-    ? new Intl.DateTimeFormat(locale.value, { day: 'numeric', month: 'short' }).format(
-        new Date(dueDate.value),
-      )
-    : new Intl.DateTimeFormat(locale.value, { day: 'numeric', month: 'short' }).format(new Date());
-
-  return `${t('habits.dueDate')}: ${formatted}`;
-});
+/**
+ * Подпись поля срока — только название.
+ *
+ * Дату в подписи не повторяем: во второй колонке уже стоит выбранный день или
+ * «Без даты». Раньше здесь был `new Date()` — подпись показывала день браузера,
+ * а значение приходило из модели, и на сервере с клиентом они расходились
+ * (Vue ругался на hydration mismatch после местной полуночи).
+ */
+const dueLabel = computed(() => t('habits.dueDate'));
 
 const step = (delta: number) => {
   intervalCount.value = Math.min(30, Math.max(1, intervalCount.value + delta));

@@ -371,6 +371,14 @@ export default defineNuxtConfig({
       meta: [
         // viewport Nuxt ставит сам — не дублируем.
         { name: 'theme-color', content: '#FEF9F6' },
+        /*
+         * Полноэкранный запуск приложения. Стандартное имя тега — то, которое
+         * понимают Chrome и Android; без него Chrome пишет в консоль, что
+         * apple-вариант устарел («is deprecated. Please include
+         * <meta name="mobile-web-app-capable">»). Apple-вариант оставляем для
+         * iOS младше 17.4, где второго имени ещё нет: одно другому не мешает.
+         */
+        { name: 'mobile-web-app-capable', content: 'yes' },
         { name: 'apple-mobile-web-app-capable', content: 'yes' },
         { name: 'apple-mobile-web-app-title', content: 'TidyPlan' },
       ],

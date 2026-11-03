@@ -130,8 +130,16 @@ const boundsHint = computed(() =>
   })
 );
 
-/** Срок показываем как в макете: «Срок выполнения: окт. 11-го». */
-const dueLabel = computed(() => `${t('tasks.dueDate')}: ${formatDay(dueDate.value)}`);
+/**
+ * Срок показываем как в макете: «Срок выполнения: 3 нояб.».
+ *
+ * Дату берём из `dueValue`, а не из `new Date()`: поле показывает опору цикла
+ * (сегодняшний день приложения), и подпись обязана говорить про тот же день.
+ * С `new Date()` подпись считалась в поясе браузера, а значение — в поясе
+ * приложения: у человека в другом поясе они расходились после местной полуночи,
+ * и серверный рендер с клиентским не совпадал (Vue: «hydration mismatch»).
+ */
+const dueLabel = computed(() => `${t('tasks.dueDate')}: ${formatDay(dueValue.value)}`);
 
 /**
  * Что показывает поле даты и что уходит на сервер.
@@ -156,10 +164,9 @@ const dueParts = (value: string) => {
   return { date, day: date.getUTCDate(), weekday: date.getUTCDay() };
 };
 
+/** Дата в ISO-строке → короткая подпись «3 нояб.»; пояс здесь уже не участвует. */
 const formatDay = (value: string): string =>
-  new Intl.DateTimeFormat(locale.value, { day: 'numeric', month: 'short' }).format(
-    value ? fromISODate(value) : new Date(),
-  );
+  new Intl.DateTimeFormat(locale.value, { day: 'numeric', month: 'short' }).format(fromISODate(value));
 
 const step = (delta: number) => {
   intervalDays.value = stepIntervalDays(intervalDays.value, repeatUnit.value, delta);

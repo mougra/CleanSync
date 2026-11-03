@@ -10,7 +10,15 @@
  */
 const { t } = useI18n();
 const localePath = useLocalePath();
-const year = new Date().getFullYear();
+
+/**
+ * Год в подписи берём по поясу приложения, а не устройства.
+ *
+ * `new Date().getFullYear()` на стыке лет даёт разные значения на сервере
+ * (Москва) и в браузере: в новогоднюю ночь в другом поясе серверный HTML и
+ * клиентский рендер расходятся, и Vue сообщает о hydration mismatch.
+ */
+const year = appToday(useRuntimeConfig().public.appTimeZone).slice(0, 4);
 
 const sections = [
   { labelKey: 'nav.today', to: '/' },
