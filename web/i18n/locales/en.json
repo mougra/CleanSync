@@ -107,7 +107,15 @@
     "deleteFailed": "Could not delete the task — please try again.",
     "restoreFailed": "Could not restore the task — please try again.",
     "deletedTitle": "Task deleted",
-    "undo": "Undo"
+    "undo": "Undo",
+    "timerStart": "Start cleaning",
+    "timerRunning": "cleaning in progress",
+    "timerPaused": "paused",
+    "timerPause": "Pause",
+    "timerResume": "Resume",
+    "timerFinish": "Finish",
+    "timerRecorded": "{minutes} min recorded",
+    "timerTooShort": "Too short to record"
   },
   "calendar": {
     "prevWeek": "Previous week",
@@ -125,6 +133,7 @@
     "doneMany": "{count} tasks done",
     "planMinutes": "{minutes} planned",
     "factMinutes": "{minutes} actual",
+    "timerMinutes": "timer {minutes}",
     "leftMinutes": "{minutes} left",
     "zonesTitle": "By zone",
     "noRoom": "No zone"
@@ -728,8 +737,8 @@
     "appearance": "Appearance",
     "theme": "Theme",
     "notifications": "Notifications",
-    "digest": "Weekly plan email",
-    "digestHint": "Arrives on Sunday evening with tomorrow’s tasks. You can also unsubscribe straight from the email.",
+    "digest": "Plan reminders",
+    "digestHint": "As a notification on your phone and computer: once a day at 19:00 if the plan is still open, and on Sundays — the week ahead.",
     "household": "Homes and members",
     "homeSetupHint": "The plan will be rebuilt from the new answers; manual edits stay.",
     "guide": "How to use the app",

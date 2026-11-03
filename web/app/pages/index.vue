@@ -46,6 +46,75 @@ const localePath = useLocalePath();
 const auth = useAuthStore();
 const api = useApi();
 
+/**
+ * Таймер уборки: старт/пауза/завершение прямо из плана дня.
+ *
+ * Живёт в общем ключе (`useFocusTimer`), поэтому панель плана и любой другой
+ * экран видят одно и то же состояние. Загрузку делаем на монтировании: SSR не
+ * знает про активную сессию, а показывать чужое время нельзя.
+ */
+const focus = useFocusTimer();
+const focusNotice = ref('');
+const focusPaused = computed(() => focus.session.value?.status === 'paused');
+
+/** «04:12» — минуты и секунды без ведущего нуля у часов. */
+const focusClock = computed(() => {
+  const total = Math.max(0, focus.seconds.value);
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+
+  return `${minutes}:${String(rest).padStart(2, '0')}`;
+});
+
+onMounted(() => {
+  void focus.load();
+});
+
+/** Завершение: показать, сколько записано, и перечитать сводку дня. */
+const finishFocus = async () => {
+  const minutes = await focus.finish();
+
+  focusNotice.value = minutes > 0
+    ? t('plan.timerRecorded', { minutes })
+    : t('plan.timerTooShort');
+
+  await refreshNuxtData(['today-plan', 'calendar-day', 'calendar-week']);
+};
+
+/**
+ * Badge на иконке приложения: сколько дел осталось на сегодня.
+ *
+ * Работает там, где браузер умеет `setAppBadge` (Android, десктопный Chromium,
+ * iOS в установленном PWA); в остальных случаях молча ничего не делает. Число
+ * остатка, а не общее: «3» на иконке читается как «три дела меня ждут», а «7»
+ * после трёх закрытых — как будто ничего не сделано.
+ */
+watchEffect(() => {
+  if (typeof navigator === 'undefined') {
+    return;
+  }
+
+  const nav = navigator as Navigator & {
+    setAppBadge?: (count?: number) => Promise<void>;
+    clearAppBadge?: () => Promise<void>;
+  };
+
+  if (!nav.setAppBadge || !nav.clearAppBadge) {
+    return;
+  }
+
+  const left =
+    auth.isAuthenticated && isToday.value
+      ? Math.max(0, (summary.value?.total_tasks ?? 0) - (summary.value?.completed_tasks ?? 0))
+      : 0;
+
+  if (left > 0) {
+    nav.setAppBadge(left).catch(() => undefined);
+  } else {
+    nav.clearAppBadge().catch(() => undefined);
+  }
+});
+
 /** Шторка «Добавить задачу» — та же, что открывает круглая кнопка в углу. */
 const { openSheet: openTaskSheet } = useTaskSheet();
 
@@ -327,6 +396,8 @@ const summary = computed(() => {
       completed_tasks: 0,
       total_minutes: defaultDay.value?.summary.minutes ?? 0,
       completed_minutes: 0,
+      // У гостя таймера нет: факт — это серверные сессии аккаунта.
+      fact_minutes: 0,
     };
   }
 
@@ -335,6 +406,7 @@ const summary = computed(() => {
     completed_tasks: day.value?.completed_tasks ?? 0,
     total_minutes: day.value?.total_minutes ?? 0,
     completed_minutes: day.value?.completed_minutes ?? 0,
+    fact_minutes: day.value?.fact_minutes ?? 0,
   };
 });
 
@@ -414,6 +486,17 @@ const minutesLabel = computed(() => {
       done > 0
         ? t('calendar.factMinutes', { minutes: formatDuration(done, locale.value) })
         : t('calendar.leftMinutes', { minutes: formatDuration(total, locale.value) }),
+    );
+  }
+
+  /**
+   * Факт по таймеру — отдельной строкой: это не оценка закрытых задач, а время,
+   * которое человек действительно отмерил. Показываем только когда он им
+   * пользовался: ноль в этой строке ничего не сообщает.
+   */
+  if (!showDefaultPlan.value && summary.value.fact_minutes > 0) {
+    parts.push(
+      t('calendar.timerMinutes', { minutes: formatDuration(summary.value.fact_minutes, locale.value) }),
     );
   }
 
@@ -1344,6 +1427,56 @@ useStructuredData(() => ({
 
         <!-- День не загрузился: причина на экране, а не пустой список -->
         <p v-if="dayFailed" class="plan__error" role="alert">{{ t('state.error') }}</p>
+
+        <!--
+          Таймер уборки. Стоит над списком, потому что это действие «начать»:
+          человек нажал — и видит, что время пошло, не листая экран. На паузе
+          полоса меняет цвет, а не исчезает: вернуться к ней должно быть просто.
+        -->
+        <div v-if="isToday && auth.isAuthenticated" class="focus">
+          <template v-if="focus.session.value">
+            <div class="focus__info">
+              <span class="focus__dot" :class="{ 'focus__dot--paused': focusPaused }" aria-hidden="true" />
+              <span class="focus__time">{{ focusClock }}</span>
+              <span class="focus__label">
+                {{ focusPaused ? t('plan.timerPaused') : t('plan.timerRunning') }}
+              </span>
+            </div>
+
+            <div class="focus__actions">
+              <button
+                type="button"
+                class="focus__button"
+                :disabled="focus.pending.value"
+                @click="focusPaused ? focus.resume() : focus.pause()"
+              >
+                {{ focusPaused ? t('plan.timerResume') : t('plan.timerPause') }}
+              </button>
+              <button
+                type="button"
+                class="focus__button focus__button--accent"
+                :disabled="focus.pending.value"
+                @click="finishFocus"
+              >
+                {{ t('plan.timerFinish') }}
+              </button>
+            </div>
+          </template>
+
+          <template v-else>
+            <button
+              type="button"
+              class="focus__start"
+              :disabled="focus.pending.value"
+              @click="focus.start()"
+            >
+              <i class="pi pi-play" aria-hidden="true" />
+              {{ t('plan.timerStart') }}
+            </button>
+          </template>
+        </div>
+
+        <p v-if="focusNotice" class="focus__notice">{{ focusNotice }}</p>
 
         <!--
           Пункты дня. Отмечать можно любой открытый день: человек возвращается к
@@ -2278,6 +2411,113 @@ useStructuredData(() => ({
 .plan__error {
   color: var(--c-danger);
   font-size: var(--fs-caption);
+}
+
+/* ── Таймер уборки ─────────────────────────────────────────────────────── */
+.focus {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--r-row);
+  background: var(--c-surface-mint);
+}
+
+.focus__info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/*
+ * Точка «идёт»: пульсирует, чтобы было видно с одного взгляда, что время идёт.
+ * На паузе она замирает и сереет — цвет здесь и есть состояние.
+ */
+.focus__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--c-accent);
+  animation: focus-pulse 1.8s ease-in-out infinite;
+}
+
+.focus__dot--paused {
+  background: var(--c-text-muted);
+  animation: none;
+}
+
+.focus__time {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  /* Цифры одинаковой ширины: иначе отсчёт «дёргается» на каждой секунде. */
+  font-variant-numeric: tabular-nums;
+}
+
+.focus__label {
+  color: var(--c-text-muted);
+  font-size: var(--fs-caption);
+}
+
+.focus__actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.focus__button {
+  min-height: var(--tap-min);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-pill);
+  background: var(--c-surface);
+  color: var(--c-text);
+  font: inherit;
+  font-size: var(--fs-caption);
+  cursor: pointer;
+}
+
+.focus__button--accent {
+  border-color: transparent;
+  background: var(--c-brand);
+  color: var(--c-onbrand);
+}
+
+.focus__button:disabled,
+.focus__start:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.focus__start {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--tap-min);
+  padding: 0 var(--space-4);
+  border: none;
+  border-radius: var(--r-pill);
+  background: var(--c-brand);
+  color: var(--c-onbrand);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.focus__notice {
+  color: var(--c-brand);
+  font-size: var(--fs-caption);
+}
+
+@keyframes focus-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.3;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -10,6 +10,7 @@ import { syncDefaultTasks } from './homeProfile';
 import { canonicalZone } from '../services/zones';
 import { resolveContentLocale } from '../services/contentLocale';
 import { tasksDueOn } from '../services/dayPlan';
+import { focusMinutesByDay, focusMinutesOn } from '../services/focus';
 
 const router = express.Router();
 
@@ -118,9 +119,12 @@ router.get('/today', authMiddleware, async (req: Request, res: Response) => {
         completed_tasks: completedTasks,
         progress: totalTasks > 0 ? (completedTasks / totalTasks) * 100 : 0,
         total_estimated_time: totalMinutes,
-        remaining_time: remainingMinutes
+        remaining_time: remainingMinutes,
+        // Факт по таймеру за день: план обещает минуты, и рядом нужно видеть,
+        // сколько их вышло на самом деле.
+        fact_minutes: await focusMinutesOn(String(req.userId), clock.today),
       },
-      tasks: groupedTasks
+      tasks: groupedTasks,
     });
   } catch (err) {
     console.error(err);
@@ -315,6 +319,14 @@ router.get('/calendar', authMiddleware, async (req: Request, res: Response) => {
     const userId = req.userId as string;
     const days = [];
 
+    // Факт по таймеру: считаем сразу на весь диапазон, одним запросом. День без
+    // сессий получает ноль, а не отсутствие поля — клиенту так проще.
+    const factByDay = await focusMinutesByDay(
+      userId,
+      from.toISOString().slice(0, 10),
+      to.toISOString().slice(0, 10),
+    );
+
     for (let offset = 0; offset < span; offset += 1) {
       const date = new Date(from.getTime() + offset * DAY_MS);
       const tasks = await tasksDueOn(userId, date, resolveContentLocale(req));
@@ -332,6 +344,7 @@ router.get('/calendar', authMiddleware, async (req: Request, res: Response) => {
         completed_tasks: completed.length,
         total_minutes: tasks.reduce((sum, task) => sum + (task.estimated_minutes || 0), 0),
         completed_minutes: completed.reduce((sum, task) => sum + (task.estimated_minutes || 0), 0),
+        fact_minutes: factByDay.get(iso) ?? 0,
         tasks: tasks.map((task) => ({
           id: task.id,
           title: task.title,

@@ -185,7 +185,30 @@ export interface CalendarDay {
   total_minutes: number;
   /** Минуты по факту — сумма оценки закрытых задач дня. */
   completed_minutes: number;
+  /**
+   * Фактические минуты по таймеру за этот день.
+   *
+   * Не то же, что `completed_minutes`: там оценка закрытых задач, а здесь время,
+   * которое человек действительно отмерил таймером.
+   */
+  fact_minutes: number;
   tasks: CalendarTask[];
+}
+
+/**
+ * Сессия таймера: `GET /api/timer/active` и ответы старта/паузы/завершения.
+ *
+ * `seconds` считает сервер по `(конец − старт) − паузы`, поэтому клиенту
+ * достаточно прибавлять по секунде к этому числу, пока идёт отсчёт.
+ */
+export interface FocusSession {
+  id: number;
+  taskId: number | null;
+  title: string | null;
+  room: string | null;
+  status: 'running' | 'paused' | 'finished';
+  seconds: number;
+  startedAt: string;
 }
 
 /** Ответ `GET /api/tasks/calendar?from=…&to=…`: границы диапазона и дни по порядку. */
