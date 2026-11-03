@@ -81,6 +81,20 @@ export const clearAuthCookies = (res: Response): void => {
 /** CSRF-токен намеренно НЕ httpOnly: клиент читает его и повторяет в заголовке. */
 export const issueCsrfToken = (res: Response): string => {
   const token = crypto.randomBytes(24).toString('hex');
+  writeCsrfCookie(res, token);
+  return token;
+};
+
+/**
+ * Кладёт CSRF-cookie с тем же значением, но новым сроком.
+ *
+ * Срок обязателен: без него cookie с CSRF живёт ровно 30 дней с момента входа,
+ * а refresh-cookie продлевается каждым обновлением сессии. Активный человек
+ * через месяц получал 403 на любой изменяющий запрос — и вылечить это можно было
+ * только перезагрузкой (вход выдавал новую cookie). Теперь каждый `/refresh`
+ * продлевает CSRF вместе с сессией.
+ */
+const writeCsrfCookie = (res: Response, token: string): void => {
   res.cookie(CSRF_COOKIE, token, {
     httpOnly: false,
     secure: isProduction,
@@ -90,17 +104,20 @@ export const issueCsrfToken = (res: Response): string => {
     // посреди работы, и первый же изменяющий запрос получал бы 403.
     maxAge: THIRTY_DAYS,
   });
-  return token;
 };
 
 /**
  * Возвращает уже выданный CSRF-токен или создаёт новый.
+ *
  * Токен должен быть стабильным в рамках сессии: если менять его при логине,
- * клиент отправит устаревшее значение и получит 403.
+ * клиент отправит устаревшее значение и получит 403. Поэтому существующее
+ * значение не перевыпускается — только продлевается его cookie (см.
+ * `writeCsrfCookie`): значение и срок жизни — разные вещи.
  */
 export const ensureCsrfToken = (req: Request, res: Response): string => {
   const existing = req.cookies?.[CSRF_COOKIE];
   if (typeof existing === 'string' && existing) {
+    writeCsrfCookie(res, existing);
     return existing;
   }
   return issueCsrfToken(res);

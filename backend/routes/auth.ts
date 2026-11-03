@@ -2,7 +2,7 @@ import express, { Request, Response } from 'express';
 import bcryptjs from 'bcryptjs';
 import crypto from 'crypto';
 import pool from '../db';
-import { generateTokens, verifyRefreshToken, authMiddleware } from '../auth';
+import { generateAccessToken, generateTokens, verifyRefreshToken, authMiddleware } from '../auth';
 import { normalizeLocale, resolveContentLocale, type ContentLocale } from '../services/contentLocale';
 import { relocalizeGeneratedContent } from '../services/generatedContent';
 import { EMAIL_EN } from '../content/en/emails';
@@ -682,6 +682,9 @@ router.delete('/account', authMiddleware, async (req: Request, res: Response) =>
   }
 });
 
+/** Сколько старый refresh-токен ещё принимается после обмена: только гонка. */
+const REFRESH_GRACE_MINUTES = 2;
+
 // Refresh token
 router.post('/refresh', async (req: Request, res: Response) => {
   try {
@@ -699,42 +702,82 @@ router.post('/refresh', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Invalid refresh token' });
     }
 
-    // Check if token exists in DB
-    const tokenExists = await pool.query(
-      'SELECT id FROM refresh_tokens WHERE user_id = $1 AND token = $2',
-      [decoded.userId, refreshToken],
-    );
-
-    if (tokenExists.rows.length === 0) {
-      return res.status(401).json({ error: 'Refresh token not found' });
-    }
-
     const { accessToken: newAccessToken, refreshToken: newRefreshToken } =
       generateTokens(decoded.userId);
 
     /**
-     * Меняем **только тот токен, который пришёл**, а не все токены пользователя.
+     * Обмен атомарный: строка меняется только если в ней всё ещё лежит тот
+     * токен, который пришёл. `rowCount` говорит, произошёл ли обмен на самом деле.
      *
-     * Раньше здесь стояло `WHERE user_id = $2`, и обновление на телефоне
-     * перезаписывало строку, по которой жил компьютер: второе устройство
-     * переставало обновляться и «выбивало» из аккаунта. У пользователя может быть
-     * несколько живых сессий (`refresh_tokens` — обычная таблица, вход добавляет
-     * строку), и каждая должна меняться сама за себя.
+     * Меняем **только тот токен, который пришёл**, а не все токены пользователя:
+     * у человека может быть несколько живых сессий (телефон и компьютер), и
+     * каждая должна меняться сама за себя.
      */
-    const updated = await pool.query(
-      'UPDATE refresh_tokens SET token = $1 WHERE user_id = $2 AND token = $3',
+    const rotated = await pool.query(
+      `UPDATE refresh_tokens
+          SET prev_token = token, rotated_at = NOW(), token = $1
+        WHERE user_id = $2 AND token = $3
+        RETURNING id`,
       [newRefreshToken, decoded.userId, refreshToken],
     );
 
-    if ((updated.rowCount ?? 0) === 0) {
-      return res.status(401).json({ error: 'Refresh token not found' });
+    if ((rotated.rowCount ?? 0) === 0) {
+      /**
+       * Гонка: этот токен уже обменяла другая вкладка или серверный рендер.
+       *
+       * Раньше здесь был 401, и человек «вылетал» из аккаунта, хотя сессия жива:
+       * он просто пришёл со значением, которое только что стало прежним. В
+       * течение `REFRESH_GRACE_MINUTES` старый токен ещё принимается — отдаём
+       * текущий токен из базы и свежий access, ничего не ротируя. Cookie
+       * браузера при этом лечится: вместо отозванного значения в неё встаёт
+       * действующее.
+       */
+      const current = await pool.query(
+        `SELECT token
+           FROM refresh_tokens
+          WHERE user_id = $1 AND prev_token = $2
+            AND rotated_at > NOW() - make_interval(mins => $3)
+          ORDER BY rotated_at DESC
+          LIMIT 1`,
+        [decoded.userId, refreshToken, REFRESH_GRACE_MINUTES],
+      );
+
+      if (current.rows.length === 0) {
+        return res.status(401).json({ error: 'Refresh token not found' });
+      }
+
+      const currentRefreshToken = String(current.rows[0].token);
+      // Тот же токен, что уже лежит в базе: новый access без новой ротации.
+      const accessToken = generateAccessToken(decoded.userId);
+
+      setAuthCookies(res, { accessToken, refreshToken: currentRefreshToken });
+
+      /**
+       * CSRF-cookie продлеваем в каждом обновлении сессии.
+       *
+       * Раньше её срок отсчитывался от входа и не двигался: активный человек
+       * через 30 дней получал 403 на любом изменяющем запросе, а access при этом
+       * обновлялся — снаружи это выглядело как «нажимаю, и ничего не
+       * происходит». Теперь оба срока едут вместе.
+       */
+      const csrfToken = ensureCsrfToken(req, res);
+
+      return res.json({ accessToken, refreshToken: currentRefreshToken, csrfToken, reused: true });
     }
 
     setAuthCookies(res, { accessToken: newAccessToken, refreshToken: newRefreshToken });
 
+    /**
+     * CSRF-токен возвращаем в теле: клиент держит его в памяти, и если cookie
+     * успела истечь (или её не было), значение из ответа сразу становится
+     * рабочим — без отдельного запроса за новым токеном.
+     */
+    const csrfToken = ensureCsrfToken(req, res);
+
     res.json({
       accessToken: newAccessToken,
       refreshToken: newRefreshToken,
+      csrfToken,
     });
   } catch (err) {
     console.error(err);

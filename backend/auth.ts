@@ -29,10 +29,18 @@ const ACCESS_TOKEN_EXPIRY = '15m';
  */
 const REFRESH_TOKEN_EXPIRY = '30d';
 
+/**
+ * Короткоживущий access-токен.
+ *
+ * Отдельная функция нужна обновлению сессии: когда refresh-токен только что
+ * обменяла другая вкладка, второй клиент получает новый access **без** ротации —
+ * пару токенов для выбрасывания генерировать незачем.
+ */
+export const generateAccessToken = (userId: string) =>
+  jwt.sign({ userId }, ACCESS_TOKEN_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRY });
+
 export const generateTokens = (userId: string) => {
-  const accessToken = jwt.sign({ userId }, ACCESS_TOKEN_SECRET, {
-    expiresIn: ACCESS_TOKEN_EXPIRY
-  });
+  const accessToken = generateAccessToken(userId);
 
   const refreshToken = jwt.sign({ userId }, REFRESH_TOKEN_SECRET, {
     expiresIn: REFRESH_TOKEN_EXPIRY

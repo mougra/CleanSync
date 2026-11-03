@@ -82,13 +82,27 @@ const clientDay = (): string => {
 type ApiRequestOptions = Parameters<typeof $fetch>[1];
 
 /** 401 приходит от API, когда access-cookie просрочена. */
-const isUnauthorized = (error: unknown): boolean => {
-  const status =
-    (error as { statusCode?: number }).statusCode ??
-    (error as { status?: number }).status ??
-    (error as { response?: { status?: number } }).response?.status;
+const statusOf = (error: unknown): number | undefined =>
+  (error as { statusCode?: number }).statusCode ??
+  (error as { status?: number }).status ??
+  (error as { response?: { status?: number } }).response?.status;
 
-  return status === 401;
+const isUnauthorized = (error: unknown): boolean => statusOf(error) === 401;
+
+/**
+ * 403, которым API отвечает на расхождение CSRF-токена.
+ *
+ * Отличаем от «свой-чужой» 403 (`Forbidden`): тот повторять нельзя, он про права
+ * на конкретную запись. Здесь же достаточно выпустить токен заново.
+ */
+const isCsrfFailure = (error: unknown): boolean => {
+  if (statusOf(error) !== 403) {
+    return false;
+  }
+
+  const data = (error as { data?: { error?: string } }).data;
+
+  return typeof data?.error === 'string' && data.error.includes('CSRF');
 };
 
 /**
@@ -114,40 +128,6 @@ const NO_REFRESH_RETRY = [
 
 const canRetryAfterRefresh = (path: string): boolean =>
   !NO_REFRESH_RETRY.some((prefix) => path.startsWith(prefix));
-
-/**
- * Общий на всё приложение запрос обновления сессии.
- *
- * Почему общий: за один тик могут упасть параллельно пять запросов (план дня,
- * статистика, привычки, достижения, челлендж). Без этого промиса каждый пошёл бы
- * обновлять токен сам, а сервер меняет строку в `refresh_tokens` — второй запрос
- * пришёл бы с уже недействительным токеном и «разлогинил» бы человека.
- */
-let refreshing: Promise<boolean> | null = null;
-
-/**
- * Имя блокировки обновления сессии.
- *
- * Промис выше выравнивает запросы только внутри вкладки. Две вкладки (или
- * приложение и вкладка) обновляют токен каждая сама: первая меняет строку в
- * `refresh_tokens` и ставит новую cookie, вторая успевает уйти со старой и
- * получает отказ — сессия «слетает» без причины. Web Locks сериализует
- * обновление между вкладками: вторая заходит в блокировку, когда cookie уже
- * свежая, и обновление проходит.
- */
-const REFRESH_LOCK = 'tidyplan-auth-refresh';
-
-const withRefreshLock = async <T>(task: () => Promise<T>): Promise<T> => {
-  const locks = import.meta.client
-    ? (navigator as Navigator & { locks?: LockManager }).locks
-    : undefined;
-
-  if (!locks?.request) {
-    return await task();
-  }
-
-  return await locks.request(REFRESH_LOCK, task);
-};
 
 /**
  * Обёртка над $fetch для обращений к нашему API.
@@ -192,26 +172,13 @@ export const useApi = () => {
   /**
    * Обновить сессию один раз на всех.
    *
-   * Возвращает `true`, если токен обновился и запрос стоит повторить. Ошибку не
-   * пробрасываем: неудачное обновление — это «гость», а не падение страницы.
+   * Сам обмен живёт в сторе: его же дёргает проактивное продление
+   * (`plugins/session-keepalive.client.ts`), а внутри вкладки и между вкладками
+   * запросы выравниваются там же. Здесь остаётся контракт «true — можно
+   * повторять запрос»: неудачное обновление — это не падение страницы, а
+   * кончившаяся сессия (стор поднимет флаг `sessionExpired`).
    */
-  const refreshSession = async (csrf: string): Promise<boolean> => {
-    if (!refreshing) {
-      refreshing = withRefreshLock(() =>
-        $fetch(`${base}/api/auth/refresh`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'X-CSRF-Token': csrf, 'Accept-Language': apiLocale(requestPath) },
-        })
-          .then(() => true)
-          .catch(() => false),
-      ).finally(() => {
-        refreshing = null;
-      });
-    }
-
-    return await refreshing;
-  };
+  const refreshSession = (): Promise<boolean> => auth.refreshSession();
 
   const request = async <T>(path: string, options: ApiRequestOptions = {}): Promise<T> => {
     const method = String(options.method ?? 'GET').toUpperCase();
@@ -252,23 +219,27 @@ export const useApi = () => {
       return await send();
     } catch (error) {
       /**
-       * Access-токен живёт 15 минут, и в открытой вкладке или установленной PWA
-       * обновлять его было некому: `/api/auth/refresh` вызывала только серверная
-       * обёртка при полной загрузке страницы. Через 15 минут первый же запрос
-       * получал 401, а стор выставлял `user = null` — человек «вылетал» из
-       * аккаунта, хотя refresh-cookie жива.
+       * Два повода повторить запрос после обновления сессии, и оба раньше
+       * оставляли человека с неработающими кнопками до перезагрузки:
        *
-       * Здесь обновляем сессию и повторяем запрос ровно один раз. Маршруты из
-       * `NO_REFRESH_RETRY` исключены: у них своя логика ответа на 401, и повторять
-       * туда запрос нельзя — цикл. Профиль (`/api/auth/me`) и правки профиля,
-       * наоборот, повторяем: иначе сессия восстанавливалась бы только с
-       * перезагрузкой страницы.
+       * 1. 401 — access-cookie просрочена (живёт 15 минут). Открытая вкладка или
+       *    установленная PWA его не обновляли вовсе: обновление вызывала только
+       *    серверная обёртка при полной загрузке страницы.
+       * 2. 403 от CSRF-проверки — заголовок разошёлся с cookie. Профиль и данные
+       *    при этом приходят, поэтому снаружи это выглядит как «нажимаю, и ничего
+       *    не происходит»: интерфейс молчит, а сессия жива.
+       *
+       * Повторяем ровно один раз и только в браузере: в SSR обновление делает
+       * плагин `restore-session`, а маршруты из `NO_REFRESH_RETRY` исключены —
+       * у них своя логика ответа, и повтор замкнул бы цикл.
        */
-      if (isServer || !canRetryAfterRefresh(path) || !isUnauthorized(error)) {
+      const recoverable = isUnauthorized(error) || isCsrfFailure(error);
+
+      if (isServer || !recoverable || !canRetryAfterRefresh(path)) {
         throw error;
       }
 
-      const refreshed = await refreshSession(headers['X-CSRF-Token'] ?? (await auth.ensureCsrf()));
+      const refreshed = await refreshSession();
 
       if (!refreshed) {
         throw error;

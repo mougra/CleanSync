@@ -56,6 +56,13 @@ const showCalendar = computed(() => appPath(route.path) === '/');
       -->
       <FloatingNotifications />
 
+      <!--
+        Сессия кончилась, а человек продолжает нажимать: говорим об этом прямо,
+        вместо прежней тишины — действия переставали работать без объяснения
+        (см. SessionExpiredNotice).
+      -->
+      <SessionExpiredNotice />
+
       <!-- Информирование об использовании cookie: у нас только технически необходимые -->
       <CookieBanner />
 
