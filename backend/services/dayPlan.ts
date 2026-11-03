@@ -88,9 +88,13 @@ export const tasksDueOn = async (userId: string, date: Date, locale: ContentLoca
                  MOD(
                    (EXTRACT(YEAR FROM $4::date) * 12 + EXTRACT(MONTH FROM $4::date))
                    - (EXTRACT(YEAR FROM t.due_date) * 12 + EXTRACT(MONTH FROM t.due_date)),
-                   t.interval_count / 30
-                 ) + t.interval_count / 30,
-                 t.interval_count / 30
+                   -- GREATEST: у месячного дела интервал не бывает меньше 30 дней,
+                   -- но кривая строка (например, оставшаяся от ручной правки) дала
+                   -- бы деление на ноль — и падал бы весь план дня, а с ним и кольца
+                   -- календаря. Пусть лучше считается «раз в месяц».
+                   GREATEST(t.interval_count / 30, 1)
+                 ) + GREATEST(t.interval_count / 30, 1),
+                 GREATEST(t.interval_count / 30, 1)
                ) = 0) OR
          (t.due_date = $4)
        )

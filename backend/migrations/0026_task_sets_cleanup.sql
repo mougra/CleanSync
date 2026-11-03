@@ -18,6 +18,11 @@
 --    Владелец задачи — не `tasks.user_id` (такой колонки нет: она была удалена
 --    как источник багов, см. правило про схему), а `schedules.user_id`, поэтому
 --    группируем через расписание.
+--
+--    Интервал месячного дела — 30 дней, а не 1: после миграции 0022 интервал
+--    хранится в днях, и с единицей выборка «Сегодня» делит на ноль
+--    (`interval_count / 30` в целочисленном делении) — падает весь план дня,
+--    а с ним и кольца прогресса в календаре.
 WITH door AS (
   SELECT t.id,
          row_number() OVER (PARTITION BY s.user_id ORDER BY t.id) AS rn
@@ -35,7 +40,7 @@ SET title = 'Протереть входную дверь и домофон',
     room = 'Прихожая',
     estimated_minutes = 15,
     frequency = 'monthly',
-    interval_count = 1,
+    interval_count = 30,
     day_of_week = NULL,
     day_of_month = EXTRACT(DAY FROM COALESCE(t.due_date, CURRENT_DATE))::int,
     month_shifts = NULL
