@@ -527,10 +527,12 @@ describe.skipIf(!dbReady)('календарь задач по диапазону
     expect(before.status).toBe(200);
 
     // Форма ответа прежняя: конверт и сводка те же, признак дня не протекает
-    // наружу отдельным полем.
+    // наружу отдельным полем. `fact_minutes` — время по таймеру за день: оно
+    // появилось вместе с таймером и живёт в той же сводке.
     expect(Object.keys(before.body).sort()).toEqual(['summary', 'tasks']);
     expect(Object.keys(before.body.summary).sort()).toEqual([
       'completed_tasks',
+      'fact_minutes',
       'progress',
       'remaining_time',
       'total_estimated_time',
