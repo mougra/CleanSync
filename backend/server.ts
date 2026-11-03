@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 import app from './app';
 import pool from './db';
 import { startReminderScheduler } from './services/push';
-import { startDigestScheduler } from './services/digest';
+import { startPlanReminderScheduler } from './services/reminders';
 import { initObservability } from './services/observability';
 
 dotenv.config();
@@ -27,8 +27,9 @@ const start = async (): Promise<void> => {
   // пока нет, а один инстанс Express у нас и так один.
   startReminderScheduler();
 
-  // Недельное письмо: тот же принцип, отдельного воркера нет.
-  startDigestScheduler();
+  // Напоминания о плане (дайджест и дневной пинг) — тоже push, отдельного
+  // воркера нет: один инстанс Express, таймер внутри процесса.
+  startPlanReminderScheduler();
 
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
