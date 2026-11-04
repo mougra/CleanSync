@@ -45,16 +45,16 @@ const choose = (value: 'essential' | 'all') => accept(value);
 <style scoped>
 .banner {
   position: fixed;
-  left: var(--space-4);
-  right: var(--space-4);
+  left: auto;
+  right: var(--space-2);
+  max-width: min(420px, calc(100% - var(--space-4)));
   /*
-   * На телефоне баннер живёт СВЕРХУ, а не снизу. Внизу уже стоят кнопка «+»,
-   * нижняя навигация и колонка уведомлений («FloatingNotifications»): на узком
-   * экране они накладывались друг на друга, а баннер — единственный элемент,
-   * который можно показать и сверху, ничего не ломая. Измерено в headless Chrome
-   * на 390x844: до переноса рамки баннера и уведомления пересекались.
+   * Баннер снизу справа, но НАД кнопкой «+» и нижней навигацией: правый нижний
+   * угол уже занят FAB и колонкой уведомлений (`FloatingNotifications`), и
+   * баннер лёг бы прямо на них. Формула та же, что у уведомлений: верх кнопки
+   * «+» — это `--nav-height + --space-5 + --fab-size`.
    */
-  top: calc(var(--space-4) + env(safe-area-inset-top));
+  bottom: calc(var(--nav-height) + var(--space-5) + var(--fab-size) + env(safe-area-inset-bottom));
   z-index: 54;
   display: flex;
   flex-direction: column;
@@ -77,21 +77,37 @@ const choose = (value: 'essential' | 'all') => accept(value);
 
 .banner__actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  align-items: stretch;
   gap: var(--space-2);
+}
+
+/*
+ * Кнопки в одну строку и делят ширину поровну. Шрифт и боковые отступы меньше,
+ * чем у обычной кнопки системы: с ними «Только необходимые» и «Принять
+ * аналитику» не помещались рядом даже в десктопных 388px и переносились друг
+ * под друга. Если слову совсем тесно, оно переносится внутри своей кнопки, но
+ * ряд остаётся одним.
+ */
+.banner__actions :deep(.btn) {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0 var(--space-2);
+  font-size: var(--fs-caption);
+  line-height: 1.15;
+  text-align: center;
+  white-space: normal;
 }
 
 @media (min-width: 768px) {
   /*
-   * На десктопе баннер возвращается вниз, но в левый нижний угол: правый занят
-   * кнопкой «+», и над ней же висит колонка уведомлений. Так три плавающих
-   * элемента не делят один и тот же пиксель (проверено замером рамок).
+   * Десктоп: правый нижний угол экрана, но выше кнопки «+» и колонки
+   * уведомлений — те же координаты, что у уведомлений.
    */
   .banner {
-    top: auto;
-    left: var(--space-5);
-    right: auto;
-    bottom: var(--space-7);
+    left: auto;
+    right: var(--space-5);
+    bottom: calc(var(--space-7) + var(--fab-size) + var(--space-4));
     max-width: 420px;
   }
 }
