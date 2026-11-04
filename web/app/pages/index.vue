@@ -406,48 +406,6 @@ const summary = computed(() => {
   };
 });
 
-/**
- * Badge на иконке приложения: сколько дел осталось на сегодня.
- *
- * Работает там, где браузер умеет `setAppBadge` (Android, десктопный Chromium,
- * iOS в установленном PWA); в остальных случаях молча ничего не делает. Число
- * остатка, а не общее: «3» на иконке читается как «три дела меня ждут», а «7»
- * после трёх закрытых — как будто ничего не сделано.
- *
- * Блок обязан стоять **после** `isToday` и `summary`: `watchEffect` выполняется
- * сразу при создании. Раньше он жил выше, и у вошедшего человека вычислялся
- * `isToday` — ещё не инициализированная константа, — и страница падала в 500
- * сразу после гидрации (`Cannot access ... before initialization`). У гостя
- * ошибка не проявлялась: `auth.isAuthenticated &&` коротко замыкается и до
- * `isToday` дело не доходит. На сервере — тоже: `navigator` там нет, и функция
- * выходит раньше.
- */
-watchEffect(() => {
-  if (typeof navigator === 'undefined') {
-    return;
-  }
-
-  const nav = navigator as Navigator & {
-    setAppBadge?: (count?: number) => Promise<void>;
-    clearAppBadge?: () => Promise<void>;
-  };
-
-  if (!nav.setAppBadge || !nav.clearAppBadge) {
-    return;
-  }
-
-  const left =
-    auth.isAuthenticated && isToday.value
-      ? Math.max(0, (summary.value?.total_tasks ?? 0) - (summary.value?.completed_tasks ?? 0))
-      : 0;
-
-  if (left > 0) {
-    nav.setAppBadge(left).catch(() => undefined);
-  } else {
-    nav.clearAppBadge().catch(() => undefined);
-  }
-});
-
 const plural = (count: number, forms: [string, string, string]): string =>
   locale.value === 'ru'
     ? pluralRu(count, forms[0], forms[1], forms[2])
@@ -1415,6 +1373,57 @@ useStructuredData(() => ({
     },
   ],
 }));
+
+/**
+ * Badge на иконке приложения: сколько дел осталось на сегодня.
+ *
+ * Работает там, где браузер умеет `setAppBadge` (Android, десктопный Chromium,
+ * iOS в установленном PWA); в остальных случаях молча ничего не делает. Число
+ * остатка, а не общее: «3» на иконке читается как «три дела меня ждут», а «7»
+ * после трёх закрытых — как будто ничего не сделано.
+ *
+ * Стоит в самом конце setup, и это важно. `watchEffect` выполняется сразу при
+ * создании, а `summary` лениво тянет за собой `showDefaultPlan`, объявленный
+ * намного ниже. Пока эффект жил выше, у вошедшего человека вычислялась ещё не
+ * инициализированная константа: `ReferenceError: Cannot access ... before
+ * initialization`, и Nuxt показывал страницу 500. У гостя не проявлялось:
+ * `auth.isAuthenticated &&` коротко замыкается, а на сервере `navigator` нет,
+ * и функция выходит раньше. Здесь все объявления уже выполнены.
+ */
+watchEffect(() => {
+  if (typeof navigator === 'undefined') {
+    return;
+  }
+
+  const nav = navigator as Navigator & {
+    setAppBadge?: (count?: number) => Promise<void>;
+    clearAppBadge?: () => Promise<void>;
+  };
+
+  if (!nav.setAppBadge || !nav.clearAppBadge) {
+    return;
+  }
+
+  const left =
+    auth.isAuthenticated && isToday.value
+      ? Math.max(0, (summary.value?.total_tasks ?? 0) - (summary.value?.completed_tasks ?? 0))
+      : 0;
+
+  if (left > 0) {
+    try {
+      void nav.setAppBadge(left).catch(() => undefined);
+    } catch {
+      // Badging API есть не везде и может быть запрещён политикой браузера:
+      // это украшение, а не смысл страницы — молча живём без него.
+    }
+  } else {
+    try {
+      void nav.clearAppBadge().catch(() => undefined);
+    } catch {
+      // То же самое: отсутствие badge не должно ломать главную.
+    }
+  }
+});
 </script>
 
 <template>
