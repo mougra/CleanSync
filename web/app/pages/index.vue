@@ -82,40 +82,6 @@ const finishFocus = async () => {
   await refreshNuxtData(['today-plan', 'calendar-day', 'calendar-week']);
 };
 
-/**
- * Badge на иконке приложения: сколько дел осталось на сегодня.
- *
- * Работает там, где браузер умеет `setAppBadge` (Android, десктопный Chromium,
- * iOS в установленном PWA); в остальных случаях молча ничего не делает. Число
- * остатка, а не общее: «3» на иконке читается как «три дела меня ждут», а «7»
- * после трёх закрытых — как будто ничего не сделано.
- */
-watchEffect(() => {
-  if (typeof navigator === 'undefined') {
-    return;
-  }
-
-  const nav = navigator as Navigator & {
-    setAppBadge?: (count?: number) => Promise<void>;
-    clearAppBadge?: () => Promise<void>;
-  };
-
-  if (!nav.setAppBadge || !nav.clearAppBadge) {
-    return;
-  }
-
-  const left =
-    auth.isAuthenticated && isToday.value
-      ? Math.max(0, (summary.value?.total_tasks ?? 0) - (summary.value?.completed_tasks ?? 0))
-      : 0;
-
-  if (left > 0) {
-    nav.setAppBadge(left).catch(() => undefined);
-  } else {
-    nav.clearAppBadge().catch(() => undefined);
-  }
-});
-
 /** Шторка «Добавить задачу» — та же, что открывает круглая кнопка в углу. */
 const { openSheet: openTaskSheet } = useTaskSheet();
 
@@ -438,6 +404,48 @@ const summary = computed(() => {
     completed_minutes: day.value?.completed_minutes ?? 0,
     fact_minutes: day.value?.fact_minutes ?? 0,
   };
+});
+
+/**
+ * Badge на иконке приложения: сколько дел осталось на сегодня.
+ *
+ * Работает там, где браузер умеет `setAppBadge` (Android, десктопный Chromium,
+ * iOS в установленном PWA); в остальных случаях молча ничего не делает. Число
+ * остатка, а не общее: «3» на иконке читается как «три дела меня ждут», а «7»
+ * после трёх закрытых — как будто ничего не сделано.
+ *
+ * Блок обязан стоять **после** `isToday` и `summary`: `watchEffect` выполняется
+ * сразу при создании. Раньше он жил выше, и у вошедшего человека вычислялся
+ * `isToday` — ещё не инициализированная константа, — и страница падала в 500
+ * сразу после гидрации (`Cannot access ... before initialization`). У гостя
+ * ошибка не проявлялась: `auth.isAuthenticated &&` коротко замыкается и до
+ * `isToday` дело не доходит. На сервере — тоже: `navigator` там нет, и функция
+ * выходит раньше.
+ */
+watchEffect(() => {
+  if (typeof navigator === 'undefined') {
+    return;
+  }
+
+  const nav = navigator as Navigator & {
+    setAppBadge?: (count?: number) => Promise<void>;
+    clearAppBadge?: () => Promise<void>;
+  };
+
+  if (!nav.setAppBadge || !nav.clearAppBadge) {
+    return;
+  }
+
+  const left =
+    auth.isAuthenticated && isToday.value
+      ? Math.max(0, (summary.value?.total_tasks ?? 0) - (summary.value?.completed_tasks ?? 0))
+      : 0;
+
+  if (left > 0) {
+    nav.setAppBadge(left).catch(() => undefined);
+  } else {
+    nav.clearAppBadge().catch(() => undefined);
+  }
 });
 
 const plural = (count: number, forms: [string, string, string]): string =>
