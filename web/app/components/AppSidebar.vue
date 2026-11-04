@@ -6,6 +6,24 @@ const route = useRoute();
 const localePath = useLocalePath();
 
 /**
+ * Установка приложения прямо из меню.
+ *
+ * Строка в настройках остаётся главной точкой входа (там же инструкция для
+ * iOS), но искать её в настройках ради иконки на рабочем столе — лишний путь.
+ * Кнопка появляется только когда браузер действительно готов установить
+ * приложение (`beforeinstallprompt` поймал плагин): без события клик вёл бы
+ * в тупик. `installVisible` уже ждёт монтирования, поэтому серверная разметка
+ * и первый кадр клиента совпадают — расхождения гидрации нет.
+ */
+const {
+  visible: installVisible,
+  canInstall: installCanInstall,
+  install: installApp,
+} = useInstallPrompt();
+
+const showInstall = computed(() => installVisible.value && installCanInstall.value);
+
+/**
  * Ссылки собираем через `localePath`: в английской версии адреса живут под `/en`,
  * а сырой `/habits` — это русский маршрут. Переход по нему переключал язык
  * обратно на русский, хотя человек только что выбрал английский.
@@ -46,6 +64,25 @@ const isActive = (to: string) => {
     </nav>
 
     <div class="sidebar__footer">
+      <!--
+        Иконка установки: только когда браузер сам готов поставить приложение.
+        Подпись рядом с иконкой — чтобы клик не был загадкой «а что это за
+        стрелка»; на iOS события установки не бывает, и кнопки здесь нет
+        (там путь через «Поделиться» описан в настройках).
+      -->
+      <button
+        v-if="showInstall"
+        type="button"
+        class="sidebar__install"
+        :title="t('settings.installApp')"
+        :aria-label="t('settings.installApp')"
+        @click="installApp"
+      >
+        <i class="pi pi-download" aria-hidden="true" />
+        <!-- Короткая подпись: в колонке 248px «Установить приложение» обрезается -->
+        <span class="sidebar__install-label">{{ t('settings.installAction') }}</span>
+      </button>
+
       <AppSidebarProfile />
       <div class="sidebar__controls">
         <ThemeToggle />
@@ -164,5 +201,40 @@ const isActive = (to: string) => {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+
+/*
+ * Кнопка «Установить приложение»: мятная плашка в цвет навигации, но с
+ * пунктирной рамкой — это действие, а не ещё один пункт меню. Ширина на всю
+ * колонку: рядом с переключателями темы и языка, которые стоят отдельной
+ * строкой ниже, она бы не поместилась.
+ */
+.sidebar__install {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: var(--tap-min);
+  padding: 0 var(--space-3);
+  border: 1px dashed var(--c-border);
+  border-radius: var(--r-chip);
+  background: var(--c-surface-mint);
+  color: var(--c-brand);
+  font: inherit;
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.sidebar__install:hover {
+  background: var(--c-surface);
+}
+
+.sidebar__install-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

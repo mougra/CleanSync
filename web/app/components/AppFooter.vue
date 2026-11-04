@@ -37,8 +37,6 @@ const project = [
 
 <template>
   <footer class="footer">
-    <p class="footer__brand">TidyPlan — {{ t('footer.tagline') }}</p>
-
     <nav class="footer__group" :aria-label="t('footer.sections')">
       <h2 class="footer__heading">{{ t('footer.sections') }}</h2>
       <ul class="footer__list">
@@ -60,7 +58,13 @@ const project = [
       </ul>
     </nav>
 
-    <p class="footer__note">© {{ year }} TidyPlan</p>
+    <!--
+      Бренд переехал вниз к копирайту: раньше «TidyPlan — Порядок дома без
+      выгорания» занимал отдельную строку над ссылками и подвал вырастал на
+      треть. Теперь это одна подпись под разделами — и та же фраза, и место
+      сэкономлено.
+    -->
+    <p class="footer__note">© {{ year }} TidyPlan — {{ t('footer.tagline') }}</p>
   </footer>
 </template>
 
@@ -71,21 +75,21 @@ const project = [
  * колонки шелла (`calc(88px + env(safe-area-inset-bottom))`), который держит
  * нижнюю навигацию на телефоне. Запас там больше высоты навигации (~60px),
  * поэтому подвал её не перекрывает.
+ *
+ * Подвал компактный: бренд переехал в нижнюю подпись, поэтому строк на одну
+ * меньше, а отступы между группами уменьшены. Ссылки остаются полноценными
+ * целями нажатия — 32px по высоте.
  */
 .footer {
   display: grid;
-  gap: var(--space-4);
-  margin-top: var(--space-6);
-  padding: var(--space-5) 0 var(--space-1);
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+  padding: var(--space-4) 0 var(--space-1);
   border-top: 1px solid var(--c-border);
 }
 
-.footer__brand {
-  font-weight: 600;
-}
-
 .footer__heading {
-  margin-bottom: var(--space-2);
+  margin-bottom: var(--space-1);
   color: var(--c-text-muted);
   font-size: var(--fs-caption);
   text-transform: uppercase;
@@ -121,11 +125,12 @@ const project = [
 }
 
 @media (min-width: 768px) {
+  /* Две колонки ссылок вместо трёх: без отдельной строки бренда подвал короче */
   .footer {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4);
   }
 
-  .footer__brand,
   .footer__note {
     grid-column: 1 / -1;
   }

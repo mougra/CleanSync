@@ -3,24 +3,29 @@ import type { CalendarResponse } from '~/types/task';
 import type { HabitCalendarResponse } from '~/types/habit';
 
 /**
- * Компактная календарная полоса недели: месяц/год со стрелками листания и семь
- * чисел, где сегодняшний день обведён кружком.
+ * Календарная полоса дней: месяц/год со стрелками листания и числа, где
+ * сегодняшний день обведён кружком.
  *
  * Календарь — это навигация по дням: клик по числу выбирает день, и карточка
  * плана на главной показывает план именно этого дня. Отмечать можно любой день
  * (решает карточка плана), а вокруг числа рисуется кольцо прогресса — по нему
  * видно, где план закрыт, не открывая день.
  *
- * Окно едет за выбором: клик по крайнему числу подкручивает полосу на сутки, а
- * не на неделю. Шаг в семь дней перепрыгивал бы шесть чисел, до которых человек
- * как раз и хотел дойти: выбранный день остаётся выбранным, а рядом появляется
- * следующий (или предыдущий) — и по нему можно кликнуть так же, пока не дойдёшь
- * до нужной даты. Стрелки по-прежнему листают неделями: это «далеко», крайние
- * числа — «на шаг».
+ * Сколько чисел видно, зависит от ширины окна: на телефоне — одна неделя
+ * (7 дней), на десктопе — 11, то есть неделя с двумя днями до воскресенья и
+ * двумя после субботы. Это не украшение: заказчик просил видеть соседние
+ * даты, чтобы план на границе недели не обрывался. Окно шире семи дней рисует
+ * клиент, поэтому в серверной разметке всегда семь чисел: сервер не знает
+ * ширину окна, и подмена после гидратации не вызывает расхождения разметки.
  *
- * Высота намеренно небольшая: полоса стоит над содержимым на каждом «дневном»
- * экране, поэтому из макета взяты только месяц, числа и кружок. Подписи дней
- * недели остались сокращёнными — по ним видно, где выходные.
+ * Окно едет за выбором: клик по крайнему числу подкручивает полосу на сутки, а
+ * не на неделю. Шаг в семь дней перепрыгивал бы числа, до которых человек как
+ * раз и хотел дойти. Стрелки листают «крупно»: одиночная — на день (на
+ * телефоне, где видна одна неделя, — на неделю), двойная — всегда на неделю.
+ *
+ * Высота и размеры намеренно умеренные: полоса стоит над содержимым на каждом
+ * «дневном» экране. На десктопе она крупнее в полтора раза — заказчик просил
+ * сделать календарь заметнее, раз уж он первый блок страницы.
  */
 const { t, locale } = useI18n();
 
@@ -37,18 +42,65 @@ const weekStart = useState<string>('week-start', () =>
   toISODate(startOfWeek(fromISODate(deviceToday()))),
 );
 
+/**
+ * Сколько чисел в окне.
+ *
+ * На телефоне — одна неделя (как было), на десктопе — неделя с запасом по два
+ * дня с каждой стороны. Порог 1024px, а не 768: боковое меню отнимает 248px, и
+ * на планшете 11 чисел втиснулись бы в 440px — кольца начали бы наезжать друг
+ * на друга.
+ */
+const DAYS_COMPACT = 7;
+const DAYS_WIDE = 11;
+const WIDE_BREAKPOINT = 1024;
+
+/** Текущее число дней окна: сервер и первый кадр клиента считают по-узкому. */
+const visibleDays = ref(DAYS_COMPACT);
+/** Окно шире недели: от этого зависит и шаг одиночной стрелки, и число дат. */
+const wide = computed(() => visibleDays.value > DAYS_COMPACT);
+/** Сколько дней показываем до воскресенья — первого дня выбранной недели. */
+const leadDays = computed(() => Math.max(0, Math.round((visibleDays.value - DAYS_COMPACT) / 2)));
+
+let wideQuery: MediaQueryList | null = null;
+
+/** Синхронизация с шириной окна: `matchMedia` дешевле обработчика `resize`. */
+const syncWindowWidth = () => {
+  visibleDays.value = wideQuery?.matches ? DAYS_WIDE : DAYS_COMPACT;
+
+  /*
+   * При сужении окна выбранный день мог остаться за краем: на десктопе видно
+   * два дня до недели и два после, на телефоне — нет. Тогда возвращаем окно к
+   * неделе выбранного дня, иначе человек видел бы план дня, которого нет в
+   * полосе.
+   */
+  if (!days.value.some((day) => day.iso === selectedDate.value)) {
+    weekStart.value = toISODate(startOfWeek(fromISODate(selectedDate.value)));
+  }
+};
+
 // Клиент может знать другую дату, чем серверный рендер (если cookie ещё не было):
-// после гидратации подтягиваем локальный день без ошибок гидратации.
+// после гидратации подтягиваем локальный день без ошибок гидратации. Там же
+// выясняется ширина окна — до этого момента окно узкое, как в серверной разметке.
 onMounted(() => {
   const today = deviceToday();
   selectedDate.value = today;
   weekStart.value = toISODate(startOfWeek(fromISODate(today)));
+
+  wideQuery = window.matchMedia(`(min-width: ${WIDE_BREAKPOINT}px)`);
+  syncWindowWidth();
+  wideQuery.addEventListener('change', syncWindowWidth);
+});
+
+onBeforeUnmount(() => {
+  wideQuery?.removeEventListener('change', syncWindowWidth);
 });
 
 const start = computed(() => fromISODate(weekStart.value));
+/** Начало окна: на десктопе оно на два дня раньше воскресенья. */
+const windowStart = computed(() => addDays(start.value, -leadDays.value));
 const days = computed(() =>
-  Array.from({ length: 7 }, (_, index) => {
-    const date = addDays(start.value, index);
+  Array.from({ length: visibleDays.value }, (_, index) => {
+    const date = addDays(windowStart.value, index);
     const weekday = date.getDay();
     return {
       iso: toISODate(date),
@@ -209,8 +261,8 @@ const dayCells = computed(() =>
  * в конце полосы читались бы без месяца. При сдвиге на сутки это обычное дело.
  */
 const monthTitle = computed(() => {
-  const from = start.value;
-  const to = addDays(from, 6);
+  const from = days.value[0]?.date ?? start.value;
+  const to = days.value[days.value.length - 1]?.date ?? addDays(from, 6);
   const monthYear = (date: Date) =>
     new Intl.DateTimeFormat(locale.value, { month: 'long', year: 'numeric' }).format(date);
 
@@ -237,8 +289,30 @@ const dayLabel = (date: Date) =>
     month: 'long',
   }).format(date);
 
+/** Сдвиг окна на сутки: так листают рядом стоящие числа. */
+const shiftDays = (delta: number) => {
+  weekStart.value = toISODate(addDays(start.value, delta));
+};
+
+/** Сдвиг на неделю: «далеко» — по двойной стрелке. */
 const shiftWeek = (delta: number) => {
-  weekStart.value = toISODate(addDays(start.value, delta * 7));
+  shiftDays(delta * 7);
+};
+
+/**
+ * Шаг одиночной стрелки.
+ *
+ * Когда видна ровно одна неделя, шаг в день прятал бы пункт назначения за
+ * краем окна: на телефоне одиночная стрелка листает неделю, как раньше. На
+ * десктопе окно шире, и шаг в день — то, что нужно: неделя остаётся на экране.
+ */
+const stepSingle = (delta: number) => {
+  if (wide.value) {
+    shiftDays(delta);
+    return;
+  }
+
+  shiftWeek(delta);
 };
 
 /**
@@ -256,15 +330,15 @@ const selectDay = (iso: string) => {
   const last = days.value[days.value.length - 1]?.iso;
 
   if (iso === last) {
-    weekStart.value = toISODate(addDays(start.value, 1));
+    shiftDays(1);
   } else if (iso === first) {
-    weekStart.value = toISODate(addDays(start.value, -1));
+    shiftDays(-1);
   }
 };
 </script>
 
 <template>
-  <header class="week-strip">
+  <header class="week-strip" :style="`--strip-days: ${visibleDays}`">
     <!--
       Два финальных градиента, по одному на шкалу: золотой для задач и золотой для
       привычек. `<defs>` внутри каждой ячейки дал бы дубли id в документе, и
@@ -286,11 +360,26 @@ const selectDay = (iso: string) => {
     </svg>
 
     <div class="week-strip__row">
+      <!--
+        Двойная стрелка — неделя, одиночная — день (на телефоне — тоже неделя).
+        Слева обе стрелки «назад», справа обе «вперёд»: так пара читается как
+        один орган управления, а не как четыре независимые кнопки.
+      -->
       <button
+        v-if="wide"
         type="button"
         class="week-strip__arrow"
         :aria-label="t('calendar.prevWeek')"
         @click="shiftWeek(-1)"
+      >
+        <i class="pi pi-angle-double-left" aria-hidden="true" />
+      </button>
+
+      <button
+        type="button"
+        class="week-strip__arrow"
+        :aria-label="wide ? t('calendar.prevDay') : t('calendar.prevWeek')"
+        @click="stepSingle(-1)"
       >
         <i class="pi pi-chevron-left" aria-hidden="true" />
       </button>
@@ -306,10 +395,20 @@ const selectDay = (iso: string) => {
       <button
         type="button"
         class="week-strip__arrow"
+        :aria-label="wide ? t('calendar.nextDay') : t('calendar.nextWeek')"
+        @click="stepSingle(1)"
+      >
+        <i class="pi pi-chevron-right" aria-hidden="true" />
+      </button>
+
+      <button
+        v-if="wide"
+        type="button"
+        class="week-strip__arrow"
         :aria-label="t('calendar.nextWeek')"
         @click="shiftWeek(1)"
       >
-        <i class="pi pi-chevron-right" aria-hidden="true" />
+        <i class="pi pi-angle-double-right" aria-hidden="true" />
       </button>
     </div>
 
@@ -382,11 +481,14 @@ const selectDay = (iso: string) => {
   flex-direction: column;
   gap: var(--space-1);
   /*
-   * Календарь уже страницы и стоит по центру: семь чисел не нуждаются в полосе
-   * во всю ширину, а рядом с широкой карточкой плана он выглядел растянутым.
+   * Календарь уже страницы и стоит по центру: рядом с широкой карточкой плана
+   * полоса во всю ширину выглядела растянутой. На десктопе мерка своя —
+   * `--content-calendar` в полтора раза больше узкой колонки.
    */
   width: 100%;
   max-width: var(--content-narrow);
+  /* Отступ до карточки плана: календарь — отдельный блок, а не её шапка */
+  margin-bottom: var(--space-3);
   margin-inline: auto;
   padding: 0;
 }
@@ -431,7 +533,8 @@ const selectDay = (iso: string) => {
 
 .week-strip__days {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  /* Число колонок приходит из `visibleDays`: окно бывает шире недели */
+  grid-template-columns: repeat(var(--strip-days, 7), minmax(0, 1fr));
   gap: var(--space-1);
   margin: 0;
   padding: 0;
@@ -612,6 +715,72 @@ const selectDay = (iso: string) => {
 .week-strip__day:focus-visible {
   outline: 2px solid var(--c-brand);
   outline-offset: 2px;
+}
+
+/* ── Десктоп: календарь крупнее ───────────────────────────────────────────
+ * Ширина `--content-calendar` (825px) — ровно в полтора раза больше прежних
+ * 550px. Вместе с шириной выросли число, кольца, подписи и стрелки: иначе
+ * числа «утонули» бы в широких ячейках, и полтора раза остались бы только на
+ * бумаге. Порог 1024px, а не 768: боковое меню съедает 248px, и на планшете
+ * одиннадцать чисел не помещаются вместе с кольцами.
+ */
+@media (min-width: 1024px) {
+  .week-strip {
+    gap: var(--space-2);
+    max-width: var(--content-calendar);
+    /*
+     * До карточки плана — больше воздуха, чем на телефоне: календарь вырос, и
+     * вплотную к карточке он читался бы как её шапка. Вместе с `padding-top`
+     * контентной колонки (32px) зазор получается ~48px.
+     */
+    margin-bottom: var(--space-4);
+  }
+
+  .week-strip__row {
+    gap: var(--space-3);
+  }
+
+  .week-strip__title {
+    font-size: var(--fs-body);
+  }
+
+  .week-strip__arrow {
+    flex: 0 0 48px;
+    width: 48px;
+    height: 48px;
+    font-size: 1.125rem;
+  }
+
+  .week-strip__days {
+    gap: var(--space-2);
+  }
+
+  .week-strip__day {
+    gap: 14px;
+    /*
+     * 4px по бокам, а не 8: кнопка — это ячейка с числом 38px, и на узком
+     * десктопе (1024px) 11 колонок дают всего ~56px. С прежними 8px кнопка
+     * не влезала в ячейку и кольца соседних дней начали бы наезжать.
+     */
+    padding: 3px 4px;
+  }
+
+  .week-strip__weekday {
+    font-size: 0.8125rem;
+  }
+
+  .week-strip__number {
+    width: 38px;
+    height: 38px;
+    font-size: 1.375rem;
+  }
+
+  /* Кольцо на 7px больше числа с каждой стороны: 38 + 14 = 52 */
+  .week-strip__ring {
+    inset: -7px;
+    width: 52px;
+    height: 52px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

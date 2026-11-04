@@ -297,7 +297,8 @@ useHead(() => ({
 .page {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  /* Блоки страницы дышат: заголовок, список на сегодня, неделя и советы */
+  gap: var(--space-5);
 }
 
 .page__head {
@@ -334,7 +335,7 @@ useHead(() => ({
 .today {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-4);
 }
 
 .today__head {
@@ -369,7 +370,7 @@ useHead(() => ({
   list-style: none;
   display: grid;
   grid-template-columns: 1fr;
-  gap: var(--space-3);
+  gap: var(--space-4);
 }
 
 /*
@@ -397,8 +398,8 @@ useHead(() => ({
 .tips {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
+  gap: var(--space-3);
+  margin-top: var(--space-4);
 }
 
 .tips__title {
@@ -408,7 +409,7 @@ useHead(() => ({
 .tips__list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -443,12 +444,12 @@ useHead(() => ({
 @media (min-width: 768px) {
   /* Десктоп: привычки в две колонки — список перестаёт быть простынёй */
   .page {
-    gap: var(--space-5);
+    gap: var(--space-6);
   }
 
   .list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--space-4);
+    gap: var(--space-5);
   }
 }
 

@@ -122,6 +122,8 @@
   "calendar": {
     "prevWeek": "Previous week",
     "nextWeek": "Next week",
+    "prevDay": "Previous day",
+    "nextDay": "Next day",
     "today": "Today",
     "yesterday": "Yesterday",
     "tomorrow": "Tomorrow",

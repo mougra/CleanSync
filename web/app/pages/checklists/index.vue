@@ -392,7 +392,8 @@ useSeoMeta({
 .page {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  /* Заголовок, вкладки, подсказка и список — отдельные блоки, а не одна стопка */
+  gap: var(--space-4);
 }
 
 .page__title {
@@ -446,13 +447,17 @@ useSeoMeta({
   list-style: none;
   display: grid;
   grid-template-columns: 1fr;
-  gap: var(--space-3);
+  gap: var(--space-4);
 }
 
 @media (min-width: 768px) {
+  .page {
+    gap: var(--space-5);
+  }
+
   .list--cards {
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: var(--space-4);
+    gap: var(--space-5);
   }
 }
 
