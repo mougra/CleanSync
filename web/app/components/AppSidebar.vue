@@ -64,11 +64,19 @@ const isActive = (to: string) => {
     </nav>
 
     <div class="sidebar__footer">
+      <AppSidebarProfile />
+      <div class="sidebar__controls">
+        <ThemeToggle />
+        <LocaleSwitch />
+      </div>
+
       <!--
-        Иконка установки: только когда браузер сам готов поставить приложение.
-        Подпись рядом с иконкой — чтобы клик не был загадкой «а что это за
-        стрелка»; на iOS события установки не бывает, и кнопки здесь нет
-        (там путь через «Поделиться» описан в настройках).
+        Установка приложения — иконкой под переключателями темы и языка. Только
+        когда браузер сам готов поставить приложение (`beforeinstallprompt`
+        поймал плагин): без события клик вёл бы в тупик. Подпись не нужна —
+        `pi-download` узнаётся, а полный текст живёт в подсказке (`title`).
+        На iOS события установки не бывает, и кнопки здесь нет (там путь через
+        «Поделиться» описан в настройках).
       -->
       <button
         v-if="showInstall"
@@ -79,15 +87,7 @@ const isActive = (to: string) => {
         @click="installApp"
       >
         <i class="pi pi-download" aria-hidden="true" />
-        <!-- Короткая подпись: в колонке 248px «Установить приложение» обрезается -->
-        <span class="sidebar__install-label">{{ t('settings.installAction') }}</span>
       </button>
-
-      <AppSidebarProfile />
-      <div class="sidebar__controls">
-        <ThemeToggle />
-        <LocaleSwitch />
-      </div>
     </div>
   </aside>
 </template>
@@ -204,37 +204,28 @@ const isActive = (to: string) => {
 }
 
 /*
- * Кнопка «Установить приложение»: мятная плашка в цвет навигации, но с
- * пунктирной рамкой — это действие, а не ещё один пункт меню. Ширина на всю
- * колонку: рядом с переключателями темы и языка, которые стоят отдельной
- * строкой ниже, она бы не поместилась.
+ * Установка приложения: круглая иконка под переключателями темы и языка. Тот же
+ * размер, что у кнопок управления, но без подписи — `pi-download` понятен сам,
+ * а полное название показывает подсказка (`title`).
  */
 .sidebar__install {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  width: 100%;
-  min-height: var(--tap-min);
-  padding: 0 var(--space-3);
-  border: 1px dashed var(--c-border);
-  border-radius: var(--r-chip);
-  background: var(--c-surface-mint);
-  color: var(--c-brand);
-  font: inherit;
-  font-size: var(--fs-caption);
-  font-weight: 600;
-  text-align: left;
+  display: grid;
+  place-items: center;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-pill);
+  background: var(--c-surface);
+  color: var(--c-text);
+  font-size: 1rem;
   cursor: pointer;
-  transition: background-color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .sidebar__install:hover {
-  background: var(--c-surface);
-}
-
-.sidebar__install-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  background: var(--c-surface-sunken);
+  color: var(--c-brand);
 }
 </style>

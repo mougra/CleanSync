@@ -1893,46 +1893,53 @@ watchEffect(() => {
     </div>
 
     <!--
-      Челленджи переехали сюда с первого экрана: главная открывается ради дел на
-      сегодня, а челлендж — дополнительная программа, поэтому он стоит после
-      достижений. Карточек может быть несколько: прошлый сезон часто не закрыт,
-      когда начинается новый, и оба должны оставаться на виду.
+      Челленджи и совет дня — одна пара на десктопе.
+      Раньше они шли двумя полосами во всю ширину: заголовок раздела с карточками
+      и под ним ещё одна карточка. На широком экране это давало длинную простыню,
+      а справа оставалось пусто. Теперь это две колонки: слева челленджи, справа
+      совет дня. На телефоне — тот же порядок, но в столбик.
     -->
-    <template v-if="challengeCards.length > 0">
-      <div class="section-head">
-        <h2 class="section-head__title">{{ t('home.readyToStart') }}</h2>
-        <NuxtLink :to="localePath('/challenges')" class="section-head__link">
-          {{ t('home.allChallenges') }}
-          <i class="pi pi-chevron-right" aria-hidden="true" />
-        </NuxtLink>
+    <div v-if="challengeCards.length > 0 || tip" class="home__duo">
+      <div v-if="challengeCards.length > 0" class="home__column">
+        <div class="section-head">
+          <h2 class="section-head__title">{{ t('home.readyToStart') }}</h2>
+          <NuxtLink :to="localePath('/challenges')" class="section-head__link">
+            {{ t('home.allChallenges') }}
+            <i class="pi pi-chevron-right" aria-hidden="true" />
+          </NuxtLink>
+        </div>
+
+        <!--
+          Карточек может быть несколько: прошлый сезон часто не закрыт, когда
+          начинается новый, и оба должны оставаться на виду.
+        -->
+        <ChallengeCard
+          v-for="card in challengeCards"
+          :key="card.slug"
+          :title="card.title"
+          :description="card.description ?? undefined"
+          :badge-label="card.badge"
+          :progress="card.progress"
+          :note="card.note"
+          :cover-url="card.cover ?? undefined"
+          :to="localePath(`/challenges/${card.slug}`)"
+        />
       </div>
 
-      <ChallengeCard
-        v-for="card in challengeCards"
-        :key="card.slug"
-        :title="card.title"
-        :description="card.description ?? undefined"
-        :badge-label="card.badge"
-        :progress="card.progress"
-        :note="card.note"
-        :cover-url="card.cover ?? undefined"
-        :to="localePath(`/challenges/${card.slug}`)"
-      />
-    </template>
-
-    <!-- Совет дня: первый материал из web/content/tips -->
-    <NuxtLink v-if="tip" class="card card--task tip" :to="localePath(tip.path)">
-      <img class="tip__image" :src="tip.cover" :alt="tip.title" loading="lazy" >
-      <div class="tip__body">
-        <AppBadge variant="amber">{{ t('home.tipOfTheDay') }}</AppBadge>
-        <h2 class="card__title">{{ tip.title }}</h2>
-        <p class="card__text">{{ tip.description }}</p>
-        <span class="tip__more">
-          {{ t('home.seeAll') }}
-          <i class="pi pi-chevron-right" aria-hidden="true" />
-        </span>
-      </div>
-    </NuxtLink>
+      <!-- Совет дня: первый материал из web/content/tips -->
+      <NuxtLink v-if="tip" class="card card--task tip" :to="localePath(tip.path)">
+        <img class="tip__image" :src="tip.cover" :alt="tip.title" loading="lazy" >
+        <div class="tip__body">
+          <AppBadge variant="amber">{{ t('home.tipOfTheDay') }}</AppBadge>
+          <h2 class="card__title">{{ tip.title }}</h2>
+          <p class="card__text">{{ tip.description }}</p>
+          <span class="tip__more">
+            {{ t('home.seeAll') }}
+            <i class="pi pi-chevron-right" aria-hidden="true" />
+          </span>
+        </div>
+      </NuxtLink>
+    </div>
   </div>
 </template>
 
@@ -2107,6 +2114,43 @@ watchEffect(() => {
 
 .section-head__link:hover {
   color: var(--c-brand);
+}
+
+/* ── Челленджи и совет дня ──────────────────────────────────────────────
+ * На телефоне — столбик (как раньше), на десктопе — две колонки рядом. Так
+ * длинная полоса с челленджами и одинокая карточка совета не растягиваются на
+ * всю ширину главной, а делят её пополам.
+ */
+.home__duo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: 100%;
+}
+
+.home__column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+/* Внутри пары заголовок раздела — часть колонки, а не отдельный блок страницы */
+.home__duo .section-head {
+  margin-top: 0;
+}
+
+@media (min-width: 1024px) {
+  .home__duo {
+    flex-direction: row;
+    align-items: stretch;
+    gap: var(--space-5);
+  }
+
+  .home__duo > * {
+    flex: 1 1 0;
+    min-width: 0;
+  }
 }
 
 .icon-box {
@@ -2825,6 +2869,7 @@ watchEffect(() => {
 
 .tip__body {
   display: flex;
+  flex: 1;
   flex-direction: column;
   align-items: flex-start;
   gap: var(--space-2);
