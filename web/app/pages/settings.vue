@@ -62,6 +62,37 @@ const toggleDigest = async () => {
 };
 
 /**
+ * Время дневного напоминания.
+ *
+ * Хранится в профиле (`notification_time`, миграция 0032) и приходит уже в
+ * формате HH:MM — ровно то, что ждёт `<input type="time">`. Время местное:
+ * сервер сверяет его с часовым поясом человека, а не с поясом процесса.
+ */
+const digestTime = ref(auth.user?.notification_time ?? '19:00');
+
+const saveDigestTime = async () => {
+  if (digestBusy.value || !auth.isAuthenticated || !digestTime.value) return;
+
+  digestBusy.value = true;
+  try {
+    const updated = await api.request<{ notification_time?: string | null }>(
+      '/api/auth/digest',
+      { method: 'PUT', body: { time: digestTime.value } },
+    );
+
+    if (auth.user && updated.notification_time) {
+      auth.user.notification_time = updated.notification_time;
+    }
+  } catch {
+    // Не сохранилось — возвращаем значение из профиля, чтобы на экране не
+    // осталось время, которого на сервере нет.
+    digestTime.value = auth.user?.notification_time ?? '19:00';
+  } finally {
+    digestBusy.value = false;
+  }
+};
+
+/**
  * Установка приложения. Состояние события установки ловит плагин на старте,
  * поэтому к моменту открытия настроек кнопка уже готова (см. useInstallPrompt).
  */
@@ -269,7 +300,7 @@ const resendConfirmation = async () => {
 };
 
 /* Напоминания: объект возвращает обычные refs и функции, деструктуризация безопасна. */
-const { supported, permission, devices, busy, refresh, enable, disable, sendTest } =
+const { supported, permission, devices, busy, refresh, enable, disable } =
   usePushNotifications();
 const pushMessage = ref('');
 
@@ -292,17 +323,6 @@ const toggleNotifications = async () => {
 
   if (!ok && permission.value === 'denied') {
     pushMessage.value = t('settings.remindersDenied');
-  }
-};
-
-const testPush = async () => {
-  pushMessage.value = '';
-
-  try {
-    const delivered = await sendTest();
-    pushMessage.value = t('settings.remindersSent', { count: delivered });
-  } catch {
-    pushMessage.value = t('settings.remindersNoDevices');
   }
 };
 
@@ -544,6 +564,7 @@ useSeoMeta({ title: () => t('nav.settings') });
         icon="pi-envelope"
         :title="t('settings.digest')"
         :subtitle="t('settings.digestHint')"
+        expandable
       >
         <template #control>
           <label class="switch" :class="{ 'switch--on': digestOn }">
@@ -556,6 +577,22 @@ useSeoMeta({ title: () => t('nav.settings') });
               @change="toggleDigest"
             >
             <span class="switch__track"><span class="switch__thumb" /></span>
+          </label>
+        </template>
+
+        <template #body>
+          <p class="row-hint">{{ t('settings.digestTimeHint') }}</p>
+
+          <label class="time-field">
+            <span class="time-field__label">{{ t('settings.digestTime') }}</span>
+            <input
+              v-model="digestTime"
+              class="time-field__input"
+              type="time"
+              step="60"
+              :disabled="digestBusy"
+              @change="saveDigestTime"
+            >
           </label>
         </template>
       </SettingsRow>
@@ -587,14 +624,6 @@ useSeoMeta({ title: () => t('nav.settings') });
           </p>
           <p v-if="!supported" class="row-hint">{{ t('settings.remindersUnsupported') }}</p>
           <p v-else-if="!notificationsOn" class="row-hint">{{ t('settings.remindersEnable') }}</p>
-          <AppButton
-            v-if="notificationsOn"
-            variant="outline"
-            :disabled="busy"
-            @click="testPush"
-          >
-            {{ t('settings.remindersTest') }}
-          </AppButton>
           <p v-if="pushMessage" class="row-hint">{{ pushMessage }}</p>
         </template>
       </SettingsRow>
@@ -1057,6 +1086,41 @@ useSeoMeta({ title: () => t('nav.settings') });
   margin-bottom: var(--space-2);
   color: var(--c-text-muted);
   font-size: var(--fs-caption);
+}
+
+/*
+ * Время напоминания: нативное поле `time`, но в оформлении строк настроек.
+ * `color-scheme` переключаем вместе с темой, иначе в тёмной теме календарь
+ * выбора времени остаётся светлым и выбивается из страницы.
+ */
+.time-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.time-field__label {
+  color: var(--c-text-muted);
+  font-size: var(--fs-caption);
+}
+
+.time-field__input {
+  min-height: var(--tap-min);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-row);
+  background: var(--c-surface);
+  color: var(--c-text);
+  font: inherit;
+  color-scheme: light;
+}
+
+:global(.dark) .time-field__input {
+  color-scheme: dark;
+}
+
+.time-field__input::-webkit-calendar-picker-indicator {
+  cursor: pointer;
 }
 
 .row-hint--error {

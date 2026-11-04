@@ -11,8 +11,10 @@ import { isPushConfigured, sendPushToUser } from './push';
  * Два повода:
  *  - **недельный дайджест** (воскресенье, 18:00 по часовому поясу человека):
  *    «завтра 3 дела · примерно 20 минут» — план на неделю одним уведомлением;
- *  - **мягкий дневной пинг** (19:00): «сегодня 3 дела — начнём?», только если
- *    план на сегодня не пуст и человек сегодня ещё ничего не закрыл.
+ *  - **мягкий дневной пинг**: «сегодня 3 дела — начнём?», только если план на
+ *    сегодня не пуст и человек сегодня ещё ничего не закрыл. Время выбирает
+ *    сам человек в настройках (`users.notification_time`, миграция 0032), по
+ *    умолчанию 19:00; сервер только проверяет, что оно уже наступило.
  *
  * Почему push, а не почта. Письмо человек читает раз в день в лучшем случае, а
  * уведомление приходит туда, где он уже находится. Письма остаются только для
@@ -26,9 +28,6 @@ import { isPushConfigured, sendPushToUser } from './push';
 
 /** Час недельного дайджеста: воскресенье вечером, когда планируют неделю. */
 const WEEKLY_HOUR = 18;
-
-/** Час мягкого пинга: после работы, но до позднего вечера. */
-const NUDGE_HOUR = 19;
 
 type MarkColumn = 'digest_last_sent_at' | 'nudge_last_sent_at';
 
@@ -136,6 +135,33 @@ const candidates = async (hour: number, markColumn: MarkColumn): Promise<Candida
 };
 
 /**
+ * Кандидаты на дневной пинг: выбранное человеком время уже наступило в его
+ * поясе, а сегодня ему ещё не отправляли.
+ *
+ * Сравнение «уже наступило», а не «ровно этот час»: планировщик тикает раз в
+ * 15 минут, и точное совпадение с минутой выбора было бы лотереей. Верхней
+ * границы нет — если сервер был недоступен, напоминание догонит человека
+ * позже, но не позже конца дня: дата отправки сверяется по его поясу.
+ */
+const nudgeCandidates = async (): Promise<Candidate[]> => {
+  const result = await pool.query<Candidate>(
+    `SELECT u.id, u.locale,
+            to_char((now() AT TIME ZONE COALESCE(u.timezone, $1))::date, 'YYYY-MM-DD') AS today,
+            to_char(((now() AT TIME ZONE COALESCE(u.timezone, $1)) + interval '1 day')::date, 'YYYY-MM-DD') AS tomorrow
+       FROM users u
+      WHERE u.digest_enabled = TRUE
+        AND (now() AT TIME ZONE COALESCE(u.timezone, $1))::time >= u.notification_time
+        AND (
+          u.nudge_last_sent_at IS NULL
+          OR u.nudge_last_sent_at::date < (now() AT TIME ZONE COALESCE(u.timezone, $1))::date
+        )`,
+    [APP_TIME_ZONE],
+  );
+
+  return result.rows;
+};
+
+/**
  * Отправляет уведомление и помечает отправку только если что-то доставлено.
  *
  * `markColumn` — имя колонки из белого списка (см. `MarkColumn`), поэтому
@@ -203,7 +229,7 @@ export const runWeeklyDigest = async (): Promise<number> => {
 };
 
 /**
- * Мягкий дневной пинг: 19:00 по местному времени.
+ * Мягкий дневной пинг: в выбранное человеком время по его поясу.
  *
  * Молчит, если на сегодня нет плана или всё уже закрыто — напоминание о сделанном
  * раздражает, а не возвращает.
@@ -213,7 +239,7 @@ export const runDailyNudge = async (): Promise<number> => {
     return 0;
   }
 
-  const rows = await candidates(NUDGE_HOUR, 'nudge_last_sent_at');
+  const rows = await nudgeCandidates();
   let sent = 0;
 
   for (const user of rows) {
@@ -231,7 +257,17 @@ export const runDailyNudge = async (): Promise<number> => {
       'nudge_last_sent_at',
     );
 
-    if (delivered) sent += 1;
+    if (delivered) {
+      sent += 1;
+    } else {
+      /*
+       * Подписки нет (или браузер её отозвал). Попытку всё равно помечаем:
+       * иначе с выбранным временем планировщик возвращался бы к человеку
+       * каждые 15 минут до конца дня. Подпишется позже — получит следующее
+       * напоминание, а не это.
+       */
+      await pool.query('UPDATE users SET nudge_last_sent_at = now() WHERE id = $1', [user.id]);
+    }
   }
 
   if (sent > 0) {

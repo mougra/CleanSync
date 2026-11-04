@@ -124,10 +124,5 @@ export const usePushNotifications = () => {
     }
   };
 
-  const sendTest = async (): Promise<number> => {
-    const result = await api.request<{ delivered: number }>('/api/push/test', { method: 'POST' });
-    return result.delivered;
-  };
-
-  return { supported, permission, devices, busy, refresh, enable, disable, sendTest };
+  return { supported, permission, devices, busy, refresh, enable, disable };
 };

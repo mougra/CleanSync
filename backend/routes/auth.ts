@@ -197,7 +197,9 @@ router.post('/login', async (req: Request, res: Response) => {
 
     // Find user
     const result = await pool.query(
-      'SELECT id, email, password, username, avatar_url, is_email_confirmed FROM users WHERE email = $1',
+      `SELECT id, email, password, username, avatar_url, is_email_confirmed, locale, timezone,
+              digest_enabled, to_char(notification_time, 'HH24:MI') AS notification_time
+         FROM users WHERE email = $1`,
       [email],
     );
 
@@ -242,6 +244,10 @@ router.post('/login', async (req: Request, res: Response) => {
         username: user.username,
         avatar_url: user.avatar_url,
         is_email_confirmed: user.is_email_confirmed,
+        locale: user.locale,
+        timezone: user.timezone,
+        digest_enabled: user.digest_enabled,
+        notification_time: user.notification_time,
       },
       accessToken,
       refreshToken,
@@ -455,7 +461,9 @@ router.post('/resend-confirmation', async (req: Request, res: Response) => {
 router.get('/me', authMiddleware, async (req: Request, res: Response) => {
   try {
     const result = await pool.query(
-      'SELECT id, email, username, avatar_url, is_email_confirmed, locale, timezone, digest_enabled FROM users WHERE id = $1',
+      `SELECT id, email, username, avatar_url, is_email_confirmed, locale, timezone, digest_enabled,
+              to_char(notification_time, 'HH24:MI') AS notification_time
+         FROM users WHERE id = $1`,
       [req.userId],
     );
 
@@ -550,26 +558,53 @@ router.put('/locale', authMiddleware, async (req: Request, res: Response) => {
 });
 
 /**
- * Недельное письмо: включить или выключить.
+ * Напоминания о плане: включить или выключить и выбрать время.
  *
- * Отдельный маршрут, а не `PUT /profile`: в настройках это один переключатель,
- * и посылать ради него имя с аватаром — лишний повод потерять их при
- * синхронизации. По умолчанию письмо включено (миграция 0027), отписка из
- * самого письма ходит через `GET /api/digest/unsubscribe` — без входа.
+ * Отдельный маршрут, а не `PUT /profile`: в настройках это один блок, и
+ * посылать ради него имя с аватаром — лишний повод потерять их при
+ * синхронизации. По умолчанию напоминания включены (миграция 0027), время —
+ * 19:00 (миграция 0032); отписка из письма ходит через
+ * `GET /api/digest/unsubscribe` — без входа.
+ *
+ * Поля необязательные и обновляются по отдельности: переключатель шлёт
+ * `enabled`, выбор времени — `time`, и одно не должно затирать другое.
  */
 router.put('/digest', authMiddleware, async (req: Request, res: Response) => {
   try {
-    const { enabled } = req.body as { enabled?: unknown };
+    const { enabled, time } = req.body as { enabled?: unknown; time?: unknown };
+    const fields: string[] = [];
+    const values: unknown[] = [];
 
-    if (typeof enabled !== 'boolean') {
-      return res.status(400).json({ error: 'enabled must be a boolean' });
+    if (enabled !== undefined) {
+      if (typeof enabled !== 'boolean') {
+        return res.status(400).json({ error: 'enabled must be a boolean' });
+      }
+
+      values.push(enabled);
+      fields.push(`digest_enabled = $${values.length}`);
     }
 
+    if (time !== undefined) {
+      if (typeof time !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) {
+        return res.status(400).json({ error: 'time must be in HH:MM format' });
+      }
+
+      values.push(time);
+      fields.push(`notification_time = $${values.length}::time`);
+    }
+
+    if (fields.length === 0) {
+      return res.status(400).json({ error: 'enabled or time is required' });
+    }
+
+    values.push(req.userId);
+
     const result = await pool.query(
-      `UPDATE users SET digest_enabled = $1, updated_at = CURRENT_TIMESTAMP
-        WHERE id = $2
-    RETURNING id, email, username, avatar_url, is_email_confirmed, locale, timezone, digest_enabled`,
-      [enabled, req.userId],
+      `UPDATE users SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $${values.length}
+    RETURNING id, email, username, avatar_url, is_email_confirmed, locale, timezone, digest_enabled,
+              to_char(notification_time, 'HH24:MI') AS notification_time`,
+      values,
     );
 
     if (result.rows.length === 0) {

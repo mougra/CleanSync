@@ -10,18 +10,44 @@ const localePath = useLocalePath();
  *
  * Строка в настройках остаётся главной точкой входа (там же инструкция для
  * iOS), но искать её в настройках ради иконки на рабочем столе — лишний путь.
- * Кнопка появляется только когда браузер действительно готов установить
- * приложение (`beforeinstallprompt` поймал плагин): без события клик вёл бы
- * в тупик. `installVisible` уже ждёт монтирования, поэтому серверная разметка
- * и первый кадр клиента совпадают — расхождения гидрации нет.
+ *
+ * Кнопка видна всегда, кроме случая, когда приложение уже открыто как
+ * установленное: `beforeinstallprompt` браузер присылает не всегда (например,
+ * если PWA уже стоит или Chrome ещё не считает страницу устанавливаемой), и
+ * прятать иконку из-за этого — значит вообще лишить человека входа. Если
+ * отложенного события нет, клик показывает короткую подсказку, а не молчит.
  */
 const {
-  visible: installVisible,
   canInstall: installCanInstall,
+  isInstalled: installIsInstalled,
   install: installApp,
 } = useInstallPrompt();
 
-const showInstall = computed(() => installVisible.value && installCanInstall.value);
+/**
+ * Подсказка под кнопкой: почему установка не началась.
+ *
+ * Кнопка видна всегда — заказчик просил именно иконку в меню, а не строку,
+ * которая появляется по событию браузера. Если установить нельзя, клик честно
+ * объясняет причину, а не молчит.
+ */
+const installHint = ref<'' | 'installed' | 'unavailable'>('');
+
+const requestInstall = async () => {
+  installHint.value = '';
+
+  if (installCanInstall.value) {
+    await installApp();
+    return;
+  }
+
+  installHint.value = installIsInstalled.value ? 'installed' : 'unavailable';
+};
+
+const installHintText = computed(() =>
+  installHint.value === 'installed'
+    ? t('settings.installDone')
+    : t('settings.installUnavailable'),
+);
 
 /**
  * Ссылки собираем через `localePath`: в английской версии адреса живут под `/en`,
@@ -71,23 +97,25 @@ const isActive = (to: string) => {
       </div>
 
       <!--
-        Установка приложения — иконкой под переключателями темы и языка. Только
-        когда браузер сам готов поставить приложение (`beforeinstallprompt`
-        поймал плагин): без события клик вёл бы в тупик. Подпись не нужна —
-        `pi-download` узнаётся, а полный текст живёт в подсказке (`title`).
-        На iOS события установки не бывает, и кнопки здесь нет (там путь через
-        «Поделиться» описан в настройках).
+        Иконка без подписи: полное название — в подсказке и `aria-label`. Видна
+        всегда: `beforeinstallprompt` браузер присылает не всегда (PWA уже стоит,
+        Chrome ещё не считает страницу устанавливаемой), и прятать из-за этого
+        кнопку — значит не показывать её никогда. Если установить нельзя, клик
+        честно объясняет причину под кнопкой.
       -->
       <button
-        v-if="showInstall"
         type="button"
         class="sidebar__install"
         :title="t('settings.installApp')"
         :aria-label="t('settings.installApp')"
-        @click="installApp"
+        @click="requestInstall"
       >
         <i class="pi pi-download" aria-hidden="true" />
       </button>
+
+      <p v-if="installHint" class="sidebar__install-hint" role="status">
+        {{ installHintText }}
+      </p>
     </div>
   </aside>
 </template>
@@ -227,5 +255,13 @@ const isActive = (to: string) => {
 .sidebar__install:hover {
   background: var(--c-surface-sunken);
   color: var(--c-brand);
+}
+
+/* Подсказка, когда браузер не предложил установку: короткая и в колонке меню */
+.sidebar__install-hint {
+  margin: calc(var(--space-2) * -1) 0 0;
+  color: var(--c-text-muted);
+  font-size: var(--fs-caption);
+  line-height: 1.35;
 }
 </style>

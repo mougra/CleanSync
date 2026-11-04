@@ -4,6 +4,8 @@ export interface AuthUser {
   username?: string | null;
   avatar_url?: string | null;
   is_email_confirmed?: boolean;
-  /** Недельное письмо с планом: `false` — человек отписался в настройках или из письма. */
+  /** Напоминания о плане: `false` — человек выключил их в настройках или из письма. */
   digest_enabled?: boolean;
+  /** Время дневного напоминания в формате HH:MM (по часовому поясу профиля). */
+  notification_time?: string | null;
 }
