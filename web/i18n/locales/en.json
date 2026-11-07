@@ -196,7 +196,8 @@
     "notFoundText": "The link may be outdated or the address has a typo.",
     "serverTitle": "Something broke",
     "serverText": "We already know about the problem. Try reloading in a minute.",
-    "home": "Go home"
+    "home": "Go home",
+    "popular": "Where else to go"
   },
   "streak": {
     "daysOne": "day in a row",
