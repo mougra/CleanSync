@@ -240,13 +240,19 @@ export default defineNuxtConfig({
 
   // Языки: русский по умолчанию (без префикса в URL), английский — /en/...
   // Язык определяется по браузеру и запоминается в cookie.
+  //
+  // У локалей намеренно нет `file`: словари импортирует `i18n/i18n.config.ts`,
+  // и они уходят в бандл. С `file` модуль генерирует ленивые загрузчики и после
+  // старта клиент делает отдельный `GET /_i18n/<hash>/<locale>/messages.json`;
+  // если запрос не прошёл, переводы пустые и на экране сырые ключи (`nav.habits`)
+  // до перезагрузки. Подробности — в комментарии самого `i18n.config.ts`.
   i18n: {
     strategy: 'prefix_except_default',
     defaultLocale: 'ru',
     baseUrl: process.env.NUXT_PUBLIC_SITE_URL || 'http://localhost:3000',
     locales: [
-      { code: 'ru', language: 'ru-RU', name: 'Русский', file: 'ru.json' },
-      { code: 'en', language: 'en-US', name: 'English', file: 'en.json' },
+      { code: 'ru', language: 'ru-RU', name: 'Русский' },
+      { code: 'en', language: 'en-US', name: 'English' },
     ],
     detectBrowserLanguage: {
       useCookie: true,
