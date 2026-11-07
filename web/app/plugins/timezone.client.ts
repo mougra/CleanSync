@@ -8,20 +8,12 @@
  *
  * Значение — минуты на восток от UTC (`600` для Владивостока). Срок год, `lax`:
  * читать её будет только наш же сервер, и она не секрет.
+ *
+ * Пишет её `saveTimezoneOffset()`: тот же помощник зовёт плагин смены дня
+ * (`plugins/app-day.client.ts`), когда пояс меняется у уже открытой вкладки.
  */
-import { TIMEZONE_COOKIE } from '~/utils/deviceDay';
+import { deviceOffsetMinutes, saveTimezoneOffset } from '~/utils/deviceDay';
 
 export default defineNuxtPlugin(() => {
-  const offset = -new Date().getTimezoneOffset();
-  const current = document.cookie
-    .split(';')
-    .map((part) => part.trim())
-    .find((part) => part.startsWith(`${TIMEZONE_COOKIE}=`))
-    ?.slice(TIMEZONE_COOKIE.length + 1);
-
-  if (current === String(offset)) {
-    return;
-  }
-
-  document.cookie = `${TIMEZONE_COOKIE}=${offset}; path=/; max-age=31536000; samesite=lax`;
+  saveTimezoneOffset(deviceOffsetMinutes());
 });

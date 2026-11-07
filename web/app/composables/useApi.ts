@@ -153,8 +153,12 @@ export const useApi = () => {
    * Смещение пояса устройства: сервер по нему понимает, какой день у человека
    * «сегодня», и считает отметки серии в его поясе. На клиенте его знает браузер,
    * на сервере — cookie, которую поставил `plugins/timezone.client.ts`.
+   *
+   * Берём из общего состояния (`useAppDay`), а не считаем один раз: пояс меняется
+   * на летнее время и в поездке, а плагин смены дня обновляет состояние — иначе
+   * до перезагрузки страницы запросы продолжали бы присылать старое смещение.
    */
-  const deviceOffset = useDeviceOffset();
+  const { deviceOffset } = useAppDay();
   /**
    * Свежий access-токен, если серверный плагин `restore-session` успел обновить
    * сессию до рендера: тогда вместо просроченного токена в cookie едет новый.
@@ -195,7 +199,7 @@ export const useApi = () => {
       headers['X-Client-Date'] = day;
     }
 
-    headers['X-Client-Offset'] = String(deviceOffset);
+    headers['X-Client-Offset'] = String(deviceOffset.value);
 
     if (!SAFE_METHODS.has(method)) {
       headers['X-CSRF-Token'] = await auth.ensureCsrf();

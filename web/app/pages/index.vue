@@ -174,28 +174,27 @@ const { data: today } = await useAsyncData('today-plan', () =>
  *
  * Начальное значение — день устройства, а не сервера: иначе первый кадр рисовал
  * «сегодня» по поясу сервера и у человека в другом поясе показывал чужой день.
+ * Само состояние живёт в `useSelectedDay`: его же переводит на новый день
+ * плагин `app-day.client.ts`, когда в полночь меняются сутки.
  */
-const selectedDate = useState<string>('selected-date', () =>
-  dayWithOffset(useDeviceOffset()),
-);
+const { selectedDate } = useSelectedDay();
 
 /**
- * Сегодняшний день — **по часам устройства**.
+ * Сегодняшний день — **по часам устройства**, реактивно.
  *
- * Раньше «сегодня» считалось в поясе приложения (`APP_TIME_ZONE`, Москва), как
- * на сервере, и это расходилось с календарём: полоса недели выбирает дату из
- * браузера, а карточка плана сравнивала её с московской. После местной полуночи
- * человек видел выбранным сегодняшний день, а подпись говорила «завтра».
+ * Раньше день вычислялся на месте (`new Date()` в момент вызова), и в полночь
+ * экран об этом не узнавал: вчерашний день оставался подписан «Сегодня», а
+ * отметка уходила на вчерашнюю дату. Теперь `today` — состояние, которое
+ * пересчитывает плагин смены дня, поэтому все вычисления ниже обновляются сами.
  *
- * Теперь источник один — устройство: смещение пояса приходит из браузера (на
- * сервере — из cookie), а день считается по нему же. Тот же день сервер получает
- * заголовками `X-Client-Date` / `X-Client-Offset` (composables/useApi.ts).
+ * Источник один — устройство: смещение пояса берётся из браузера (на сервере — из
+ * cookie), а тот же день сервер получает заголовками `X-Client-Date` /
+ * `X-Client-Offset` (composables/useApi.ts).
  */
-const deviceOffset = useState<number>('device-offset', () => useDeviceOffset());
-const localToday = () => dayWithOffset(deviceOffset.value);
+const { today: currentDay } = useAppDay();
 
 /** Выбран сегодняшний день: по нему решаем, показывать ли подпись «сегодня». */
-const isToday = computed(() => selectedDate.value === localToday());
+const isToday = computed(() => selectedDate.value === currentDay.value);
 
 /** День не загрузился: показываем строку ошибки, а не пустой список. */
 const dayFailed = ref(false);
@@ -419,7 +418,7 @@ const dayTitle = computed(() => {
     return t('calendar.today');
   }
 
-  const start = localToday();
+  const start = currentDay.value;
 
   if (target === toISODate(addDays(fromISODate(start), -1))) {
     return t('calendar.yesterday');
@@ -970,8 +969,7 @@ const editRepeat = (task: PlanDayRow, unit: TaskRepeatUnit): TaskRepeat => {
     return { frequency: 'daily', day_of_week: null, day_of_month: null };
   }
 
-  const today = localToday();
-  const anchor = fromISODate(dueDay(task.dueDate) ?? today);
+  const anchor = fromISODate(dueDay(task.dueDate) ?? currentDay.value);
 
   if (unit === 'week') {
     return {

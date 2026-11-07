@@ -30,14 +30,15 @@ import type { HabitCalendarResponse } from '~/types/habit';
 const { t, locale } = useI18n();
 
 /**
- * Смещение пояса устройства: на клиенте — из браузера, на сервере — из cookie,
- * которую ставит `plugins/timezone.client.ts`. Им считается «сегодня», чтобы
- * первый кадр совпадал с тем, что человек видит в своих часах.
+ * День устройства и выбранный день — общее состояние приложения (`useAppDay` и
+ * `useSelectedDay`): то же «сегодня» читает карточка плана, а переводит его на
+ * новые сутки плагин `app-day.client.ts`. Своей копии дня у полосы больше нет —
+ * иначе в полночь кружок «сегодня» оставался на вчерашнем числе до перезагрузки.
  */
-const deviceOffset = useState<number>('device-offset', () => useDeviceOffset());
-const deviceToday = () => dayWithOffset(deviceOffset.value);
+const { today } = useAppDay();
+const { selectedDate } = useSelectedDay();
+const deviceToday = () => today.value;
 
-const selectedDate = useState<string>('selected-date', () => deviceToday());
 const weekStart = useState<string>('week-start', () =>
   toISODate(startOfWeek(fromISODate(deviceToday()))),
 );
@@ -82,9 +83,9 @@ const syncWindowWidth = () => {
 // после гидратации подтягиваем локальный день без ошибок гидратации. Там же
 // выясняется ширина окна — до этого момента окно узкое, как в серверной разметке.
 onMounted(() => {
-  const today = deviceToday();
-  selectedDate.value = today;
-  weekStart.value = toISODate(startOfWeek(fromISODate(today)));
+  const current = deviceToday();
+  selectedDate.value = current;
+  weekStart.value = toISODate(startOfWeek(fromISODate(current)));
 
   wideQuery = window.matchMedia(`(min-width: ${WIDE_BREAKPOINT}px)`);
   syncWindowWidth();
@@ -113,6 +114,17 @@ const days = computed(() =>
     };
   }),
 );
+
+/**
+ * Смена суток могла увести сегодняшний день на другую неделю (например, с
+ * воскресенья на понедельник): окно обязано её показать, иначе выбранного числа
+ * в полосе нет — ни подсветки «сегодня», ни кольца.
+ */
+watch(today, () => {
+  if (!days.value.some((day) => day.iso === selectedDate.value)) {
+    weekStart.value = toISODate(startOfWeek(fromISODate(selectedDate.value)));
+  }
+});
 
 const todayISO = computed(() => deviceToday());
 

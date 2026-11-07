@@ -225,12 +225,15 @@ interface IntervalInput {
  *
  * Без неё выборка «Сегодня» не найдёт задачу никогда: при `interval_count > 1`
  * цикл считается как `MOD(день - due_date, interval_count)`, а с NULL это условие
- * ложно всегда. Поэтому сервер **подставляет сегодняшний
- * день приложения** (`services/appTime.ts`), а не отказывает: клиент, не знающий
- * про опору цикла, всё равно получит работающую задачу.
+ * ложно всегда. Поэтому сервер **подставляет сегодняшний день человека** —
+ * `X-Client-Date`, а без заголовка день приложения (`services/appTime.ts`), — и не
+ * отказывает: клиент, не знающий про опору цикла, всё равно получит работающую
+ * задачу. Именно день человека, а не приложения: иначе в 00:30 у человека
+ * восточнее Москвы опорой становилось вчера, и поле «Срок» в форме расходилось с
+ * тем, что записано.
  */
-const withDueDate = (dueDate: string | null, interval: number): string | null =>
-  dueDate === null && interval > 1 ? appToday() : dueDate;
+const withDueDate = (dueDate: string | null, interval: number, today: string): string | null =>
+  dueDate === null && interval > 1 ? today : dueDate;
 
 /**
  * Интервал и опора цикла для `POST /api/tasks` и `PUT /api/tasks/:id`.
@@ -243,7 +246,8 @@ const intervalInput = (
   raw: unknown,
   fallbackInterval: number,
   dueDate: string | null,
-  existingDueDate: string | null
+  existingDueDate: string | null,
+  today: string
 ): IntervalInput | null => {
   const parsed = parseIntervalCount(raw);
 
@@ -253,7 +257,7 @@ const intervalInput = (
   const storeInterval = parsed.value !== null;
   const kept = dueDate ?? (storeInterval ? null : existingDueDate);
 
-  return { interval, storeInterval, dueDate: withDueDate(kept, interval) };
+  return { interval, storeInterval, dueDate: withDueDate(kept, interval, today) };
 };
 
 /**
@@ -431,8 +435,9 @@ router.post('/', authMiddleware, async (req: Request, res: Response) => {
 
     // Периодичность: интервал выражается в днях, 1…3650. При интервале больше
     // суток опора цикла (`due_date`) обязательна и подставляется сегодняшним днём
-    // приложения — иначе задача не появилась бы в плане никогда (правило 33).
-    const schedule = intervalInput(interval_count, 1, due_date ?? null, null);
+    // человека — иначе задача не появилась бы в плане никогда (правило 33).
+    const clock = requestClock(req.headers['x-client-date'], req.headers['x-client-offset']);
+    const schedule = intervalInput(interval_count, 1, due_date ?? null, null, clock.today);
 
     if (schedule === null) {
       return res.status(400).json({
@@ -501,16 +506,23 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
     }
 
     /**
+     * Часы запроса: день человека и его пояс. Одни на весь запрос, чтобы опора
+     * цикла (ниже) и день отметки считались по одному и тому же дню.
+     */
+    const clock = requestClock(req.headers['x-client-date'], req.headers['x-client-offset']);
+
+    /**
      * Интервал и опора цикла. Интервал в теле — уже в днях (1…3650), а если поле
      * не пришло, задача сохраняет прежний. При интервале больше суток опора
      * обязательна: без неё задача не появится в плане никогда (правило 33), и
-     * сервер подставляет сегодняшний день приложения — так же, как при создании.
+     * сервер подставляет сегодняшний день человека — так же, как при создании.
      */
     const schedule = intervalInput(
       interval_count,
       Number(taskResult.rows[0].interval_count) || 1,
       due_date ?? null,
-      taskResult.rows[0].due_date ?? null
+      taskResult.rows[0].due_date ?? null,
+      clock.today
     );
 
     if (schedule === null) {
@@ -532,8 +544,7 @@ router.put('/:id', authMiddleware, async (req: Request, res: Response) => {
      * сейчас, и серия считает именно его, а не день дела (см. services/streak.ts).
      */
     const completedOn =
-      parseAppDay(completed_on)?.toISOString().slice(0, 10) ??
-      requestClock(req.headers['x-client-date'], req.headers['x-client-offset']).today;
+      parseAppDay(completed_on)?.toISOString().slice(0, 10) ?? clock.today;
 
     await client.query('BEGIN');
 
